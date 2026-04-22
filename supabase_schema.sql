@@ -107,7 +107,16 @@ CREATE TABLE IF NOT EXISTS grades (
     "scoreType" TEXT
 );
 
--- 8. Fee Items Table
+-- 8. Attendance Records Table
+CREATE TABLE IF NOT EXISTS "attendance" (
+    id TEXT PRIMARY KEY,
+    "studentId" TEXT,
+    date TEXT,
+    status TEXT,
+    notes TEXT
+);
+
+-- 9. Fee Items Table
 CREATE TABLE IF NOT EXISTS "feeItems" (
     id TEXT PRIMARY KEY,
     name TEXT,
@@ -116,7 +125,7 @@ CREATE TABLE IF NOT EXISTS "feeItems" (
     "academicYear" TEXT
 );
 
--- 9. Student Payments Table
+-- 10. Student Payments Table
 CREATE TABLE IF NOT EXISTS "studentPayments" (
     id TEXT PRIMARY KEY,
     "studentId" TEXT,
@@ -128,7 +137,7 @@ CREATE TABLE IF NOT EXISTS "studentPayments" (
     "isDeposit" BOOLEAN
 );
 
--- 10. Savings Transactions Table
+-- 11. Savings Transactions Table
 CREATE TABLE IF NOT EXISTS "savingsTransactions" (
     id TEXT PRIMARY KEY,
     "studentId" TEXT,
@@ -138,7 +147,7 @@ CREATE TABLE IF NOT EXISTS "savingsTransactions" (
     notes TEXT
 );
 
--- 11. Class Cash Transactions Table
+-- 12. Class Cash Transactions Table
 CREATE TABLE IF NOT EXISTS "classCashTransactions" (
     id TEXT PRIMARY KEY,
     "classId" TEXT,
@@ -150,7 +159,7 @@ CREATE TABLE IF NOT EXISTS "classCashTransactions" (
     notes TEXT
 );
 
--- 12. School Deposits Table
+-- 13. School Deposits Table
 CREATE TABLE IF NOT EXISTS "schoolDeposits" (
     id TEXT PRIMARY KEY,
     "classId" TEXT,
@@ -160,7 +169,7 @@ CREATE TABLE IF NOT EXISTS "schoolDeposits" (
     notes TEXT
 );
 
--- 13. Academic Records Table
+-- 14. Academic Records Table
 CREATE TABLE IF NOT EXISTS "academicRecords" (
     id TEXT PRIMARY KEY,
     "studentId" TEXT,
@@ -170,7 +179,7 @@ CREATE TABLE IF NOT EXISTS "academicRecords" (
     tka TEXT
 );
 
--- 14. Dashboard Widgets
+-- 15. Dashboard Widgets
 CREATE TABLE IF NOT EXISTS "dashboardWidgets" (
     id TEXT PRIMARY KEY,
     type TEXT,

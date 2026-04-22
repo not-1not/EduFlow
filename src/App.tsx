@@ -178,11 +178,11 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 getCollectionData('materials'),
                 getCollectionData('grades'),
                 getCollectionData('attendance'),
-                getCollectionData('fee-items'),
-                getCollectionData('payments'),
-                getCollectionData('savings'),
-                getCollectionData('class-cash'),
-                getCollectionData('school-deposits')
+                getCollectionData('feeItems'),
+                getCollectionData('studentPayments'),
+                getCollectionData('savingsTransactions'),
+                getCollectionData('classCashTransactions'),
+                getCollectionData('schoolDeposits')
             ]);
 
             // Seed initial data if students collection is empty
@@ -623,7 +623,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border border-border">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-xl font-bold">Pengaturan Cetak</h3>
-                                <button onClick={() => setShowPrintModal(false)}><X size={20} /></button>
+                                <button onClick={() => setShowPrintModal(false)} aria-label="Tutup pengaturan cetak"><X size={20} /></button>
                             </div>
                             <div className="space-y-4">
                                 <div className="space-y-1">
@@ -1174,7 +1174,7 @@ function GradesView({
                             <div className="flex items-center justify-between">
                                 <h4 className="font-bold">Rekapitulasi Nilai Akhir</h4>
                                 <div className="flex gap-2">
-                                    <button className="btn-small flex items-center gap-2"><FileSpreadsheet size={16} /> Download CSV</button>
+                                    <button className="btn-small flex items-center gap-2" title="Download nilai CSV"><FileSpreadsheet size={16} /> Download CSV</button>
                                 </div>
                             </div>
                             <div className="table-container">
@@ -2068,7 +2068,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                                 <h3 className="text-xl font-bold">Edit Siswa Secara Masal</h3>
                                 <p className="text-xs text-text-secondary">Pilih field dan input data langsung pada tabel</p>
                             </div>
-                            <button onClick={() => setShowBulkEdit(false)}><X size={20} /></button>
+                            <button onClick={() => setShowBulkEdit(false)} aria-label="Tutup modal edit batch"><X size={20} /></button>
                         </div>
 
                         <div className="bg-slate-50 p-4 rounded-xl mb-6 flex items-center gap-4">
@@ -2127,7 +2127,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                     <div className="bg-white rounded-2xl p-8 max-w-2xl w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Import Siswa Masal</h3>
-                            <button onClick={() => { setShowImport(false); setFileName(''); }}><X size={20} /></button>
+                            <button onClick={() => { setShowImport(false); setFileName(''); }} aria-label="Tutup modal import"><X size={20} /></button>
                         </div>
                         <div className="mb-4 p-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-accent transition-colors">
                             <input
@@ -2165,7 +2165,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                     <div className="bg-white rounded-2xl p-8 max-w-2xl w-full shadow-2xl border border-border max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">{editingStudent ? 'Edit Data Siswa' : 'Tambah Siswa Baru'}</h3>
-                            <button onClick={() => { setShowAdd(false); setEditingStudent(null); }}><X size={20} /></button>
+                            <button onClick={() => { setShowAdd(false); setEditingStudent(null); }} aria-label="Tutup form siswa"><X size={20} /></button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 mb-6">
@@ -2458,7 +2458,7 @@ function ClassesView({ classes, onRefresh }: { classes: Class[], onRefresh: () =
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">{editingClass ? 'Edit Kelas' : 'Tambah Kelas Baru'}</h3>
-                            <button onClick={() => { setShowAdd(false); setEditingClass(null); }}><X size={20} /></button>
+                            <button onClick={() => { setShowAdd(false); setEditingClass(null); }} aria-label="Tutup form kelas"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
@@ -2651,7 +2651,10 @@ function AttendanceView({
                     <div className="flex-1 space-y-1">
                         <label className="stat-label">Bulan</label>
                         <input
-                            type="month"
+                            type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
+                            placeholder="YYYY-MM"
+                            pattern="\d{4}-\d{2}"
+                            title="Format: YYYY-MM"
                             className="w-full bg-white border border-border rounded-xl p-3 outline-none font-bold"
                             value={selectedMonth}
                             onChange={e => setSelectedMonth(e.target.value)}
@@ -4046,7 +4049,7 @@ function PaymentsView({
                     >
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Koreksi Data Pembayaran</h3>
-                            <button onClick={() => setEditingPayment(null)}><X size={20} /></button>
+                            <button onClick={() => setEditingPayment(null)} aria-label="Tutup form koreksi pembayaran"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="space-y-1">
@@ -4109,7 +4112,7 @@ function PaymentsView({
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Input Pembayaran Baru</h3>
-                            <button onClick={() => setShowAddPayment(false)}><X size={20} /></button>
+                            <button onClick={() => setShowAddPayment(false)} aria-label="Tutup form pembayaran"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             {!newPayment.studentId && (
@@ -4156,7 +4159,7 @@ function PaymentsView({
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Catat Setoran ke Sekolah</h3>
-                            <button onClick={() => setShowAddDeposit(false)}><X size={20} /></button>
+                            <button onClick={() => setShowAddDeposit(false)} aria-label="Tutup form setoran"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="space-y-1">
@@ -4462,7 +4465,10 @@ function ClassCashView({
                             <div className="space-y-1">
                                 <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pilih Bulan</label>
                                 <input
-                                    type="month"
+                                    type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
+                                    placeholder="YYYY-MM"
+                                    pattern="\d{4}-\d{2}"
+                                    title="Format: YYYY-MM"
                                     className="w-full bg-slate-50 border border-border rounded-xl p-4 outline-none font-bold text-base focus:border-accent"
                                     value={selectedMonth}
                                     onChange={e => setSelectedMonth(e.target.value)}
@@ -4576,7 +4582,7 @@ function ClassCashView({
                         <div className="card !p-0 flex flex-col h-full">
                             <div className="p-5 border-b border-border flex justify-between items-center bg-slate-50/50">
                                 <h3 className="text-xs font-black uppercase tracking-widest">Riwayat Entri {activeTab}</h3>
-                                <button onClick={onOpenPrint} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500"><Printer size={16} /></button>
+                                <button onClick={onOpenPrint} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500" aria-label="Cetak Riwayat"><Printer size={16} /></button>
                             </div>
                             <div className="table-container min-h-[400px]">
                                 <table className="data-table">
@@ -4595,7 +4601,7 @@ function ClassCashView({
                                                 <td className="font-bold">{students.find(s => s.id === t.studentId)?.name || 'Kolektif'}</td>
                                                 <td className="font-black text-slate-700 text-sm">{formatCurrency(t.amount)}</td>
                                                 <td>
-                                                    <button className="p-1 hover:bg-red-50 text-red-400 rounded transition-all"><Trash2 size={12} /></button>
+                                                    <button className="p-1 hover:bg-red-50 text-red-400 rounded transition-all" title="Hapus Transaksi"><Trash2 size={12} /></button>
                                                 </td>
                                             </tr>
                                         ))}
@@ -4713,7 +4719,7 @@ function ClassCashView({
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border mt-10">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Input Rentang Tanggal</h3>
-                            <button onClick={() => setShowRangeModal(false)}><X size={20} /></button>
+                            <button onClick={() => setShowRangeModal(false)} aria-label="Tutup modal rentang tanggal"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
@@ -4961,7 +4967,7 @@ function SavingsView({
                                                 {t.type === 'withdrawal' ? '-' : ''}{formatCurrency(t.amount)}
                                             </td>
                                             <td className="text-xs text-text-secondary italic">{t.notes || '-'}</td>
-                                            <td className="no-print"><button className="p-1.5 hover:bg-slate-100 rounded text-slate-400 transition-all"><History size={12} /></button></td>
+                                            <td className="no-print"><button className="p-1.5 hover:bg-slate-100 rounded text-slate-400 transition-all" aria-label="Lihat Riwayat Transaksi"><History size={12} /></button></td>
                                         </tr>
                                     );
                                 })}
@@ -4976,7 +4982,7 @@ function SavingsView({
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Transaksi Tabungan</h3>
-                            <button onClick={() => setShowForm(false)}><X size={20} /></button>
+                            <button onClick={() => setShowForm(false)} aria-label="Tutup form tabungan"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="space-y-1">
@@ -5144,7 +5150,7 @@ function MonthlyClassCashView({
                     <p className="text-xs font-bold text-blue-700">Terdapat {Object.keys(edits).length} perubahan yang belum disimpan.</p>
                     <div className="flex gap-2">
                         <button onClick={() => setEdits({})} className="text-xs font-bold text-slate-500 hover:text-slate-700">Batal</button>
-                        <button onClick={handleSaveAll} className="btn-small !bg-blue-600 hover:!bg-blue-700 flex items-center gap-2"><Save size={14} /> Simpan Perubahan</button>
+                        <button onClick={handleSaveAll} className="btn-small !bg-blue-600 hover:!bg-blue-700 flex items-center gap-2" title="Simpan Perubahan"><Save size={14} /> Simpan Perubahan</button>
                     </div>
                 </div>
             )}
@@ -5300,7 +5306,7 @@ function LedgerClassCashView({
                     <button onClick={() => setShowAddForm(!showAddForm)} className="btn-small bg-red-100 text-red-600 hover:bg-red-200 font-bold flex items-center gap-2">
                         {showAddForm ? <X size={14} /> : <Plus size={14} />} {showAddForm ? 'Batal' : 'Tambah Pengeluaran'}
                     </button>
-                    <button onClick={onOpenPrint} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500"><Printer size={16} /></button>
+                    <button onClick={onOpenPrint} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500" aria-label="Cetak Laporan Kas"><Printer size={16} /></button>
                 </div>
             </div>
 

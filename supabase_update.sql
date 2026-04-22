@@ -101,6 +101,14 @@ CREATE TABLE IF NOT EXISTS grades (
     "scoreType" TEXT
 );
 
+CREATE TABLE IF NOT EXISTS "attendance" (
+    id TEXT PRIMARY KEY,
+    "studentId" TEXT,
+    date TEXT,
+    status TEXT,
+    notes TEXT
+);
+
 CREATE TABLE IF NOT EXISTS "feeItems" (
     id TEXT PRIMARY KEY,
     name TEXT,
