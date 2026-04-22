@@ -1744,35 +1744,50 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
     ];
 
     const handleExportCSV = () => {
-        const headers = ["No Absen", "Nama", "NISN", "NIS", "Jenis Kelamin", "Tempat dan Tanggal Lahir", "NIK", "NKK", "Agama", "Alamat", "Nama Orang tua Ayah dan Ibu", "No Telp", "Email", "Rombel", "Tinggi Badan", "Berat Badan", "Catatan"];
+        const headers = ["id", "name", "email", "classId", "attendance", "gradeValue", "nisn", "nis", "gender", "phone", "address", "dusun", "desa", "kecamatan", "birthPlace", "birthDate", "nik", "nkk", "religion", "weightSem1", "weightSem2", "heightSem1", "heightSem2", "fatherName", "fatherBirthYear", "fatherNik", "motherName", "motherBirthYear", "motherNik", "guardianName", "guardianBirthYear", "guardianNik", "distanceToSchool", "attendanceNumber"];
         const rows = students.map(s => {
-            const classObj = classes.find(c => c.id === s.classId);
             const escapeCsv = (str: any) => {
                 if (str === undefined || str === null) return '';
                 const stringVal = String(str);
-                return stringVal.includes(',') ? `"${stringVal.replace(/"/g, '""')}"` : stringVal;
+                return stringVal.includes(',') || stringVal.includes('"') || stringVal.includes('\n') 
+                    ? `"${stringVal.replace(/"/g, '""')}"` 
+                    : stringVal;
             };
-            const ttl = [s.birthPlace, s.birthDate].filter(Boolean).join(', ');
-            const ortu = [s.fatherName ? `Ayah: ${s.fatherName}` : '', s.motherName ? `Ibu: ${s.motherName}` : ''].filter(Boolean).join(' | ');
-
             return [
-                s.attendanceNumber || '',
+                s.id,
                 s.name,
-                s.nisn || '',
-                s.nis || '',
-                s.gender || '',
-                ttl,
-                s.nik || '',
-                s.nkk || '',
-                s.religion || '',
-                s.address || '',
-                ortu,
-                s.phone || '',
-                s.email || '',
-                classObj ? classObj.name : s.classId,
-                s.heightSem1 || '',
-                s.weightSem1 || '',
-                s.notes || ''
+                s.email,
+                s.classId,
+                s.attendance,
+                s.gradeValue,
+                s.nisn,
+                s.nis,
+                s.gender,
+                s.phone,
+                s.address,
+                s.dusun,
+                s.desa,
+                s.kecamatan,
+                s.birthPlace,
+                s.birthDate,
+                s.nik,
+                s.nkk,
+                s.religion,
+                s.weightSem1,
+                s.weightSem2,
+                s.heightSem1,
+                s.heightSem2,
+                s.fatherName,
+                s.fatherBirthYear,
+                s.fatherNik,
+                s.motherName,
+                s.motherBirthYear,
+                s.motherNik,
+                s.guardianName,
+                s.guardianBirthYear,
+                s.guardianNik,
+                s.distanceToSchool,
+                s.attendanceNumber
             ].map(escapeCsv);
         });
 
@@ -1783,7 +1798,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `data_siswa_${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute("download", `students_${new Date().toISOString().split('T')[0]}.csv`);
         document.body.appendChild(link);
         link.click();
     };
@@ -1847,52 +1862,58 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
         const lines = importText.split('\n').filter(l => l.trim());
         let dataLines = lines;
         
-        if (lines.length > 0 && lines[0].toLowerCase().includes('absen') && lines[0].toLowerCase().includes('nama')) {
+        if (lines.length > 0 && lines[0].toLowerCase().includes('id') && lines[0].toLowerCase().includes('name')) {
             dataLines = lines.slice(1);
         }
 
         const newStudents = dataLines.map((line, index) => {
             const row = parseCSVRow(line);
-            const [noAbsen, name, nisn, nis, gender, ttl, nik, nkk, religion, address, ortu, phone, email, rombel, height, weight, notes] = row;
+            const [
+                id, name, email, classId, attendance, gradeValue, nisn, nis, gender, phone, address,
+                dusun, desa, kecamatan, birthPlace, birthDate, nik, nkk, religion,
+                weightSem1, weightSem2, heightSem1, heightSem2,
+                fatherName, fatherBirthYear, fatherNik, motherName, motherBirthYear, motherNik,
+                guardianName, guardianBirthYear, guardianNik, distanceToSchool, attendanceNumber
+            ] = row;
             
-            const ttlParts = (ttl || '').split(',');
-            const birthPlace = ttlParts.length > 1 ? ttlParts[0].trim() : (ttl || '').trim();
-            const birthDate = ttlParts.length > 1 ? ttlParts.slice(1).join(',').trim() : '';
-
-            let fatherName = '';
-            let motherName = '';
-            if (ortu && ortu.includes('|')) {
-                 const [ayahPart, ibuPart] = ortu.split('|');
-                 fatherName = (ayahPart||'').replace('Ayah:', '').trim();
-                 motherName = (ibuPart||'').replace('Ibu:', '').trim();
-            } else {
-                 fatherName = ortu?.trim() || '';
-            }
-
-            const classObj = classes.find(c => c.name.toLowerCase() === rombel?.trim().toLowerCase());
-            const match = students.find(s => (nisn && s.nisn === nisn?.trim()) || (nis && s.nis === nis?.trim()) || (s.name.toLowerCase() === name?.trim().toLowerCase()));
+            const classObj = classes.find(c => c.id === classId?.trim());
+            const existing = students.find(s => s.id === id?.trim() || (nisn && s.nisn === nisn?.trim()) || (nis && s.nis === nis?.trim()));
 
             return {
-                id: match?.id || '',
-                attendanceNumber: parseInt(noAbsen?.trim() || '0') || (students.length + index + 1),
+                id: id?.trim() || existing?.id || '',
                 name: name?.trim() || '',
+                email: email?.trim() || '',
+                classId: classId?.trim() || classObj?.id || '1',
+                attendance: parseInt(attendance?.trim() || '0') || 100,
+                gradeValue: parseFloat(gradeValue?.trim() || '0') || 0,
                 nisn: nisn?.trim() || '',
                 nis: nis?.trim() || '',
-                gender: (gender?.trim().charAt(0).toUpperCase() === 'P' ? 'P' : 'L') as 'L'|'P',
-                birthPlace,
-                birthDate,
+                gender: (gender?.trim()?.charAt(0).toUpperCase() === 'P' ? 'P' : 'L') as 'L'|'P' || undefined,
+                phone: phone?.trim() || '',
+                address: address?.trim() || '',
+                dusun: dusun?.trim() || '',
+                desa: desa?.trim() || '',
+                kecamatan: kecamatan?.trim() || '',
+                birthPlace: birthPlace?.trim() || '',
+                birthDate: birthDate?.trim() || '',
                 nik: nik?.trim() || '',
                 nkk: nkk?.trim() || '',
                 religion: religion?.trim() || '',
-                address: address?.trim() || '',
-                fatherName,
-                motherName,
-                phone: phone?.trim() || '',
-                email: email?.trim() || '',
-                classId: classObj ? classObj.id : (rombel?.trim() || '1'),
-                heightSem1: parseInt(height?.trim() || '0') || 0,
-                weightSem1: parseInt(weight?.trim() || '0') || 0,
-                notes: notes?.trim() || ''
+                weightSem1: parseFloat(weightSem1?.trim() || '0') || 0,
+                weightSem2: parseFloat(weightSem2?.trim() || '0') || 0,
+                heightSem1: parseFloat(heightSem1?.trim() || '0') || 0,
+                heightSem2: parseFloat(heightSem2?.trim() || '0') || 0,
+                fatherName: fatherName?.trim() || '',
+                fatherBirthYear: fatherBirthYear?.trim() || '',
+                fatherNik: fatherNik?.trim() || '',
+                motherName: motherName?.trim() || '',
+                motherBirthYear: motherBirthYear?.trim() || '',
+                motherNik: motherNik?.trim() || '',
+                guardianName: guardianName?.trim() || '',
+                guardianBirthYear: guardianBirthYear?.trim() || '',
+                guardianNik: guardianNik?.trim() || '',
+                distanceToSchool: parseFloat(distanceToSchool?.trim() || '0') || 0,
+                attendanceNumber: parseInt(attendanceNumber?.trim() || '0') || (students.length + index + 1)
             };
         });
 
@@ -1921,7 +1942,9 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
     };
 
     const handleDownloadTemplate = () => {
-        const csvContent = "data:text/csv;charset=utf-8,No Absen,Nama,NISN,NIS,Jenis Kelamin,Tempat dan Tanggal Lahir,NIK,NKK,Agama,Alamat,Nama Orang tua Ayah dan Ibu,No Telp,Email,Rombel,Tinggi Badan,Berat Badan,Catatan\n1,John Doe,1234567890,1234,L,\"Jakarta, 01-01-2005\",327123,327123,Islam,\"Jl. Mawar No 1\",Ayah: Budi | Ibu: Siti,08123456789,john@example.com,X IPA 1,170,60,Siswa Aktif";
+        const headers = ["id", "name", "email", "classId", "attendance", "gradeValue", "nisn", "nis", "gender", "phone", "address", "dusun", "desa", "kecamatan", "birthPlace", "birthDate", "nik", "nkk", "religion", "weightSem1", "weightSem2", "heightSem1", "heightSem2", "fatherName", "fatherBirthYear", "fatherNik", "motherName", "motherBirthYear", "motherNik", "guardianName", "guardianBirthYear", "guardianNik", "distanceToSchool", "attendanceNumber"];
+        const sample = ["", "John Doe", "john@example.com", "1", "100", "85", "1234567890", "1234", "L", "08123456789", "Jl. Mawar No 1", "", "", "", "Jakarta", "2005-01-01", "327123456789012345", "327123456789012345", "Islam", "60", "0", "170", "0", "Budi", "1975", "", "Siti", "1975", "", "", "", "", "0", "1"];
+        const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + sample.join(",");
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
