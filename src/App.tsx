@@ -4411,7 +4411,15 @@ function ClassCashView({
         customAmount: 0
     });
 
-    const filteredStudents = students.filter(s => s.classId === selectedClassId);
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const selectedClass = classes.find(c => c.id === selectedClassId);
+    const filteredStudents = students.filter(s => {
+        const studentClass = String((s as any)?.classId || '').trim();
+        if (!selectedClassId) return true;
+        if (studentClass === String(selectedClassId)) return true;
+        if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
+        return false;
+    });
     const holiday = holidays.find(h => h.date === selectedDate);
     const dateObj = new Date(selectedDate);
     const isWeekend = dateObj.getDay() === 0;
@@ -4756,7 +4764,7 @@ function ClassCashView({
                                         {sortedData(filteredTx).map((t: any) => (
                                             <tr key={t.id} className="hover:bg-slate-50">
                                                 <td className="font-mono text-xs font-bold">{t.date}</td>
-                                                <td className="font-bold">{students.find(s => s.id === t.studentId)?.name || 'Kolektif'}</td>
+                                                <td className="font-bold">{t.studentId ? getStudentName(students.find(s => s.id === t.studentId)) : 'Kolektif'}</td>
                                                 <td className="font-black text-slate-700 text-sm">{formatCurrency(t.amount)}</td>
                                                 <td>
                                                     <button className="p-1 hover:bg-red-50 text-red-400 rounded transition-all" title="Hapus Transaksi"><Trash2 size={12} /></button>
@@ -4813,7 +4821,7 @@ function ClassCashView({
                                                             ...prev,
                                                             [s.id]: isSetor ? 0 : nominal
                                                         }));
-                                                    }}>{s.name}</td>
+                                                    }}>{getStudentName(s)}</td>
                                                     <td>
                                                         <div className="flex gap-2">
                                                             <button
@@ -5225,6 +5233,7 @@ function MonthlyClassCashView({
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
     const [edits, setEdits] = useState<{ [key: string]: number }>({});
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     const getNominal = () => type === 'gemari' ? 500 : 1000;
 
@@ -5327,7 +5336,7 @@ function MonthlyClassCashView({
                 <tbody>
                     {students.map(s => (
                         <tr key={s.id} className="hover:bg-slate-50 transition-all group">
-                            <td className="p-2 border border-border sticky left-0 bg-white group-hover:bg-slate-50 z-10 font-bold text-[11px] truncate whitespace-nowrap">{s.name}</td>
+                            <td className="p-2 border border-border sticky left-0 bg-white group-hover:bg-slate-50 z-10 font-bold text-[11px] truncate whitespace-nowrap">{getStudentName(s)}</td>
                             {days.map(d => {
                                 const date = new Date(year, m - 1, d);
                                 const holidayInfo = isHoliday(date);
@@ -5396,6 +5405,7 @@ function LedgerClassCashView({
 }) {
     const [showAddForm, setShowAddForm] = useState(false);
     const [expense, setExpense] = useState({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     // Running balance calculation must be independent of current sorting/view
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -5410,7 +5420,7 @@ function LedgerClassCashView({
         let desc = tx.notes || (isWithdrawal ? 'Pengeluaran/Penarikan' : 'Setoran Siswa');
         if (tx.studentId) {
             const stu = students.find(s => s.id === tx.studentId);
-            if (stu) desc = `Setoran: ${stu.name}`;
+            if (stu) desc = `Setoran: ${getStudentName(stu)}`;
         }
 
         return { ...tx, debit, credit, balance: currentRB, desc };
@@ -5559,7 +5569,15 @@ function AcademicView({
     const [record, setRecord] = useState<any>(null); // To store academic record
     const [weights, setWeights] = useState({ rapot: 50, tka: 50 });
 
-    const filteredStudents = students.filter(s => s.classId === selectedClassId);
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const selectedClass = classes.find(c => c.id === selectedClassId);
+    const filteredStudents = students.filter(s => {
+        const studentClass = String((s as any)?.classId || '').trim();
+        if (!selectedClassId) return true;
+        if (studentClass === String(selectedClassId)) return true;
+        if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
+        return false;
+    });
 
     useEffect(() => {
         if (!classes.length) return;
@@ -5585,11 +5603,19 @@ function AcademicView({
             loadAcademicRecords().then(data => {
                 const rec = data.find((r: any) => r.studentId === selectedStudentId);
                 if (rec) {
-                    setRecord({ ...rec, tka: rec.tka ?? '' });
+                    setRecord({
+                        ...rec,
+                        tka: rec.tka ?? '',
+                        rapot: Array.isArray(rec.rapot) ? rec.rapot : [],
+                        prestasi: Array.isArray(rec.prestasi) ? rec.prestasi : [],
+                        ijazah: Array.isArray(rec.ijazah) ? rec.ijazah : [],
+                    });
                 } else {
                     setRecord({ studentId: selectedStudentId, rapot: [], prestasi: [], ijazah: [], tka: '' });
                 }
             });
+        } else {
+            setRecord(null);
         }
     }, [selectedStudentId]);
 
@@ -5597,14 +5623,14 @@ function AcademicView({
         const errs: string[] = [];
         if (!record) return errs;
 
-        if (record.rapot.some((r: any) =>
+        if ((record.rapot || []).some((r: any) =>
             ['s41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
                 r[k] !== '' && r[k] !== null && r[k] !== undefined && (Number(r[k]) < 0 || Number(r[k]) > 100)
             )
         )) {
             errs.push('Nilai rapot harus berada dalam rentang 0-100.');
         }
-        if (record.ijazah.some((r: any) =>
+        if ((record.ijazah || []).some((r: any) =>
             (r.grade_p !== '' && r.grade_p !== null && r.grade_p !== undefined && (Number(r.grade_p) < 0 || Number(r.grade_p) > 100)) ||
             (r.grade_k !== '' && r.grade_k !== null && r.grade_k !== undefined && (Number(r.grade_k) < 0 || Number(r.grade_k) > 100))
         )) {
@@ -5613,7 +5639,7 @@ function AcademicView({
         if (record.tka !== '' && record.tka !== null && record.tka !== undefined && (Number(record.tka) < 0 || Number(record.tka) > 100)) {
             errs.push('Nilai TKA harus berada dalam rentang 0-100.');
         }
-        if (record.prestasi.some((p: any) => p.poin !== '' && p.poin !== null && Number(p.poin) < 0)) {
+        if ((record.prestasi || []).some((p: any) => p.poin !== '' && p.poin !== null && Number(p.poin) < 0)) {
             errs.push('Poin prestasi tidak boleh kurang dari 0.');
         }
         return errs;
@@ -5862,7 +5888,7 @@ function AcademicView({
                         onChange={e => setSelectedStudentId(e.target.value)}
                     >
                         <option value="">-- Pilih Siswa --</option>
-                        {filteredStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {filteredStudents.map(s => <option key={s.id} value={s.id}>{getStudentName(s)}</option>)}
                     </select>
 
                     <button onClick={handleExportCSV} className="btn-small bg-slate-100 text-slate-700 hover:bg-slate-200" title="Download Template per Kelas">
