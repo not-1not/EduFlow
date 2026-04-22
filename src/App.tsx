@@ -716,6 +716,16 @@ function SubjectsView({
     const [showAddMaterial, setShowAddMaterial] = useState(false);
     const [newMaterial, setNewMaterial] = useState({ title: '', weight: 0 });
 
+    useEffect(() => {
+        if (!subjects.length) {
+            setSelectedSubjectId(null);
+            return;
+        }
+        if (!selectedSubjectId || !subjects.some(s => s.id === selectedSubjectId)) {
+            setSelectedSubjectId(subjects[0].id);
+        }
+    }, [subjects, selectedSubjectId]);
+
     const handleAddSubject = async () => {
         if (editingSubject) {
             const { id, ...payload } = editingSubject;
@@ -767,83 +777,112 @@ function SubjectsView({
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="md:col-span-1 space-y-4">
-                    <h3 className="stat-label">Daftar Mapel</h3>
-                    <div className="space-y-2">
-                        {subjects.map(s => (
-                            <div
-                                key={s.id}
-                                onClick={() => setSelectedSubjectId(s.id)}
-                                className={`group p-4 border border-border rounded-xl cursor-pointer transition-all relative ${selectedSubjectId === s.id ? 'bg-slate-800 text-yellow-400 border-slate-700 shadow-md transform scale-[1.02]' : 'bg-white hover:bg-slate-50'}`}
-                            >
-                                <div className="font-bold">{s.name}</div>
-                                <div className="flex justify-between items-center mt-1">
-                                    <div className={`text-[10px] uppercase tracking-widest ${selectedSubjectId === s.id ? 'text-white/70' : 'text-text-secondary'}`}>{s.code}</div>
-                                    <div className={`text-[10px] font-bold ${selectedSubjectId === s.id ? 'text-white' : 'text-accent'}`}>{s.teacherName || 'Guru Mapel'}</div>
-                                </div>
-                                <div className="absolute top-4 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setEditingSubject(s); setShowAddSubject(true); }}
-                                        className={`p-1 rounded ${selectedSubjectId === s.id ? 'hover:bg-white/20' : 'hover:bg-slate-100 text-text-secondary'}`}
-                                    >
-                                        <Edit size={14} />
-                                    </button>
-                                    <button
-                                        onClick={(e) => handleDeleteSubject(e, s.id)}
-                                        className={`p-1 rounded ${selectedSubjectId === s.id ? 'hover:bg-red-500' : 'hover:bg-red-50 text-red-500'}`}
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+            <div className="space-y-6">
+                <div className="card !p-0 overflow-hidden">
+                    <div className="p-4 border-b border-border bg-slate-50/60 flex items-center justify-between">
+                        <h3 className="stat-label">Tabel Mata Pelajaran</h3>
+                        <button onClick={() => setShowAddSubject(true)} className="btn-small flex items-center gap-2">
+                            <Plus size={14} /> Tambah Mapel
+                        </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="data-table whitespace-nowrap">
+                            <thead>
+                                <tr>
+                                    <th>MATA PELAJARAN</th>
+                                    <th>KODE</th>
+                                    <th>KELAS</th>
+                                    <th>GURU</th>
+                                    <th>JUMLAH MATERI</th>
+                                    <th>AKSI</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {subjects.map(s => {
+                                    const isActive = selectedSubjectId === s.id;
+                                    const materialCount = materials.filter(m => m.subjectId === s.id).length;
+                                    return (
+                                        <tr
+                                            key={s.id}
+                                            onClick={() => setSelectedSubjectId(s.id)}
+                                            className={`cursor-pointer ${isActive ? 'bg-slate-900 text-yellow-400' : 'hover:bg-slate-50'}`}
+                                        >
+                                            <td className="font-bold">{s.name}</td>
+                                            <td className="font-mono text-xs">{s.code || '-'}</td>
+                                            <td className="text-xs font-bold">{classes.find(c => c.id === s.classId)?.name || '-'}</td>
+                                            <td className="text-xs">{s.teacherName || '-'}</td>
+                                            <td className={`text-xs font-black ${isActive ? 'text-yellow-300' : 'text-accent'}`}>{materialCount}</td>
+                                            <td>
+                                                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                                    <button
+                                                        onClick={() => { setEditingSubject(s); setShowAddSubject(true); }}
+                                                        className={`p-1 rounded ${isActive ? 'hover:bg-white/20' : 'hover:bg-slate-100 text-text-secondary'}`}
+                                                    >
+                                                        <Edit size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleDeleteSubject(e, s.id)}
+                                                        className={`p-1 rounded ${isActive ? 'hover:bg-red-500' : 'hover:bg-red-50 text-red-500'}`}
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {subjects.length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="text-center py-12 opacity-30 italic">Belum ada mata pelajaran</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
-                <div className="md:col-span-2 space-y-4">
-                    {selectedSubjectId ? (
-                        <>
-                            <div className="flex items-center justify-between">
-                                <h3 className="stat-label">Materi & Bobot Nilai</h3>
-                                <button onClick={() => setShowAddMaterial(true)} className="btn-small">Tambah Materi</button>
-                            </div>
-                            <div className="card !p-0 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="data-table whitespace-nowrap">
-                                        <thead>
-                                            <tr>
-                                                <th>JUDUL MATERI / KOMPETENSI</th>
-                                                <th>BOBOT (%)</th>
-                                                <th>AKSI</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {materials.filter(m => m.subjectId === selectedSubjectId).map(m => (
-                                                <tr key={m.id}>
-                                                    <td className="font-medium">{m.title}</td>
-                                                    <td className="data-value">{m.weight}%</td>
-                                                    <td>
-                                                        <button onClick={() => handleDeleteMaterial(m.id)} className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1">
-                                                            <Trash2 size={12} /> Hapus
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                            {materials.filter(m => m.subjectId === selectedSubjectId).length === 0 && (
-                                                <tr>
-                                                    <td colSpan={3} className="text-center py-10 opacity-30 italic">Belum ada materi ditambahkan</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </>
+                <div className="card !p-0 overflow-hidden">
+                    <div className="p-4 border-b border-border bg-slate-50/60 flex items-center justify-between">
+                        <h3 className="stat-label">
+                            Tabel Materi {selectedSubjectId ? `- ${subjects.find(s => s.id === selectedSubjectId)?.name || ''}` : ''}
+                        </h3>
+                        <button onClick={() => setShowAddMaterial(true)} className="btn-small flex items-center gap-2" disabled={!selectedSubjectId}>
+                            <Plus size={14} /> Tambah Materi
+                        </button>
+                    </div>
+                    {!selectedSubjectId ? (
+                        <div className="h-40 flex items-center justify-center text-center opacity-30 italic">
+                            Pilih mata pelajaran terlebih dahulu
+                        </div>
                     ) : (
-                        <div className="h-full border border-dashed border-border rounded-xl flex flex-col items-center justify-center p-20 text-center opacity-30 italic">
-                            <Database size={48} className="mb-4" />
-                            Pilih Mata Pelajaran untuk mengelola materi
+                        <div className="overflow-x-auto">
+                            <table className="data-table whitespace-nowrap">
+                                <thead>
+                                    <tr>
+                                        <th>JUDUL MATERI / KOMPETENSI</th>
+                                        <th>BOBOT (%)</th>
+                                        <th>AKSI</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {materials.filter(m => m.subjectId === selectedSubjectId).map(m => (
+                                        <tr key={m.id}>
+                                            <td className="font-medium">{m.title}</td>
+                                            <td className="data-value">{m.weight}%</td>
+                                            <td>
+                                                <button onClick={() => handleDeleteMaterial(m.id)} className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1">
+                                                    <Trash2 size={12} /> Hapus
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {materials.filter(m => m.subjectId === selectedSubjectId).length === 0 && (
+                                        <tr>
+                                            <td colSpan={3} className="text-center py-10 opacity-30 italic">Belum ada materi ditambahkan</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     )}
                 </div>
@@ -2622,6 +2661,13 @@ function AttendanceView({
     const currentHoliday = holidays.find(h => h.date === selectedDate);
     const isSunday = new Date(selectedDate).getDay() === 0;
 
+    useEffect(() => {
+        if (!classes.length) return;
+        if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
+            setSelectedClassId(classes[0].id);
+        }
+    }, [classes, selectedClassId]);
+
     const upsertAttendanceEntries = async (entries: Array<{ studentId: string; classId: string; date: string; status: AttendanceStatus }>) => {
         for (const entry of entries) {
             const existing = attendanceRecords.find(r =>
@@ -3642,7 +3688,12 @@ function PaymentsView({
     };
 
     const handleAddItem = async () => {
-        await addDoc(collection(db, 'feeItems'), newItem);
+        if (!newItem.name.trim()) return alert('Nama item wajib diisi');
+        if (!newItem.amount || newItem.amount <= 0) return alert('Nominal item harus lebih dari 0');
+        await addDoc(collection(db, 'feeItems'), {
+            ...newItem,
+            name: newItem.name.trim()
+        });
         setShowAddItem(false);
         setNewItem({
             name: '',
@@ -4199,6 +4250,65 @@ function PaymentsView({
                 </div>
             )}
 
+            {showAddItem && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold">Tambah Item Biaya</h3>
+                            <button onClick={() => setShowAddItem(false)} aria-label="Tutup form item biaya"><X size={20} /></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nama Item</label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
+                                    placeholder="Contoh: SPP Bulanan"
+                                    value={newItem.name}
+                                    onChange={e => setNewItem({ ...newItem, name: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal (Rp)</label>
+                                <input
+                                    type="number"
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent font-bold"
+                                    value={newItem.amount}
+                                    onChange={e => setNewItem({ ...newItem, amount: parseInt(e.target.value) || 0 })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Kategori</label>
+                                    <select
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
+                                        value={newItem.category}
+                                        onChange={e => setNewItem({ ...newItem, category: e.target.value as 'wajib' | 'sukarela' | 'lainnya' })}
+                                    >
+                                        <option value="wajib">Wajib</option>
+                                        <option value="sukarela">Sukarela</option>
+                                        <option value="lainnya">Lainnya</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Tahun Ajaran</label>
+                                    <input
+                                        type="text"
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent font-mono"
+                                        placeholder="2025/2026"
+                                        value={newItem.academicYear}
+                                        onChange={e => setNewItem({ ...newItem, academicYear: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <button onClick={handleAddItem} className="w-full btn-primary py-4 rounded-xl mt-4 font-bold">
+                                Simpan Item
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showAddDeposit && (
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
@@ -4353,6 +4463,13 @@ function ClassCashView({
     };
 
     const recap = getMonthlyRecap();
+
+    useEffect(() => {
+        if (!classes.length) return;
+        if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
+            setSelectedClassId(classes[0].id);
+        }
+    }, [classes, selectedClassId]);
 
     const handleSaveRange = async () => {
         if (!rangeForm.startDate || !rangeForm.endDate) return alert('Pilih tanggal awal dan akhir!');
@@ -5443,6 +5560,14 @@ function AcademicView({
     const [weights, setWeights] = useState({ rapot: 50, tka: 50 });
 
     const filteredStudents = students.filter(s => s.classId === selectedClassId);
+
+    useEffect(() => {
+        if (!classes.length) return;
+        if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
+            setSelectedClassId(classes[0].id);
+            setSelectedStudentId('');
+        }
+    }, [classes, selectedClassId]);
 
     useEffect(() => {
         if (filteredStudents.length > 0 && !selectedStudentId) {
