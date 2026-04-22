@@ -224,7 +224,13 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 return;
             }
 
-            setStudents(studentsData as Student[]);
+            const normalizedStudents = (studentsData as any[]).map((s) => ({
+                ...s,
+                name: s?.name || s?.displayName || s?.fullName || s?.nama || '',
+                email: s?.email || '',
+                classId: s?.classId || '',
+            }));
+            setStudents(normalizedStudents as Student[]);
             setClasses(classesData as Class[]);
             setSubjects(subjectsData as Subject[]);
             setMaterials(materialsData as Material[]);
@@ -1728,11 +1734,13 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
         name: '', email: '', classId: '1', attendance: 100, gradeValue: 0, attendanceNumber: (students.length + 1)
     });
 
-    const filteredStudents = sortedData(students).filter((s: Student) =>
-        s.name.toLowerCase().includes(filter.toLowerCase()) ||
-        s.email.toLowerCase().includes(filter.toLowerCase()) ||
-        s.nisn?.includes(filter) ||
-        s.nis?.includes(filter)
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || '';
+
+    const filteredStudents = sortedData(students).filter((s: any) =>
+        getStudentName(s).toLowerCase().includes(filter.toLowerCase()) ||
+        (s?.email || '').toLowerCase().includes(filter.toLowerCase()) ||
+        (s?.nisn || '').includes(filter) ||
+        (s?.nis || '').includes(filter)
     );
 
     const handleSaveBulkEdit = async () => {
@@ -2041,7 +2049,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                                     <td className="font-mono text-xs text-slate-400">{s.attendanceNumber || ''}</td>
                                     <td className="font-bold">
                                         <div className="flex items-center gap-2 whitespace-nowrap">
-                                            {s.name}
+                                            {getStudentName(s)}
                                             <ArrowUpRight size={14} className="opacity-0 group-hover:opacity-40 text-accent transition-all" />
                                         </div>
                                     </td>
@@ -2141,7 +2149,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                             <tbody>
                                 {students.map(s => (
                                     <tr key={s.id}>
-                                        <td className="font-bold">{s.name}</td>
+                                        <td className="font-bold">{getStudentName(s)}</td>
                                         <td className="text-[10px] text-text-secondary italic">{String(s[bulkField] || '-')}</td>
                                         <td>
                                             <input
@@ -2469,8 +2477,8 @@ function ClassesView({ classes, onRefresh }: { classes: Class[], onRefresh: () =
                         <p className="text-xs text-text-secondary">Ringkasan jadwal seluruh kelas aktif</p>
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].map(day => (
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                    {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'].map(day => (
                         <div key={day} className="space-y-4">
                             <div className="text-[10px] font-black uppercase text-text-secondary py-2 border-b-2 border-slate-100 flex justify-between items-center px-1">
                                 {day}
@@ -2561,7 +2569,7 @@ function ClassesView({ classes, onRefresh }: { classes: Class[], onRefresh: () =
                                 <label className="text-[10px] font-bold uppercase text-text-secondary">Jadwal Mingguan</label>
                                 <input
                                     type="text"
-                                    placeholder="Senin, Rabu 08:00"
+                                    placeholder="Senin-Sabtu 08:00"
                                     className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
                                     value={editingClass ? editingClass.schedule : newClass.schedule}
                                     onChange={e => editingClass ? setEditingClass({ ...editingClass, schedule: e.target.value }) : setNewClass({ ...newClass, schedule: e.target.value })}
@@ -4302,7 +4310,7 @@ function ClassCashView({
     const filteredStudents = students.filter(s => s.classId === selectedClassId);
     const holiday = holidays.find(h => h.date === selectedDate);
     const dateObj = new Date(selectedDate);
-    const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
+    const isWeekend = dateObj.getDay() === 0;
     const isFriday = dateObj.getDay() === 5;
 
     const getNominal = () => activeTab === 'gemari' ? 500 : 1000;
@@ -4322,7 +4330,7 @@ function ClassCashView({
             const dayOfWeek = d.getDay();
 
             if (activeTab === 'gemari') {
-                if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isH) {
+                if (dayOfWeek !== 0 && !isH) {
                     targetDays++;
                 }
             } else {
@@ -4368,7 +4376,7 @@ function ClassCashView({
             const dayOfWeek = currentDate.getDay();
 
             let validDay = false;
-            if (activeTab === 'gemari' && dayOfWeek !== 0 && dayOfWeek !== 6 && !isH) validDay = true;
+            if (activeTab === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
             if (activeTab === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
 
             if (validDay || rangeForm.status === 'bebas_setor') {
@@ -4544,7 +4552,7 @@ function ClassCashView({
                                 <Clock className="text-orange-500 flex-shrink-0" size={18} />
                                 <div>
                                     <p className="text-xs font-bold text-orange-700">Hari Libur Akhir Pekan</p>
-                                    <p className="text-[10px] text-orange-600 font-medium">Sabtu/Minggu biasanya tidak ada KBM.</p>
+                                    <p className="text-[10px] text-orange-600 font-medium">Minggu adalah hari libur.</p>
                                 </div>
                             </div>
                         )}
@@ -5122,7 +5130,6 @@ function MonthlyClassCashView({
         const dateStr = date.toISOString().split('T')[0];
 
         if (day === 0) return { holiday: true, name: 'Minggu' };
-        if (type === 'gemari' && day === 6) return { holiday: true, name: 'Sabtu' };
         if (type === 'infaq' && day !== 5) return { holiday: true, name: 'Bukan Jumat' };
 
         const holiday = holidays.find(h => h.date === dateStr);
