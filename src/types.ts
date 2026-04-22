@@ -38,6 +38,7 @@ export interface Student {
     guardianNik?: string;
     distanceToSchool?: number;
     attendanceNumber?: number;
+    notes?: string;
 }
 
 export interface Subject {

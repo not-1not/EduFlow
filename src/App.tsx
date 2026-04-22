@@ -1743,10 +1743,37 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
     ];
 
     const handleExportCSV = () => {
-        const headers = ["ID", "Nama", "Email", "NISN", "NIS", "Kelas", "Kehadiran", "Rata-rata Nilai"];
-        const rows = students.map(s => [
-            s.id, s.name, s.email, s.nisn || '', s.nis || '', s.classId, s.attendance, s.gradeValue || ''
-        ]);
+        const headers = ["No Absen", "Nama", "NISN", "NIS", "Jenis Kelamin", "Tempat dan Tanggal Lahir", "NIK", "NKK", "Agama", "Alamat", "Nama Orang tua Ayah dan Ibu", "No Telp", "Email", "Rombel", "Tinggi Badan", "Berat Badan", "Catatan"];
+        const rows = students.map(s => {
+            const classObj = classes.find(c => c.id === s.classId);
+            const escapeCsv = (str: any) => {
+                if (str === undefined || str === null) return '';
+                const stringVal = String(str);
+                return stringVal.includes(',') ? `"${stringVal.replace(/"/g, '""')}"` : stringVal;
+            };
+            const ttl = [s.birthPlace, s.birthDate].filter(Boolean).join(', ');
+            const ortu = [s.fatherName ? `Ayah: ${s.fatherName}` : '', s.motherName ? `Ibu: ${s.motherName}` : ''].filter(Boolean).join(' | ');
+
+            return [
+                s.attendanceNumber || '',
+                s.name,
+                s.nisn || '',
+                s.nis || '',
+                s.gender || '',
+                ttl,
+                s.nik || '',
+                s.nkk || '',
+                s.religion || '',
+                s.address || '',
+                ortu,
+                s.phone || '',
+                s.email || '',
+                classObj ? classObj.name : s.classId,
+                s.heightSem1 || '',
+                s.weightSem1 || '',
+                s.notes || ''
+            ].map(escapeCsv);
+        });
 
         let csvContent = "data:text/csv;charset=utf-8,"
             + headers.join(",") + "\n"
@@ -1790,20 +1817,80 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
     };
 
     const handleImport = async () => {
+        const parseCSVRow = (text: string) => {
+            let p = '', row = [''], i = 0, s = true;
+            for (let l of text) {
+                if ('"' === l) {
+                    if (s && l === p) row[i] += l;
+                    s = !s;
+                } else if (',' === l && s) { l = row[++i] = ''; }
+                else row[i] += l;
+                p = l;
+            }
+            return row;
+        };
+
         const lines = importText.split('\n').filter(l => l.trim());
-        const newStudents = lines.map(line => {
-            const [name, email, attendance, gradeValue] = line.split(',');
+        let dataLines = lines;
+        
+        if (lines.length > 0 && lines[0].toLowerCase().includes('absen') && lines[0].toLowerCase().includes('nama')) {
+            dataLines = lines.slice(1);
+        }
+
+        const newStudents = dataLines.map((line, index) => {
+            const row = parseCSVRow(line);
+            const [noAbsen, name, nisn, nis, gender, ttl, nik, nkk, religion, address, ortu, phone, email, rombel, height, weight, notes] = row;
+            
+            const ttlParts = (ttl || '').split(',');
+            const birthPlace = ttlParts.length > 1 ? ttlParts[0].trim() : (ttl || '').trim();
+            const birthDate = ttlParts.length > 1 ? ttlParts.slice(1).join(',').trim() : '';
+
+            let fatherName = '';
+            let motherName = '';
+            if (ortu && ortu.includes('|')) {
+                 const [ayahPart, ibuPart] = ortu.split('|');
+                 fatherName = (ayahPart||'').replace('Ayah:', '').trim();
+                 motherName = (ibuPart||'').replace('Ibu:', '').trim();
+            } else {
+                 fatherName = ortu?.trim() || '';
+            }
+
+            const classObj = classes.find(c => c.name.toLowerCase() === rombel?.trim().toLowerCase());
+            const match = students.find(s => (nisn && s.nisn === nisn?.trim()) || (nis && s.nis === nis?.trim()) || (s.name.toLowerCase() === name?.trim().toLowerCase()));
+
             return {
-                name: name?.trim(),
-                email: email?.trim(),
-                attendance: parseInt(attendance?.trim() || '0'),
-                gradeValue: parseInt(gradeValue?.trim() || '0'),
-                classId: '1' // Default
+                id: match?.id || '',
+                attendanceNumber: parseInt(noAbsen?.trim() || '0') || (students.length + index + 1),
+                name: name?.trim() || '',
+                nisn: nisn?.trim() || '',
+                nis: nis?.trim() || '',
+                gender: (gender?.trim().charAt(0).toUpperCase() === 'P' ? 'P' : 'L') as 'L'|'P',
+                birthPlace,
+                birthDate,
+                nik: nik?.trim() || '',
+                nkk: nkk?.trim() || '',
+                religion: religion?.trim() || '',
+                address: address?.trim() || '',
+                fatherName,
+                motherName,
+                phone: phone?.trim() || '',
+                email: email?.trim() || '',
+                classId: classObj ? classObj.id : (rombel?.trim() || '1'),
+                heightSem1: parseInt(height?.trim() || '0') || 0,
+                weightSem1: parseInt(weight?.trim() || '0') || 0,
+                notes: notes?.trim() || ''
             };
         });
 
         try {
-            const importPromises = newStudents.map(s => addDoc(collection(db, 'students'), s));
+            const importPromises = newStudents.map(s => {
+                const { id, ...studentData } = s;
+                if (id) {
+                    return setDoc(doc(db, 'students', id), studentData, { merge: true });
+                } else {
+                    return addDoc(collection(db, 'students'), { ...studentData, attendance: 100, gradeValue: 0 });
+                }
+            });
             await Promise.all(importPromises);
             setImportText('');
             setShowImport(false);
@@ -1815,7 +1902,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
     };
 
     const handleDownloadTemplate = () => {
-        const csvContent = "data:text/csv;charset=utf-8,Nama,Email,Kehadiran,Nilai Rata-rata\nJohn Doe,john@example.com,95,85";
+        const csvContent = "data:text/csv;charset=utf-8,No Absen,Nama,NISN,NIS,Jenis Kelamin,Tempat dan Tanggal Lahir,NIK,NKK,Agama,Alamat,Nama Orang tua Ayah dan Ibu,No Telp,Email,Rombel,Tinggi Badan,Berat Badan,Catatan\n1,John Doe,1234567890,1234,L,\"Jakarta, 01-01-2005\",327123,327123,Islam,\"Jl. Mawar No 1\",Ayah: Budi | Ibu: Siti,08123456789,john@example.com,X IPA 1,170,60,Siswa Aktif";
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
@@ -1862,12 +1949,24 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                     <table className="data-table">
                         <thead>
                             <tr>
-                                <SortableTH label="ID" sortKey="id" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="NO ABSEN" sortKey="attendanceNumber" currentSort={currentSort} onSort={onSort} />
                                 <SortableTH label="NAMA" sortKey="name" currentSort={currentSort} onSort={onSort} />
                                 <SortableTH label="NISN" sortKey="nisn" currentSort={currentSort} onSort={onSort} />
-                                <SortableTH label="KEHADIRAN" sortKey="attendance" currentSort={currentSort} onSort={onSort} />
-                                <SortableTH label="RATA-RATA" sortKey="gradeValue" currentSort={currentSort} onSort={onSort} />
-                                <th className="no-print">AKSI</th>
+                                <SortableTH label="NIS" sortKey="nis" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="L/P" sortKey="gender" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="TTL" sortKey="birthPlace" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="NIK" sortKey="nik" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="NKK" sortKey="nkk" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="AGAMA" sortKey="religion" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="ALAMAT" sortKey="address" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="ORTU" sortKey="fatherName" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="NO TELP" sortKey="phone" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="EMAIL" sortKey="email" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="ROMBEL" sortKey="classId" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="TB (cm)" sortKey="heightSem1" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="BB (kg)" sortKey="weightSem1" currentSort={currentSort} onSort={onSort} />
+                                <SortableTH label="CATATAN" sortKey="notes" currentSort={currentSort} onSort={onSort} />
+                                <th className="no-print sticky right-0 bg-white shadow-[-5px_0_10px_rgba(0,0,0,0.05)]">AKSI</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1877,25 +1976,34 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                                     className="hover:bg-slate-50 cursor-pointer group transition-all"
                                     onClick={() => onViewProfile(s.id)}
                                 >
-                                    <td className="font-mono text-[10px] opacity-40">#00{s.id}</td>
+                                    <td className="font-mono text-xs text-slate-400">{s.attendanceNumber || ''}</td>
                                     <td className="font-bold">
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 whitespace-nowrap">
                                             {s.name}
                                             <ArrowUpRight size={14} className="opacity-0 group-hover:opacity-40 text-accent transition-all" />
                                         </div>
                                     </td>
                                     <td className="font-mono text-xs text-slate-400">{s.nisn || '-'}</td>
-                                    <td>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1 max-w-[80px] bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                                <div className={`h-full transition-all duration-1000 ${s.attendance > 80 ? 'bg-success' : 'bg-red-500'}`} style={{ width: `${s.attendance}%` }} />
-                                            </div>
-                                            <span className="text-[10px] font-black">{s.attendance}%</span>
-                                        </div>
+                                    <td className="font-mono text-xs text-slate-400">{s.nis || '-'}</td>
+                                    <td className="text-xs text-center font-bold px-2"><span className={`px-2 py-0.5 rounded ${s.gender === 'P' ? 'bg-pink-50 text-pink-500' : 'bg-blue-50 text-blue-500'}`}>{s.gender || '-'}</span></td>
+                                    <td className="text-[10px] text-slate-500 max-w-[120px] truncate" title={[s.birthPlace, s.birthDate].filter(Boolean).join(', ')}>
+                                        {[s.birthPlace, s.birthDate].filter(Boolean).join(', ') || '-'}
                                     </td>
-                                    <td className="font-black text-accent font-mono">{s.gradeValue}</td>
-                                    <td className="no-print">
-                                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <td className="font-mono text-[10px] text-slate-400">{s.nik || '-'}</td>
+                                    <td className="font-mono text-[10px] text-slate-400">{s.nkk || '-'}</td>
+                                    <td className="text-[10px] font-bold text-slate-500 uppercase">{s.religion || '-'}</td>
+                                    <td className="text-[10px] text-slate-500 max-w-[150px] truncate" title={s.address}>{s.address || '-'}</td>
+                                    <td className="text-[10px] text-slate-500 max-w-[120px] truncate" title={[s.fatherName ? `A: ${s.fatherName}` : '', s.motherName ? `I: ${s.motherName}` : ''].filter(Boolean).join(' | ')}>
+                                        {[s.fatherName ? `A: ${s.fatherName}` : '', s.motherName ? `I: ${s.motherName}` : ''].filter(Boolean).join(' | ') || '-'}
+                                    </td>
+                                    <td className="font-mono text-[10px] text-slate-500">{s.phone || '-'}</td>
+                                    <td className="text-[10px] text-slate-500">{s.email || '-'}</td>
+                                    <td className="text-[10px] font-bold text-accent uppercase whitespace-nowrap">{classes.find(c => c.id === s.classId)?.name || s.classId}</td>
+                                    <td className="font-mono text-xs text-slate-400 text-center">{s.heightSem1 || '-'}</td>
+                                    <td className="font-mono text-xs text-slate-400 text-center">{s.weightSem1 || '-'}</td>
+                                    <td className="text-[10px] text-slate-400 italic max-w-[120px] truncate" title={s.notes}>{s.notes || '-'}</td>
+                                    <td className="no-print sticky right-0 bg-white shadow-[-5px_0_10px_rgba(0,0,0,0.05)] px-2">
+                                        <div className="flex items-center gap-2 justify-center" onClick={(e) => e.stopPropagation()}>
                                             <button
                                                 onClick={() => onViewProfile(s.id)}
                                                 className="p-1.5 hover:bg-slate-100 rounded text-slate-700 transition-all"
@@ -2002,10 +2110,10 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                             <h3 className="text-xl font-bold">Import Siswa Masal</h3>
                             <button onClick={() => setShowImport(false)}><X size={20} /></button>
                         </div>
-                        <p className="text-sm text-text-secondary mb-4">Paste data siswa (Nama, Email, Kehadiran, Nilai) pisahkan dengan koma per baris.</p>
+                        <p className="text-sm text-text-secondary mb-4">Paste data siswa (No Absen, Nama, NISN, NIS, Jenis Kelamin, Tempat dan Tanggal Lahir, NIK, NKK, Agama, Alamat, Nama Orang tua Ayah dan Ibu, No Telp, Email, Rombel, Tinggi Badan, Berat Badan, Catatan) pisahkan dengan koma per baris.</p>
                         <textarea
                             className="w-full h-48 bg-slate-50 border border-border rounded-lg p-4 font-mono text-sm outline-none focus:border-accent mb-6"
-                            placeholder="Budi Santoso,budi@email.com,90,80&#10;Siti Aminah,siti@email.com,95,88"
+                            placeholder="No Absen,Nama,NISN,NIS,Jenis Kelamin,Tempat dan Tanggal Lahir,NIK,NKK,Agama,Alamat,Nama Orang tua Ayah dan Ibu,No Telp,Email,Rombel,Tinggi Badan,Berat Badan,Catatan&#10;1,Budi Santoso,1234567890,1234,L,Jakarta\, 01-01-2005,327123,327123,Islam,Jl. Mawar No 1,Ayah: Budi | Ibu: Siti,08123456789,budi@email.com,X IPA 1,170,60,Siswa Aktif"
                             value={importText}
                             onChange={e => setImportText(e.target.value)}
                         />
