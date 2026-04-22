@@ -717,13 +717,12 @@ function SubjectsView({
     const [newMaterial, setNewMaterial] = useState({ title: '', weight: 0 });
 
     const handleAddSubject = async () => {
-        const url = editingSubject ? `/api/subjects/${editingSubject.id}` : '/api/subjects';
-        const method = editingSubject ? 'PUT' : 'POST';
-        await fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(editingSubject || newSubject)
-        });
+        if (editingSubject) {
+            const { id, ...payload } = editingSubject;
+            await updateDoc(doc(db, 'subjects', id), payload);
+        } else {
+            await addDoc(collection(db, 'subjects'), newSubject);
+        }
         setNewSubject({ name: '', code: '', classId: '', teacherName: '' });
         setEditingSubject(null);
         setShowAddSubject(false);
@@ -733,18 +732,18 @@ function SubjectsView({
     const handleDeleteSubject = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         if (!confirm('Hapus mata pelajaran ini beserta semua materinya?')) return;
-        await fetch(`/api/subjects/${id}`, { method: 'DELETE' });
+        const relatedMaterials = materials.filter(m => m.subjectId === id);
+        for (const m of relatedMaterials) {
+            await deleteDoc(doc(db, 'materials', m.id));
+        }
+        await deleteDoc(doc(db, 'subjects', id));
         if (selectedSubjectId === id) setSelectedSubjectId(null);
         onRefresh();
     };
 
     const handleAddMaterial = async () => {
         if (!selectedSubjectId) return;
-        await fetch('/api/materials', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...newMaterial, subjectId: selectedSubjectId })
-        });
+        await addDoc(collection(db, 'materials'), { ...newMaterial, subjectId: selectedSubjectId });
         setNewMaterial({ title: '', weight: 0 });
         setShowAddMaterial(false);
         onRefresh();
@@ -752,7 +751,7 @@ function SubjectsView({
 
     const handleDeleteMaterial = async (id: string) => {
         if (!confirm('Hapus materi ini?')) return;
-        await fetch(`/api/materials/${id}`, { method: 'DELETE' });
+        await deleteDoc(doc(db, 'materials', id));
         onRefresh();
     };
 
@@ -994,6 +993,21 @@ function GradesView({
         setBulkData(initialBulk);
     }, [selectedMaterialId, selectedScoreType, grades, students]);
 
+    const saveGradeEntries = async (entries: Array<{ studentId: string; materialId: string; scoreType: 'Pengetahuan' | 'Keterampilan'; value: number }>) => {
+        for (const entry of entries) {
+            const existing = grades.find(g =>
+                g.studentId === entry.studentId &&
+                g.materialId === entry.materialId &&
+                g.scoreType === entry.scoreType
+            );
+            if (existing?.id) {
+                await updateDoc(doc(db, 'grades', existing.id), entry);
+            } else {
+                await addDoc(collection(db, 'grades'), entry);
+            }
+        }
+    };
+
     const handleSaveBulk = async () => {
         if (!selectedMaterialId) return;
         const updates = Object.entries(bulkData).map(([studentId, value]) => ({
@@ -1002,21 +1016,13 @@ function GradesView({
             scoreType: selectedScoreType,
             value: parseInt(value as any) || 0
         }));
-        await fetch('/api/grades/bulk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates)
-        });
+        await saveGradeEntries(updates as Array<{ studentId: string; materialId: string; scoreType: 'Pengetahuan' | 'Keterampilan'; value: number }>);
         onRefresh();
     };
 
     const handleSaveSingle = async (studentId: string, value: number) => {
         setSavingId(studentId);
-        await fetch('/api/grades/bulk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify([{ studentId, materialId: selectedMaterialId, scoreType: selectedScoreType, value }])
-        });
+        await saveGradeEntries([{ studentId, materialId: selectedMaterialId, scoreType: selectedScoreType, value }]);
         setSavingId(null);
         onRefresh();
     };
@@ -2616,6 +2622,21 @@ function AttendanceView({
     const currentHoliday = holidays.find(h => h.date === selectedDate);
     const isSunday = new Date(selectedDate).getDay() === 0;
 
+    const upsertAttendanceEntries = async (entries: Array<{ studentId: string; classId: string; date: string; status: AttendanceStatus }>) => {
+        for (const entry of entries) {
+            const existing = attendanceRecords.find(r =>
+                r.studentId === entry.studentId &&
+                r.classId === entry.classId &&
+                r.date === entry.date
+            );
+            if (existing?.id) {
+                await updateDoc(doc(db, 'attendance', existing.id), entry);
+            } else {
+                await addDoc(collection(db, 'attendance'), entry);
+            }
+        }
+    };
+
     const handleBatchStatus = async (status: AttendanceStatus) => {
         if (!selectedClassId || !selectedDate || currentHoliday || isSunday) return;
         const updates = classStudents.map(s => ({
@@ -2624,20 +2645,12 @@ function AttendanceView({
             date: selectedDate,
             status
         }));
-        await fetch('/api/attendance/bulk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates)
-        });
+        await upsertAttendanceEntries(updates);
         onRefresh();
     };
 
     const handleSingleStatus = async (studentId: string, status: AttendanceStatus) => {
-        await fetch('/api/attendance/bulk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify([{ studentId, classId: selectedClassId, date: selectedDate, status }])
-        });
+        await upsertAttendanceEntries([{ studentId, classId: selectedClassId, date: selectedDate, status }]);
         onRefresh();
     };
 
@@ -2892,11 +2905,7 @@ function AssignmentsView({ materials, subjects, onRefresh }: { materials: Materi
 
     const handleAddMaterial = async () => {
         if (!selectedSubjectId || !newMaterial.title) return alert('Lengkapi data');
-        await fetch('/api/materials', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...newMaterial, subjectId: selectedSubjectId })
-        });
+        await addDoc(collection(db, 'materials'), { ...newMaterial, subjectId: selectedSubjectId });
         setNewMaterial({ title: '', weight: 25, type: 'pengetahuan' });
         setShowAdd(false);
         onRefresh();
@@ -2904,7 +2913,7 @@ function AssignmentsView({ materials, subjects, onRefresh }: { materials: Materi
 
     const handleDelete = async (id: string) => {
         if (!confirm('Hapus tugas ini?')) return;
-        await fetch(`/api/materials/${id}`, { method: 'DELETE' });
+        await deleteDoc(doc(db, 'materials', id));
         onRefresh();
     };
 
@@ -3610,11 +3619,7 @@ function PaymentsView({
     }, [initialStudentId]);
 
     const handleAddPayment = async () => {
-        await fetch('/api/payments', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newPayment)
-        });
+        await addDoc(collection(db, 'studentPayments'), newPayment);
         setShowAddPayment(false);
         setNewPayment({
             studentId: '',
@@ -3630,21 +3635,14 @@ function PaymentsView({
 
     const handleUpdatePayment = async () => {
         if (!editingPayment) return;
-        await fetch('/api/payments', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(editingPayment)
-        });
+        const { id, ...payload } = editingPayment as any;
+        await updateDoc(doc(db, 'studentPayments', id), payload);
         setEditingPayment(null);
         onRefresh();
     };
 
     const handleAddItem = async () => {
-        await fetch('/api/fee-items', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newItem)
-        });
+        await addDoc(collection(db, 'feeItems'), newItem);
         setShowAddItem(false);
         setNewItem({
             name: '',
@@ -3656,11 +3654,7 @@ function PaymentsView({
     };
 
     const handleAddDeposit = async () => {
-        await fetch('/api/school-deposits', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newSchoolDeposit)
-        });
+        await addDoc(collection(db, 'schoolDeposits'), newSchoolDeposit);
         setShowAddDeposit(false);
         setNewSchoolDeposit({
             classId: '',
@@ -4396,11 +4390,9 @@ function ClassCashView({
 
         if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
 
-        await fetch('/api/class-cash', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entries)
-        });
+        for (const entry of entries) {
+            await addDoc(collection(db, 'classCashTransactions'), entry);
+        }
 
         onRefresh();
         setShowRangeModal(false);
@@ -4422,11 +4414,9 @@ function ClassCashView({
 
         if (entries.length === 0) return alert('Input nominal terlebih dahulu');
 
-        await fetch('/api/class-cash', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entries)
-        });
+        for (const entry of entries) {
+            await addDoc(collection(db, 'classCashTransactions'), entry);
+        }
 
         setStudentAmounts({});
         onRefresh();
@@ -4860,11 +4850,7 @@ function SavingsView({
     });
 
     const handleAddTransaction = async () => {
-        await fetch('/api/savings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newTransaction)
-        });
+        await addDoc(collection(db, 'savingsTransactions'), newTransaction);
         setShowForm(false);
         setNewTransaction({
             studentId: '',
@@ -5181,11 +5167,9 @@ function MonthlyClassCashView({
             };
         });
 
-        await fetch('/api/class-cash', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entries)
-        });
+        for (const entry of entries) {
+            await addDoc(collection(db, 'classCashTransactions'), entry);
+        }
 
         setEdits({});
         onRefresh();
@@ -5334,11 +5318,7 @@ function LedgerClassCashView({
             notes: expense.notes
         };
 
-        await fetch('/api/class-cash', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entry)
-        });
+        await addDoc(collection(db, 'classCashTransactions'), entry);
 
         setExpense({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
         setShowAddForm(false);
@@ -5470,18 +5450,21 @@ function AcademicView({
         }
     }, [filteredStudents, selectedStudentId]);
 
+    const loadAcademicRecords = async () => {
+        const snap = await getDocs(collection(db, 'academicRecords'));
+        return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    };
+
     useEffect(() => {
         if (selectedStudentId) {
-            fetch(`/api/academic-records`)
-                .then(res => res.json())
-                .then(data => {
-                    const rec = data.find((r: any) => r.studentId === selectedStudentId);
-                    if (rec) {
-                        setRecord({ ...rec, tka: rec.tka ?? '' });
-                    } else {
-                        setRecord({ studentId: selectedStudentId, rapot: [], prestasi: [], ijazah: [], tka: '' });
-                    }
-                });
+            loadAcademicRecords().then(data => {
+                const rec = data.find((r: any) => r.studentId === selectedStudentId);
+                if (rec) {
+                    setRecord({ ...rec, tka: rec.tka ?? '' });
+                } else {
+                    setRecord({ studentId: selectedStudentId, rapot: [], prestasi: [], ijazah: [], tka: '' });
+                }
+            });
         }
     }, [selectedStudentId]);
 
@@ -5517,11 +5500,7 @@ function AcademicView({
         if (validationErrors.length > 0) {
             return alert('Terdapat kesalahan pada data yang diisi. Pastikan semua nilai berada dalam batas yang benar (misalnya 0-100).');
         }
-        await fetch('/api/academic-records', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(record)
-        });
+        await setDoc(doc(db, 'academicRecords', record.studentId), { ...record, studentId: record.studentId });
         alert('Data Akademik Berhasil Disimpan');
     };
 
@@ -5546,8 +5525,7 @@ function AcademicView({
 
     const handleExportCSV = async () => {
         // Export Data Akademik Semua Siswa di Kelas Ini
-        const res = await fetch(`/api/academic-records`);
-        const data = await res.json();
+        const data = await loadAcademicRecords();
 
         // Header format:
         let csv = 'ID Siswa,Nama Siswa,TKA,';
@@ -5596,8 +5574,7 @@ function AcademicView({
             const lines = text.split('\n');
 
             const newRecords = [];
-            const res = await fetch(`/api/academic-records`);
-            const existing = await res.json();
+            const existing = await loadAcademicRecords();
 
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
@@ -5637,17 +5614,14 @@ function AcademicView({
                 });
             }
 
-            // Save all to backend (Sequentially for simplicity or a custom endpoint)
+            // Save all records to Supabase
             for (const rec of newRecords) {
-                await fetch('/api/academic-records', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(rec)
-                });
+                await setDoc(doc(db, 'academicRecords', rec.studentId), { ...rec, studentId: rec.studentId });
             }
 
-            alert('Import berhasil! Refresh halaman untuk memuat ulang data.');
-            window.location.reload();
+            alert('Import berhasil!');
+            const selected = newRecords.find((r: any) => r.studentId === selectedStudentId);
+            if (selected) setRecord({ ...selected, tka: selected.tka ?? '' });
         };
         reader.readAsText(file);
     };
@@ -6600,11 +6574,7 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
 
     const handleSave = async () => {
         setSaving(true);
-        await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-        });
+        await setDoc(doc(db, 'settings', 'global'), formData);
         setSaving(false);
         onSettingsSaved();
         alert('Pengaturan berhasil disimpan!');
