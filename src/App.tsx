@@ -163,27 +163,44 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 } catch (e) {
                     console.error(`Error fetching collection ${colName}:`, e);
-                    throw e;
+                    return null;
                 }
             };
 
-            const [
-                studentsData, classesData, subjectsData, materialsData, gradesData,
-                attendanceData, feeItemsData, paymentsData, savingsData,
-                classCashData, schoolDepositsData
-            ] = await Promise.all([
-                getCollectionData('students'),
-                getCollectionData('classes'),
-                getCollectionData('subjects'),
-                getCollectionData('materials'),
-                getCollectionData('grades'),
-                getCollectionData('attendance'),
-                getCollectionData('feeItems'),
-                getCollectionData('studentPayments'),
-                getCollectionData('savingsTransactions'),
-                getCollectionData('classCashTransactions'),
-                getCollectionData('schoolDeposits')
-            ]);
+            const collectionNames = [
+                'students',
+                'classes',
+                'subjects',
+                'materials',
+                'grades',
+                'attendance',
+                'feeItems',
+                'studentPayments',
+                'savingsTransactions',
+                'classCashTransactions',
+                'schoolDeposits'
+            ] as const;
+
+            const collectionResults = await Promise.all(
+                collectionNames.map(async (name) => [name, await getCollectionData(name)] as const)
+            );
+
+            const dataMap: Record<string, any[]> = {};
+            collectionResults.forEach(([name, data]) => {
+                dataMap[name] = Array.isArray(data) ? data : [];
+            });
+
+            const studentsData = dataMap.students;
+            const classesData = dataMap.classes;
+            const subjectsData = dataMap.subjects;
+            const materialsData = dataMap.materials;
+            const gradesData = dataMap.grades;
+            const attendanceData = dataMap.attendance;
+            const feeItemsData = dataMap.feeItems;
+            const paymentsData = dataMap.studentPayments;
+            const savingsData = dataMap.savingsTransactions;
+            const classCashData = dataMap.classCashTransactions;
+            const schoolDepositsData = dataMap.schoolDeposits;
 
             // Seed initial data if students collection is empty
             if (studentsData.length === 0) {
@@ -219,7 +236,10 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
             setClassCash(classCashData as ClassCashTransaction[]);
             setSchoolDeposits(schoolDepositsData as SchoolDeposit[]);
 
-            const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+            let settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+            if (!settingsDoc.exists()) {
+                settingsDoc = await getDoc(doc(db, 'settings', 'default'));
+            }
             if (settingsDoc.exists()) {
                 const settingsData = settingsDoc.data() as AppSettings;
                 setAppSettings(settingsData);
