@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+    --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+    --color-bg: #f8fafc;
+    --color-sidebar-bg: #1e293b;
+    --color-accent: var(--color-accent, #3b82f6);
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #64748b;
+    --color-card-bg: #ffffff;
+    --color-border: #e2e8f0;
+    --color-success: #10b981;
+}
+
+:root {
+    --color-accent: #3b82f6;
+    --print-margin: 20mm;
+    --print-margin-page: 20mm;
+}
+
+/* Custom modern scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent);
+}
+
+@layer base {
+    body {
+        @apply bg-bg text-text-primary font-sans antialiased;
+    }
+}
+
+@layer components {
+    .btn-primary {
+        @apply bg-slate-900 text-yellow-400 font-extrabold py-3.5 px-7 rounded-xl shadow-xl shadow-slate-900/30 hover:bg-slate-950 hover:shadow-2xl hover:scale-[1.02] active:scale-95 transition-all duration-300 uppercase tracking-widest text-[11px] flex items-center justify-center gap-2 border border-slate-800;
+    }
+
+    .btn-secondary {
+        @apply bg-white text-slate-900 border-2 border-slate-900 font-black py-3.5 px-7 rounded-xl hover:bg-slate-50 transition-all text-[11px] uppercase tracking-widest flex items-center justify-center gap-2;
+    }
+
+    .btn-small {
+        @apply px-4 py-2 rounded-lg font-extrabold text-[11px] uppercase tracking-wider transition-all disabled:opacity-50 inline-flex items-center gap-2 bg-slate-800 text-white hover:bg-slate-900 shadow-md;
+    }
+
+    .card {
+        @apply bg-white p-6 rounded-3xl border border-border shadow-soft hover:shadow-hover transition-all duration-500;
+    }
+
+    .stat-label {
+        @apply text-[11px] font-extrabold uppercase tracking-widest text-slate-500 mb-1.5 flex items-center gap-1.5;
+    }
+
+    .stat-value {
+        @apply text-2xl font-black tracking-tighter text-slate-900;
+    }
+
+    .nav-item {
+        @apply relative flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-slate-400 hover:text-white font-bold text-sm;
+    }
+
+    .nav-item-active {
+        @apply bg-slate-700 text-yellow-400 shadow-sm ring-1 ring-slate-600;
+    }
+
+    .status-pill {
+        @apply px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-600;
+    }
+
+    .data-table {
+        @apply w-full border-collapse text-left;
+    }
+
+    .data-table th {
+        @apply text-[10px] font-bold uppercase tracking-widest text-slate-600 py-4 px-4 border-b border-border bg-slate-100 sticky top-0 z-10;
+    }
+
+    .data-table td {
+        @apply py-4 px-4 border-b border-border text-sm transition-all;
+    }
+
+    .data-table tr:hover td {
+        @apply bg-accent/[0.02];
+    }
+
+    .input-field {
+        @apply w-full bg-slate-50 border border-border rounded-xl px-4 py-3 outline-none focus:border-accent hover:border-slate-300 transition-all font-medium text-sm;
+    }
+
+    .table-container {
+        @apply overflow-x-auto relative rounded-2xl border border-border bg-white scroll-smooth;
+    }
+}
+
+@theme {
+    --shadow-soft: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --shadow-hover: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+}
+
+@media print {
+    .no-print {
+        display: none !important;
+    }
+
+    body {
+        background-color: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .card {
+        border: none !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+    }
+
+    .print-header {
+        display: block !important;
+        text-align: center;
+        margin-bottom: 20px;
+        border-bottom: 2px solid black;
+        padding-bottom: 10px;
+    }
+
+    .print-container {
+        padding: var(--print-margin, 20mm) !important;
+    }
+
+    @page {
+        size: auto;
+        margin: var(--print-margin-page, 20mm);
+    }
+}
+
+.print-header {
+    display: none;
+}

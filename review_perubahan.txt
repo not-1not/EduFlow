@@ -1,0 +1,32 @@
+REVIEW PERUBAHAN APLIKASI EDUFLOW
+Tanggal: 2026-04-22
+
+1. Perubahan Metode Login:
+   - Menghapus ketergantungan pada Firebase Google Auth.
+   - Mengimplementasikan sistem login berbasis Username dan Password.
+   - Login sekarang menggunakan API lokal (/api/login) di server.ts.
+   - Akses Default:
+     * Admin: admin / admin
+     * Siswa: NISN / 12345
+
+2. Pembersihan File & Folder:
+   - Membuat folder "delete" di root direktori.
+   - Memindahkan file-file konfigurasi Firebase yang tidak diperlukan lagi ke dalam folder "delete":
+     * firebase-applet-config.json
+     * firestore.rules
+     * src/firebase.ts (file asli)
+
+3. Refaktorisasi Database/Data:
+   - Membuat file src/firebase.ts baru yang berfungsi sebagai "Mock/Wrapper".
+   - Semua fungsi Firestore (collection, getDocs, updateDoc, dll.) sekarang diarahkan ke API lokal di server.ts.
+   - Hal ini memungkinkan aplikasi tetap berjalan tanpa perubahan besar pada kode UI, namun data kini tersimpan di memori server lokal.
+
+4. Pembaruan Server (server.ts):
+   - Menambahkan endpoint POST /api/login untuk verifikasi kredensial.
+   - Menambahkan endpoint CRUD untuk koleksi "users".
+   - Menambahkan data awal (mock data) untuk pengguna demo.
+
+5. Peningkatan UI Login:
+   - Desain ulang halaman login dengan form input modern (Username & Password).
+   - Menghilangkan tombol Google Login.
+   - Menambahkan informasi bantuan akses demo di halaman login.
