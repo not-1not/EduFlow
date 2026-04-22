@@ -1697,6 +1697,7 @@ function StatCard({ title, value, change, icon, iconColor = "text-accent" }: { t
 function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, currentSort, sortedData, SortableTH }: { students: Student[], classes: Class[], onRefresh: () => void, onViewProfile: (id: string) => void, onSort: (k: string) => void, currentSort: any, sortedData: any, SortableTH: any }) {
     const [filter, setFilter] = useState('');
     const [showImport, setShowImport] = useState(false);
+    const [fileName, setFileName] = useState('');
     const [showAdd, setShowAdd] = useState(false);
     const [editingStudent, setEditingStudent] = useState<Student | null>(null);
     const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -1816,20 +1817,33 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
         }
     };
 
-    const handleImport = async () => {
-        const parseCSVRow = (text: string) => {
-            let p = '', row = [''], i = 0, s = true;
-            for (let l of text) {
-                if ('"' === l) {
-                    if (s && l === p) row[i] += l;
-                    s = !s;
-                } else if (',' === l && s) { l = row[++i] = ''; }
-                else row[i] += l;
-                p = l;
-            }
-            return row;
-        };
+    const parseCSVRow = (text: string) => {
+        let p = '', row = [''], i = 0, s = true;
+        for (let l of text) {
+            if ('"' === l) {
+                if (s && l === p) row[i] += l;
+                s = !s;
+            } else if (',' === l && s) { l = row[++i] = ''; }
+            else row[i] += l;
+            p = l;
+        }
+        return row;
+    };
 
+    const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result as string;
+            setImportText(text);
+            setFileName(file.name);
+        };
+        reader.readAsText(file);
+    };
+
+    const handleImport = async () => {
         const lines = importText.split('\n').filter(l => l.trim());
         let dataLines = lines;
         
@@ -1894,6 +1908,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
             await Promise.all(importPromises);
             setImportText('');
             setShowImport(false);
+            setFileName('');
             onRefresh();
         } catch (error) {
             console.error("Error importing students:", error);
@@ -1934,7 +1949,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                     <button onClick={() => setShowAdd(true)} className="btn-small flex items-center gap-2">
                         <UserPlus size={14} /> Input Data
                     </button>
-                    <button onClick={() => setShowImport(true)} className="btn-primary flex items-center gap-2">
+                    <button onClick={() => { setShowImport(true); setImportText(''); setFileName(''); }} className="btn-primary flex items-center gap-2">
                         <Upload size={16} /> Import Siswa
                     </button>
                 </div>
@@ -2108,9 +2123,25 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                     <div className="bg-white rounded-2xl p-8 max-w-2xl w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold">Import Siswa Masal</h3>
-                            <button onClick={() => setShowImport(false)}><X size={20} /></button>
+                            <button onClick={() => { setShowImport(false); setFileName(''); }}><X size={20} /></button>
                         </div>
-                        <p className="text-sm text-text-secondary mb-4">Paste data siswa (No Absen, Nama, NISN, NIS, Jenis Kelamin, Tempat dan Tanggal Lahir, NIK, NKK, Agama, Alamat, Nama Orang tua Ayah dan Ibu, No Telp, Email, Rombel, Tinggi Badan, Berat Badan, Catatan) pisahkan dengan koma per baris.</p>
+                        <div className="mb-4 p-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-accent transition-colors">
+                            <input
+                                type="file"
+                                accept=".csv"
+                                onChange={handleFileImport}
+                                className="hidden"
+                                id="csv-file-input"
+                            />
+                            <label htmlFor="csv-file-input" className="flex flex-col items-center cursor-pointer">
+                                <FileSpreadsheet size={32} className="text-slate-400 mb-2" />
+                                <span className="text-sm font-bold text-slate-600">
+                                    {fileName ? fileName : 'Klik untuk upload file CSV'}
+                                </span>
+                                <span className="text-xs text-slate-400 mt-1">atau paste data di bawah</span>
+                            </label>
+                        </div>
+                        <p className="text-sm text-text-secondary mb-4">ATAU: Paste data siswa (No Absen, Nama, NISN, NIS, Jenis Kelamin, Tempat dan Tanggal Lahir, NIK, NKK, Agama, Alamat, Nama Orang tua Ayah dan Ibu, No Telp, Email, Rombel, Tinggi Badan, Berat Badan, Catatan) pisahkan dengan koma per baris.</p>
                         <textarea
                             className="w-full h-48 bg-slate-50 border border-border rounded-lg p-4 font-mono text-sm outline-none focus:border-accent mb-6"
                             placeholder="No Absen,Nama,NISN,NIS,Jenis Kelamin,Tempat dan Tanggal Lahir,NIK,NKK,Agama,Alamat,Nama Orang tua Ayah dan Ibu,No Telp,Email,Rombel,Tinggi Badan,Berat Badan,Catatan&#10;1,Budi Santoso,1234567890,1234,L,Jakarta\, 01-01-2005,327123,327123,Islam,Jl. Mawar No 1,Ayah: Budi | Ibu: Siti,08123456789,budi@email.com,X IPA 1,170,60,Siswa Aktif"
@@ -2118,7 +2149,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                             onChange={e => setImportText(e.target.value)}
                         />
                         <div className="flex justify-end gap-3">
-                            <button onClick={() => setShowImport(false)} className="px-6 py-2 border border-border rounded-xl font-bold">Batal</button>
+                            <button onClick={() => { setShowImport(false); setFileName(''); }} className="px-6 py-2 border border-border rounded-xl font-bold">Batal</button>
                             <button onClick={handleImport} className="btn-primary px-8">Proses Import</button>
                         </div>
                     </div>
