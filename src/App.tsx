@@ -1888,7 +1888,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                 gradeValue: parseFloat(gradeValue?.trim() || '0') || 0,
                 nisn: nisn?.trim() || '',
                 nis: nis?.trim() || '',
-                gender: (gender?.trim()?.charAt(0).toUpperCase() === 'P' ? 'P' : 'L') as 'L'|'P' || undefined,
+                gender: (gender?.trim() ? (gender.trim().charAt(0).toUpperCase() === 'P' ? 'P' : 'L') : undefined) as 'L'|'P' | undefined,
                 phone: phone?.trim() || '',
                 address: address?.trim() || '',
                 dusun: dusun?.trim() || '',

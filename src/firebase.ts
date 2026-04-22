@@ -12,18 +12,26 @@ export const supabase = supabaseUrl && supabaseAnonKey
 export const db = supabase;
 
 export const collection = (db: any, name: string) => {
-    return { type: 'collection', name };
+    return { name: name, collectionName: name };
 };
 
 export const doc = (db: any, colName: string, id: string) => {
-    return { type: 'doc', collection: colName, id };
+    return { collection: colName, name: colName, id: id };
 };
 
 // Generic adapter to translate "firebase-like" gets to Supabase
 export const getDocs = async (queryObject: any) => {
     if (!supabase) throw new Error("Supabase is not configured.");
     
-    let colName = queryObject.collectionName || queryObject.name;
+    // Support both collection(db, name) and { name: string } formats
+    let colName = queryObject.name || queryObject.collectionName || queryObject;
+    if (!colName) {
+        console.error("Invalid queryObject:", queryObject);
+        throw new Error("Invalid collection name");
+    }
+    
+    console.log("Fetching from Supabase:", colName);
+    
     let queryBuilder = supabase.from(colName).select('*');
     
     // Apply where clauses if queryObject is a query
@@ -44,6 +52,9 @@ export const getDocs = async (queryObject: any) => {
         throw error;
     }
 
+    console.log("Supabase data received:", colName, data?.length || 0, "records");
+
+    // Return in firebase-like format: { docs: [{ id, data: () => {...} }] }
     const docs = data ? data.map((item: any) => ({
         id: item.id || '',
         data: () => item
@@ -60,7 +71,12 @@ export const getDocs = async (queryObject: any) => {
 export const getDoc = async (document: any) => {
     if (!supabase) throw new Error("Supabase is not configured.");
     
-    const { data, error } = await supabase.from(document.collection).select('*').eq('id', document.id).single();
+    const colName = document?.collection || document?.name || document;
+    const docId = document?.id;
+    
+    console.log("Fetching single doc:", colName, docId);
+    
+    const { data, error } = await supabase.from(colName).select('*').eq('id', docId).single();
     
     if (error || !data) {
         return {
@@ -80,8 +96,13 @@ export const addDoc = async (col: any, data: any) => {
     const newId = Math.random().toString(36).substr(2, 9);
     const payload = { ...data, id: newId };
     
-    const { data: inserted, error } = await supabase.from(col.name).insert([payload]).select().single();
-    if (error) throw error;
+    console.log("Adding to Supabase:", col?.name, payload);
+    
+    const { data: inserted, error } = await supabase.from(col?.name || col).insert([payload]).select().single();
+    if (error) {
+        console.error("Supabase Insert Error:", error);
+        throw error;
+    }
     
     return { id: newId };
 };
@@ -89,25 +110,47 @@ export const addDoc = async (col: any, data: any) => {
 export const setDoc = async (document: any, data: any) => {
     if (!supabase) throw new Error("Supabase is not configured.");
     
-    const payload = { ...data, id: document.id };
-    const { data: updated, error } = await supabase.from(document.collection).upsert(payload).select().single();
-    if (error) throw error;
+    const payload = { ...data, id: document?.id };
+    
+    console.log("Upserting to Supabase:", document?.collection || document?.name, payload);
+    
+    const { data: updated, error } = await supabase.from(document?.collection || document?.name || document).upsert(payload).select().single();
+    if (error) {
+        console.error("Supabase Upsert Error:", error);
+        throw error;
+    }
     return updated;
 };
 
 export const updateDoc = async (document: any, data: any) => {
     if (!supabase) throw new Error("Supabase is not configured.");
     
-    const { data: updated, error } = await supabase.from(document.collection).update(data).eq('id', document.id).select().single();
-    if (error) throw error;
+    const colName = document?.collection || document?.name || document;
+    const docId = document?.id;
+    
+    console.log("Updating in Supabase:", colName, docId, data);
+    
+    const { data: updated, error } = await supabase.from(colName).update(data).eq('id', docId).select().single();
+    if (error) {
+        console.error("Supabase Update Error:", error);
+        throw error;
+    }
     return updated;
 };
 
 export const deleteDoc = async (document: any) => {
     if (!supabase) throw new Error("Supabase is not configured.");
     
-    const { error } = await supabase.from(document.collection).delete().eq('id', document.id);
-    if (error) throw error;
+    const colName = document?.collection || document?.name || document;
+    const docId = document?.id;
+    
+    console.log("Deleting from Supabase:", colName, docId);
+    
+    const { error } = await supabase.from(colName).delete().eq('id', docId);
+    if (error) {
+        console.error("Supabase Delete Error:", error);
+        throw error;
+    }
     return { status: 'success' };
 };
 
