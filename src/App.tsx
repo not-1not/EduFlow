@@ -1897,19 +1897,23 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
         });
 
         try {
-            const importPromises = newStudents.map(s => {
+            for (const s of newStudents) {
                 const { id, ...studentData } = s;
-                if (id) {
-                    return setDoc(doc(db, 'students', id), studentData, { merge: true });
-                } else {
-                    return addDoc(collection(db, 'students'), { ...studentData, attendance: 100, gradeValue: 0 });
+                try {
+                    if (id && id.length > 0) {
+                        await setDoc(doc(db, 'students', id), studentData);
+                    } else {
+                        await addDoc(collection(db, 'students'), { ...studentData, attendance: 100, gradeValue: 0 });
+                    }
+                } catch (err) {
+                    console.error("Error saving student:", s.name, err);
                 }
-            });
-            await Promise.all(importPromises);
+            }
             setImportText('');
             setShowImport(false);
             setFileName('');
             onRefresh();
+            alert("Import berhasil!");
         } catch (error) {
             console.error("Error importing students:", error);
             alert("Gagal mengimpor data.");
