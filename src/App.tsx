@@ -60,7 +60,7 @@ import {
     LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc } from './firebase';
+import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 
@@ -2889,14 +2889,35 @@ function AttendanceView({
         return matches.length ? matches[matches.length - 1] : undefined;
     };
 
+    const saveAttendanceAdaptive = async (entry: { studentId: string; date: string; status: AttendanceStatus }) => {
+        if (!supabase) throw new Error('Supabase belum terkonfigurasi.');
+
+        const basePayload = {
+            id: `${entry.studentId}_${entry.date}`,
+            studentId: entry.studentId,
+            date: entry.date,
+            status: entry.status
+        };
+
+        // First try with classId (for schemas requiring this column), then fallback without classId.
+        const withClassPayload: any = { ...basePayload, classId: selectedClassId };
+        let { error } = await supabase.from('attendance').upsert(withClassPayload, { onConflict: 'id' });
+
+        if (error) {
+            const message = String(error.message || '').toLowerCase();
+            const classIdColumnIssue = message.includes('classid') || message.includes('column') || message.includes('schema cache');
+            if (classIdColumnIssue) {
+                const retry = await supabase.from('attendance').upsert(basePayload, { onConflict: 'id' });
+                error = retry.error;
+            }
+        }
+
+        if (error) throw error;
+    };
+
     const upsertAttendanceEntries = async (entries: Array<{ studentId: string; date: string; status: AttendanceStatus }>) => {
         for (const entry of entries) {
-            const deterministicId = `${entry.studentId}_${entry.date}`;
-            await setDoc(doc(db, 'attendance', deterministicId), {
-                studentId: entry.studentId,
-                date: entry.date,
-                status: entry.status
-            });
+            await saveAttendanceAdaptive(entry);
         }
     };
 
@@ -2912,7 +2933,8 @@ function AttendanceView({
             onRefresh();
         } catch (error) {
             console.error('Error setting batch attendance:', error);
-            alert('Gagal menyimpan presensi massal.');
+            const msg = error instanceof Error ? error.message : String(error);
+            alert(`Gagal menyimpan presensi massal.\n${msg}`);
         }
     };
 
@@ -2922,7 +2944,8 @@ function AttendanceView({
             onRefresh();
         } catch (error) {
             console.error('Error setting attendance:', error);
-            alert('Gagal menyimpan status presensi.');
+            const msg = error instanceof Error ? error.message : String(error);
+            alert(`Gagal menyimpan status presensi.\n${msg}`);
         }
     };
 
