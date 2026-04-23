@@ -4012,13 +4012,13 @@ function PaymentsView({
 
     const [newPayment, setNewPayment] = useState({
         studentId: initialStudentId || '',
-        feeItemId: '',
         amountPaid: 0,
         paymentDate: new Date().toISOString().split('T')[0],
         paymentMethod: 'cash' as 'cash' | 'transfer' | 'bank',
         notes: '',
         isDeposit: false
     });
+    const [paymentItemAmounts, setPaymentItemAmounts] = useState<Record<string, number>>({});
 
     const [newItem, setNewItem] = useState({
         name: '',
@@ -4035,18 +4035,54 @@ function PaymentsView({
     }, [initialStudentId]);
 
     const handleAddPayment = async () => {
-        await addDoc(collection(db, 'studentPayments'), newPayment);
+        if (!newPayment.studentId) return alert('Pilih siswa terlebih dahulu');
+
+        const entries = feeItems
+            .map(item => ({
+                studentId: newPayment.studentId,
+                feeItemId: item.id,
+                amountPaid: Number(paymentItemAmounts[item.id] || 0),
+                paymentDate: newPayment.paymentDate,
+                paymentMethod: newPayment.paymentMethod,
+                notes: newPayment.notes,
+                isDeposit: false
+            }))
+            .filter(entry => entry.amountPaid > 0);
+
+        if (entries.length === 0) return alert('Isi minimal satu nominal pembayaran di atas 0');
+
+        for (const entry of entries) {
+            await addDoc(collection(db, 'studentPayments'), entry);
+        }
+
         setShowAddPayment(false);
         setNewPayment({
             studentId: '',
-            feeItemId: '',
             amountPaid: 0,
             paymentDate: new Date().toISOString().split('T')[0],
             paymentMethod: 'cash',
             notes: '',
             isDeposit: false
         });
+        setPaymentItemAmounts({});
         onRefresh();
+    };
+
+    const openAddPaymentModal = (studentId: string = '') => {
+        const defaultAmounts = feeItems.reduce((acc, item) => {
+            acc[item.id] = item.amount;
+            return acc;
+        }, {} as Record<string, number>);
+
+        setPaymentItemAmounts(defaultAmounts);
+        setNewPayment(prev => ({
+            ...prev,
+            studentId,
+            paymentDate: new Date().toISOString().split('T')[0],
+            paymentMethod: 'cash',
+            notes: ''
+        }));
+        setShowAddPayment(true);
     };
 
     const handleUpdatePayment = async () => {
@@ -4148,7 +4184,7 @@ function PaymentsView({
                     <button onClick={onOpenPrint} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 hidden sm:block">
                         <Printer size={18} />
                     </button>
-                    <button onClick={() => setShowAddPayment(true)} className="btn-primary flex items-center gap-2">
+                    <button onClick={() => openAddPaymentModal()} className="btn-primary flex items-center gap-2">
                         <Plus size={16} /> <span className="hidden sm:inline">Input Bayar</span>
                     </button>
                 </div>
@@ -4492,8 +4528,7 @@ function PaymentsView({
                             <div className="p-6 bg-white border-t border-border">
                                 <button
                                     onClick={() => {
-                                        setNewPayment(prev => ({ ...prev, studentId: detailStudentId || '' }));
-                                        setShowAddPayment(true);
+                                        openAddPaymentModal(detailStudentId || '');
                                     }}
                                     className="w-full btn-primary py-4 rounded-2xl flex items-center justify-center gap-3 font-bold uppercase tracking-widest text-xs"
                                 >
@@ -4595,23 +4630,55 @@ function PaymentsView({
                                 </div>
                             )}
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Item Biaya</label>
-                                <select
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Tanggal Bayar</label>
+                                <input
+                                    type="date"
                                     className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
-                                    value={newPayment.feeItemId}
-                                    onChange={e => setNewPayment({ ...newPayment, feeItemId: e.target.value })}
-                                >
-                                    <option value="">-- Item Wajib/Deposit --</option>
-                                    {feeItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                                </select>
+                                    value={newPayment.paymentDate}
+                                    onChange={e => setNewPayment({ ...newPayment, paymentDate: e.target.value })}
+                                />
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal (Rp)</label>
-                                <input
-                                    type="number"
-                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-accent"
-                                    value={newPayment.amountPaid}
-                                    onChange={e => setNewPayment({ ...newPayment, amountPaid: parseInt(e.target.value) })}
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Metode Pembayaran</label>
+                                <select
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
+                                    value={newPayment.paymentMethod}
+                                    onChange={e => setNewPayment({ ...newPayment, paymentMethod: e.target.value as 'cash' | 'transfer' | 'bank' })}
+                                >
+                                    <option value="cash">Tunai</option>
+                                    <option value="transfer">Transfer</option>
+                                    <option value="bank">Bank</option>
+                                </select>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal per Item (Bisa Diedit)</label>
+                                <div className="max-h-64 overflow-y-auto border border-border rounded-xl divide-y divide-border">
+                                    {feeItems.map(item => (
+                                        <div key={item.id} className="p-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-bold leading-tight">{item.name}</p>
+                                                <p className="text-[10px] uppercase text-text-secondary font-bold tracking-wider">{item.category}</p>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                className="w-36 bg-slate-50 border border-border rounded-lg p-2 outline-none font-bold text-accent text-right"
+                                                value={paymentItemAmounts[item.id] ?? item.amount}
+                                                onChange={e => setPaymentItemAmounts(prev => ({
+                                                    ...prev,
+                                                    [item.id]: parseInt(e.target.value) || 0
+                                                }))}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Catatan</label>
+                                <textarea
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent text-sm"
+                                    value={newPayment.notes}
+                                    onChange={e => setNewPayment({ ...newPayment, notes: e.target.value })}
+                                    placeholder="Opsional, akan disimpan pada semua item pembayaran."
                                 />
                             </div>
                             <button onClick={handleAddPayment} className="w-full btn-primary py-4 rounded-xl mt-4 font-bold">Simpan Transaksi</button>
@@ -7336,4 +7403,3 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
         </div>
     );
 }
-
