@@ -368,6 +368,8 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     classes={classes}
                     feeItems={feeItems}
                     payments={payments}
+                    classCash={classCash}
+                    holidays={holidays}
                     schoolDeposits={schoolDeposits}
                     onRefresh={fetchData}
                     onOpenPrint={() => setShowPrintModal(true)}
@@ -3980,6 +3982,8 @@ function PaymentsView({
     classes,
     feeItems,
     payments,
+    classCash,
+    holidays,
     schoolDeposits,
     onRefresh,
     onOpenPrint,
@@ -3994,6 +3998,8 @@ function PaymentsView({
     classes: Class[],
     feeItems: FeeItem[],
     payments: StudentPayment[],
+    classCash: ClassCashTransaction[],
+    holidays: Holiday[],
     schoolDeposits: SchoolDeposit[],
     onRefresh: () => void,
     onOpenPrint: () => void,
@@ -4011,6 +4017,8 @@ function PaymentsView({
     const [selectedClassId, setSelectedClassId] = useState('');
     const [detailStudentId, setDetailStudentId] = useState<string | null>(initialStudentId || null);
     const [editingPayment, setEditingPayment] = useState<StudentPayment | null>(null);
+    const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
+    const [savingExtraBills, setSavingExtraBills] = useState(false);
 
     const [newSchoolDeposit, setNewSchoolDeposit] = useState({
         classId: '',
@@ -4148,6 +4156,70 @@ function PaymentsView({
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+    };
+
+    const getCurrentMonthStr = () => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        return `${y}-${m}`;
+    };
+
+    const countTargetDays = (type: 'gemari' | 'infaq', monthStr: string) => {
+        const year = parseInt(monthStr.split('-')[0]);
+        const month = parseInt(monthStr.split('-')[1]) - 1;
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        let targetDays = 0;
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(year, month, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isHoliday = holidays.some(h => h.date === dateStr);
+            const dayOfWeek = d.getDay();
+            if (type === 'gemari') {
+                if (dayOfWeek !== 0 && !isHoliday) targetDays++;
+            } else {
+                if (dayOfWeek === 5 && !isHoliday) targetDays++;
+            }
+        }
+        return targetDays;
+    };
+
+    const getCashNominal = (type: 'gemari' | 'infaq') => type === 'gemari' ? 500 : 1000;
+
+    useEffect(() => {
+        if (!detailStudentId) return;
+        const st = students.find(s => s.id === detailStudentId);
+        setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
+    }, [detailStudentId, students]);
+
+    const addExtraBill = () => {
+        const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
+            ? (globalThis.crypto as any).randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        setExtraBills(prev => ([...(prev || []), { id, label: 'Tagihan Lain-lain', amount: 0 }]));
+    };
+
+    const updateExtraBill = (id: string, patch: Partial<NonNullable<Student['paymentExtraBills']>[number]>) => {
+        setExtraBills(prev => (prev || []).map(b => b.id === id ? ({ ...b, ...patch }) : b));
+    };
+
+    const removeExtraBill = (id: string) => {
+        setExtraBills(prev => (prev || []).filter(b => b.id !== id));
+    };
+
+    const saveExtraBills = async () => {
+        if (!detailStudentId) return;
+        setSavingExtraBills(true);
+        try {
+            const cleaned = (extraBills || [])
+                .map(b => ({ ...b, label: (b.label || '').trim(), amount: Number(b.amount) || 0 }))
+                .filter(b => b.label && b.amount >= 0);
+            await updateDoc(doc(db, 'students', detailStudentId), { paymentExtraBills: cleaned });
+            onRefresh();
+        } finally {
+            setSavingExtraBills(false);
+        }
     };
 
     const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
@@ -4514,6 +4586,118 @@ function PaymentsView({
                                         })()}
                                     </div>
                                 </div>
+
+                                {/* Tagihan Tambahan */}
+                                {(() => {
+                                    const st = students.find(s => s.id === detailStudentId);
+                                    if (!st) return null;
+
+                                    const monthStr = getCurrentMonthStr();
+                                    const [yy, mm] = monthStr.split('-').map(Number);
+                                    const monthLabel = new Date(yy, (mm || 1) - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+
+                                    const classId = String((st as any)?.classId || '');
+                                    const calc = (type: 'gemari' | 'infaq') => {
+                                        const nominal = getCashNominal(type);
+                                        const targetDays = countTargetDays(type, monthStr);
+                                        const target = targetDays * nominal;
+
+                                        const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
+                                        const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+                                        const targetReal = Math.max(0, target - (bebasDates.size * nominal));
+
+                                        const paid = monthTx
+                                            .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
+                                            .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
+                                            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+                                        const kurang = Math.max(0, targetReal - paid);
+                                        return { nominal, targetDays, bebasDays: bebasDates.size, targetReal, paid, kurang };
+                                    };
+
+                                    const gemari = calc('gemari');
+                                    const infaq = calc('infaq');
+                                    const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+                                    const totalAdditional = gemari.kurang + infaq.kurang + otherTotal;
+
+                                    return (
+                                        <div className="space-y-4">
+                                            <div className="flex items-end justify-between">
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
+                                                    <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
+                                                </div>
+                                                <button onClick={addExtraBill} className="btn-small">+ Lain-lain</button>
+                                            </div>
+
+                                            <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari</div>
+                                                        <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)} {gemari.bebasDays ? `(- bebas setor ${gemari.bebasDays} hari)` : ''}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-xs font-black text-red-500">{formatCurrency(gemari.kurang)}</div>
+                                                        <div className="text-[10px] text-slate-400">Setor: {formatCurrency(gemari.paid)}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Infaq Jumat</div>
+                                                        <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)} {infaq.bebasDays ? `(- bebas setor ${infaq.bebasDays} Jumat)` : ''}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-xs font-black text-red-500">{formatCurrency(infaq.kurang)}</div>
+                                                        <div className="text-[10px] text-slate-400">Setor: {formatCurrency(infaq.paid)}</div>
+                                                    </div>
+                                                </div>
+
+                                                {(extraBills || []).length > 0 && (
+                                                    <div className="pt-2 border-t border-border space-y-2">
+                                                        {(extraBills || []).map(b => (
+                                                            <div key={b.id} className="flex gap-2 items-center">
+                                                                <input
+                                                                    className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
+                                                                    value={b.label}
+                                                                    onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
+                                                                    placeholder="Nama tagihan lain-lain"
+                                                                />
+                                                                <input
+                                                                    type="number"
+                                                                    className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
+                                                                    value={Number(b.amount) || 0}
+                                                                    onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
+                                                                    min={0}
+                                                                />
+                                                                <button
+                                                                    onClick={() => removeExtraBill(b.id)}
+                                                                    className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
+                                                                    title="Hapus tagihan lain-lain"
+                                                                    aria-label="Hapus tagihan lain-lain"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                <div className="pt-3 border-t border-border flex items-center justify-between">
+                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
+                                                    <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                </div>
+
+                                                <button
+                                                    onClick={saveExtraBills}
+                                                    disabled={savingExtraBills}
+                                                    className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
+                                                >
+                                                    {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Detailed History */}
                                 <div className="space-y-4">

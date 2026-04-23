@@ -39,6 +39,11 @@ export interface Student {
     distanceToSchool?: number;
     attendanceNumber?: number;
     notes?: string;
+    paymentExtraBills?: Array<{
+        id: string;
+        label: string;
+        amount: number;
+    }>;
 }
 
 export interface Subject {
