@@ -112,6 +112,12 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
         { id: '5', type: 'cash_flow', title: 'Arus Kas Kelas', isVisible: true, order: 4 },
     ]);
 
+    useEffect(() => {
+        if (role === 'student' && currentView !== 'student-dashboard') {
+            setCurrentView('student-dashboard');
+        }
+    }, [role, currentView]);
+
     const handleSort = (key: string) => {
         let direction: 'asc' | 'desc' = 'asc';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -168,15 +174,79 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
             setDataLoading(true);
             await fetchHolidays();
 
-            const getCollectionData = async (colName: string) => {
+            const getCollectionData = async (colNameOrQuery: any, debugName?: string) => {
                 try {
-                    const snap = await getDocs(collection(db, colName));
+                    const snap = await getDocs(typeof colNameOrQuery === 'string' ? collection(db, colNameOrQuery) : colNameOrQuery);
                     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 } catch (e) {
-                    console.error(`Error fetching collection ${colName}:`, e);
+                    console.error(`Error fetching collection ${debugName || colNameOrQuery}:`, e);
                     return null;
                 }
             };
+
+            // Student account: only load related student data (privacy)
+            if (role === 'student' && studentId) {
+                const studentSnap = await getDoc(doc(db, 'students', String(studentId)));
+                const me = studentSnap.exists()
+                    ? ({ id: String(studentId), ...studentSnap.data() } as any)
+                    : null;
+
+                const classesData = (await getCollectionData('classes', 'classes')) || [];
+                const feeItemsData = (await getCollectionData('feeItems', 'feeItems')) || [];
+
+                const gradesData = (await getCollectionData(
+                    query(collection(db, 'grades'), where('studentId', '==', String(studentId))),
+                    'grades(studentId)'
+                )) || [];
+                const attendanceData = (await getCollectionData(
+                    query(collection(db, 'attendance'), where('studentId', '==', String(studentId))),
+                    'attendance(studentId)'
+                )) || [];
+                const paymentsData = (await getCollectionData(
+                    query(collection(db, 'studentPayments'), where('studentId', '==', String(studentId))),
+                    'studentPayments(studentId)'
+                )) || [];
+                const savingsData = (await getCollectionData(
+                    query(collection(db, 'savingsTransactions'), where('studentId', '==', String(studentId))),
+                    'savingsTransactions(studentId)'
+                )) || [];
+
+                const myClassCash = (await getCollectionData(
+                    query(collection(db, 'classCashTransactions'), where('studentId', '==', String(studentId))),
+                    'classCashTransactions(studentId)'
+                )) || [];
+
+                const bebasSetor = me?.classId ? ((await getCollectionData(
+                    query(collection(db, 'classCashTransactions'), where('classId', '==', String(me.classId)), where('amount', '==', 0)),
+                    'classCashTransactions(classId,amount=0)'
+                )) || []) : [];
+
+                const uniq: Record<string, boolean> = {};
+                const mergedClassCash = [...myClassCash, ...bebasSetor].filter((t: any) => {
+                    if (!t?.id) return true;
+                    if (uniq[t.id]) return false;
+                    uniq[t.id] = true;
+                    return true;
+                });
+
+                setStudents(me ? [me as Student] : []);
+                setClasses(classesData as Class[]);
+                setSubjects([]);
+                setMaterials([]);
+                setGrades(gradesData as Grade[]);
+                setAttendanceRecords(attendanceData as AttendanceRecord[]);
+                setFeeItems(feeItemsData as FeeItem[]);
+                setPayments(paymentsData as StudentPayment[]);
+                setSavings(savingsData as SavingsTransaction[]);
+                setClassCash(mergedClassCash as ClassCashTransaction[]);
+                setSchoolDeposits([]);
+
+                // Settings still apply (theme, visibility)
+                const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+                if (settingsDoc.exists()) setAppSettings(settingsDoc.data() as AppSettings);
+
+                return;
+            }
 
             const collectionNames = [
                 'students',
@@ -331,6 +401,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     classCash={classCash}
                     feeItems={feeItems}
                     classes={classes}
+                    holidays={holidays}
                 />;
             case 'dashboard':
                 return <DashboardView
@@ -483,9 +554,9 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     <NavItem
                         icon={<LayoutDashboard size={20} />}
                         label="Beranda"
-                        active={currentView === 'dashboard'}
+                        active={role === 'student' ? currentView === 'student-dashboard' : currentView === 'dashboard'}
                         collapsed={isSidebarCollapsed}
-                        onClick={() => { setCurrentView('dashboard'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                        onClick={() => { setCurrentView(role === 'student' ? 'student-dashboard' : 'dashboard'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                     />
                     {role === 'admin' && (
                         <NavItem
@@ -497,7 +568,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         />
                     )}
 
-                    {!isSidebarCollapsed && <div className="px-4 pt-4 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Akademik</div>}
+                    {role === 'admin' && !isSidebarCollapsed && <div className="px-4 pt-4 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Akademik</div>}
                     {role === 'admin' && (
                         <>
                             <NavItem
@@ -523,18 +594,20 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             />
                         </>
                     )}
-                    <NavItem
-                        icon={<User size={20} />}
-                        label="Manajemen Akun"
-                        active={currentView === 'users'}
-                        collapsed={isSidebarCollapsed}
-                        onClick={() => { setCurrentView('users'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
-                    />
+                    {role === 'admin' && (
+                        <NavItem
+                            icon={<User size={20} />}
+                            label="Manajemen Akun"
+                            active={currentView === 'users'}
+                            collapsed={isSidebarCollapsed}
+                            onClick={() => { setCurrentView('users'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                        />
+                    )}
 
-                    {!isSidebarCollapsed && (appSettings?.features?.enableAttendance || appSettings?.features?.enablePayments || appSettings?.features?.enableSavings) && (
+                    {role === 'admin' && !isSidebarCollapsed && (appSettings?.features?.enableAttendance || appSettings?.features?.enablePayments || appSettings?.features?.enableSavings) && (
                         <div className="px-4 pt-4 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Administrasi</div>
                     )}
-                    {(!appSettings?.features || appSettings.features.enableAttendance) && (
+                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableAttendance) && (
                         <NavItem
                             icon={<CalendarCheck size={20} />}
                             label="Presensi"
@@ -543,7 +616,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             onClick={() => { setCurrentView('attendance'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
-                    {(!appSettings?.features || appSettings.features.enablePayments) && (
+                    {role === 'admin' && (!appSettings?.features || appSettings.features.enablePayments) && (
                         <NavItem
                             icon={<CreditCard size={20} />}
                             label="Pembayaran"
@@ -552,7 +625,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             onClick={() => { setCurrentView('payments'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
-                    {(!appSettings?.features || appSettings.features.enableSavings) && (
+                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableSavings) && (
                         <NavItem
                             icon={<Wallet size={20} />}
                             label="Tabungan"
@@ -561,7 +634,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             onClick={() => { setCurrentView('savings'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
-                    {(!appSettings?.features || appSettings.features.enableClassCash) && (
+                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableClassCash) && (
                         <NavItem
                             icon={<Coins size={20} />}
                             label="KAS Kelas"
@@ -570,7 +643,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             onClick={() => { setCurrentView('class-cash'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
-                    {(!appSettings?.features || appSettings.features.enableAcademic) && (
+                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableAcademic) && (
                         <NavItem
                             icon={<FileSpreadsheet size={20} />}
                             label="Akademik & Ijazah"
@@ -579,13 +652,15 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             onClick={() => { setCurrentView('academic'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
-                    <NavItem
-                        icon={<Settings size={20} />}
-                        label="Pengaturan"
-                        active={currentView === 'settings'}
-                        collapsed={isSidebarCollapsed}
-                        onClick={() => { setCurrentView('settings'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
-                    />
+                    {role === 'admin' && (
+                        <NavItem
+                            icon={<Settings size={20} />}
+                            label="Pengaturan"
+                            active={currentView === 'settings'}
+                            collapsed={isSidebarCollapsed}
+                            onClick={() => { setCurrentView('settings'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                        />
+                    )}
                     <button
                         id="logout-button"
                         onClick={logout}
@@ -632,7 +707,8 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             {isSidebarCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
                         </button>
                         <h1 className="text-[16px] lg:text-[18px] font-bold truncate">
-                            {currentView === 'dashboard' ? 'Ringkasan Dashboard' :
+                            {currentView === 'student-dashboard' ? 'Dashboard Siswa' :
+                                currentView === 'dashboard' ? 'Ringkasan Dashboard' :
                                 currentView === 'students' ? 'Database Siswa' :
                                     currentView === 'classes' ? 'Daftar Kelas' :
                                         currentView === 'subjects' ? 'Manajemen Mata Pelajaran' :
@@ -647,22 +723,24 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             <ClockDisplay holidays={holidays} />
                         </div>
                     </div>
-                    <div className="flex items-center gap-3 lg:gap-6">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
-                            <input
-                                type="text"
-                                placeholder="Cari data..."
-                                className="bg-bg border border-border rounded-lg pl-10 pr-4 py-2 text-sm outline-none focus:border-accent w-64"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
+                    {role === 'admin' && (
+                        <div className="flex items-center gap-3 lg:gap-6">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="Cari data..."
+                                    className="bg-bg border border-border rounded-lg pl-10 pr-4 py-2 text-sm outline-none focus:border-accent w-64"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </div>
+                            <button className="flex items-center gap-2 btn-primary">
+                                <Plus size={16} />
+                                <span>Aksi Cepat</span>
+                            </button>
                         </div>
-                        <button className="flex items-center gap-2 btn-primary">
-                            <Plus size={16} />
-                            <span>Aksi Cepat</span>
-                        </button>
-                    </div>
+                    )}
                 </header>
 
                 {/* View Content */}
@@ -7224,7 +7302,8 @@ function StudentDashboardView({
     savings,
     classCash,
     feeItems,
-    classes
+    classes,
+    holidays
 }: {
     settings: AppSettings | null,
     attendance: AttendanceRecord[],
@@ -7235,14 +7314,15 @@ function StudentDashboardView({
     savings: SavingsTransaction[],
     classCash: ClassCashTransaction[],
     feeItems: FeeItem[],
-    classes: Class[]
+    classes: Class[],
+    holidays: Holiday[]
 }) {
     const displaySettings = settings?.studentDisplaySettings || {
         showGrades: true,
         showAttendance: true,
-        showPayments: false,
-        showSavings: false,
-        showClassCash: false
+        showPayments: true,
+        showSavings: true,
+        showClassCash: true
     };
 
     const student = students.find(s => s.id === studentId);
@@ -7252,9 +7332,92 @@ function StudentDashboardView({
     const mySavings = savings.filter(s => s.studentId === studentId);
     const myClassCash = classCash.filter(c => c.studentId === studentId);
 
+    const [academicRecord, setAcademicRecord] = useState<any>(null);
+    const [academicLoading, setAcademicLoading] = useState(false);
+    const [activeRapotSem, setActiveRapotSem] = useState<'s41' | 's42' | 's51' | 's52' | 's61'>('s41');
+
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     };
+
+    useEffect(() => {
+        if (!studentId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                setAcademicLoading(true);
+                const snap = await getDoc(doc(db, 'academicRecords', String(studentId)));
+                if (cancelled) return;
+                if (snap.exists()) {
+                    const d = snap.data();
+                    setAcademicRecord({
+                        ...d,
+                        tka: d?.tka ?? '',
+                        rapot: Array.isArray(d?.rapot) ? d.rapot : [],
+                        prestasi: Array.isArray(d?.prestasi) ? d.prestasi : [],
+                        ijazah: Array.isArray(d?.ijazah) ? d.ijazah : []
+                    });
+                } else {
+                    setAcademicRecord({ studentId: String(studentId), rapot: [], prestasi: [], ijazah: [], tka: '' });
+                }
+            } catch {
+                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: [], prestasi: [], ijazah: [], tka: '' });
+            } finally {
+                if (!cancelled) setAcademicLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [studentId]);
+
+    const monthStr = new Date().toISOString().slice(0, 7);
+    const countTargetDays = (type: 'gemari' | 'infaq') => {
+        const year = parseInt(monthStr.split('-')[0]);
+        const month = parseInt(monthStr.split('-')[1]) - 1;
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        let targetDays = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(year, month, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isHoliday = holidays.some(h => h.date === dateStr);
+            const dayOfWeek = d.getDay();
+            if (type === 'gemari') {
+                if (dayOfWeek !== 0 && !isHoliday) targetDays++;
+            } else {
+                if (dayOfWeek === 5 && !isHoliday) targetDays++;
+            }
+        }
+        return targetDays;
+    };
+
+    const cashNominal = (type: 'gemari' | 'infaq') => type === 'gemari' ? 500 : 1000;
+    const getCashRecap = (type: 'gemari' | 'infaq') => {
+        if (!student?.classId || !studentId) return { targetDays: 0, bebasDays: 0, target: 0, paid: 0, kurang: 0 };
+        const nominal = cashNominal(type);
+        const targetDays = countTargetDays(type);
+        const target = targetDays * nominal;
+        const bebasDates = new Set(
+            classCash
+                .filter(t => String((t as any)?.classId || '') === String(student.classId))
+                .filter(t => t.type === type && (t.date || '').startsWith(monthStr) && Number(t.amount) === 0)
+                .map(t => t.date)
+        );
+        const targetReal = Math.max(0, target - (bebasDates.size * nominal));
+        const paid = myClassCash
+            .filter(t => t.type === type && (t.date || '').startsWith(monthStr))
+            .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
+            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        const kurang = Math.max(0, targetReal - paid);
+        return { targetDays, bebasDays: bebasDates.size, target: targetReal, paid, kurang };
+    };
+
+    const gemari = getCashRecap('gemari');
+    const infaq = getCashRecap('infaq');
+
+    const paymentsByItem: Record<string, number> = {};
+    myPayments.forEach(p => { paymentsByItem[p.feeItemId] = (paymentsByItem[p.feeItemId] || 0) + (Number(p.amountPaid) || 0); });
+
+    const extraBills = (student?.paymentExtraBills || []).map(b => ({ ...b, amount: Number(b.amount) || 0 }));
+    const extraBillsTotal = extraBills.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
 
     return (
         <div className="p-6 space-y-8 overflow-y-auto h-full pb-20 max-w-4xl mx-auto">
@@ -7361,6 +7524,273 @@ function StudentDashboardView({
                     </motion.div>
                 )}
             </div>
+
+            {/* Akademik (Rapot/TKA/Ijazah/Prestasi) */}
+            {displaySettings.showGrades && (
+                <div className="card space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-purple-700">
+                            <FileText size={18} />
+                            <h3 className="font-black text-sm uppercase tracking-tight">Nilai Rapot, TKA, Ijazah & Prestasi</h3>
+                        </div>
+                        {academicLoading && <span className="text-[10px] font-bold text-slate-400 italic">Memuat...</span>}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nilai TKA</div>
+                            <div className="text-2xl font-black text-purple-700">{academicRecord?.tka ?? '-'}</div>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-xl border border-border md:col-span-2">
+                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Rapot per Semester</div>
+                            <div className="flex gap-2 flex-wrap mb-3">
+                                {([
+                                    { k: 's41', label: 'Sem 4.1' },
+                                    { k: 's42', label: 'Sem 4.2' },
+                                    { k: 's51', label: 'Sem 5.1' },
+                                    { k: 's52', label: 'Sem 5.2' },
+                                    { k: 's61', label: 'Sem 6.1' }
+                                ] as const).map(s => (
+                                    <button
+                                        key={s.k}
+                                        onClick={() => setActiveRapotSem(s.k)}
+                                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${activeRapotSem === s.k ? 'bg-slate-900 text-yellow-400 border-slate-900' : 'bg-white text-slate-500 border-border hover:border-accent hover:text-accent'}`}
+                                    >
+                                        {s.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr className="text-[10px] uppercase tracking-widest text-slate-400">
+                                            <th className="text-left py-2 pr-3">Mapel</th>
+                                            <th className="text-center py-2 px-2">P</th>
+                                            <th className="text-center py-2 px-2">K</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(academicRecord?.rapot || []).length === 0 ? (
+                                            <tr><td colSpan={3} className="py-6 text-center text-slate-400 italic">Belum ada data rapot.</td></tr>
+                                        ) : (
+                                            (academicRecord?.rapot || []).map((r: any, idx: number) => {
+                                                const pKey = `${activeRapotSem}_p`;
+                                                const kKey = `${activeRapotSem}_k`;
+                                                return (
+                                                    <tr key={idx} className="border-t border-border/60">
+                                                        <td className="py-2 pr-3 font-bold whitespace-nowrap">{r.subject || '-'}</td>
+                                                        <td className="py-2 px-2 text-center font-mono">{r[pKey] ?? ''}</td>
+                                                        <td className="py-2 px-2 text-center font-mono">{r[kKey] ?? ''}</td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-100 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div className="text-[10px] font-black uppercase text-amber-700 tracking-widest">Nilai Ijazah</div>
+                                <div className="text-[10px] text-amber-700 font-bold">{(academicRecord?.ijazah || []).length} mapel</div>
+                            </div>
+                            {(academicRecord?.ijazah || []).length === 0 ? (
+                                <div className="text-xs text-slate-400 italic text-center py-3">Belum ada data ijazah.</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {(academicRecord?.ijazah || []).slice(0, 8).map((iz: any, i: number) => (
+                                        <div key={i} className="flex justify-between items-center bg-white rounded-xl p-3 border border-amber-100">
+                                            <div className="text-xs font-bold truncate">{iz.subject || '-'}</div>
+                                            <div className="font-mono text-xs text-right">
+                                                <span className="font-black text-amber-800">{iz.grade_p ?? ''}</span>
+                                                <span className="text-amber-400 mx-1">/</span>
+                                                <span className="font-black text-amber-800">{iz.grade_k ?? ''}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {(academicRecord?.ijazah || []).length > 8 && (
+                                        <div className="text-[10px] text-amber-700 text-center italic">+{(academicRecord?.ijazah || []).length - 8} mapel lainnya</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 bg-violet-50/40 rounded-2xl border border-violet-100 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div className="text-[10px] font-black uppercase text-violet-700 tracking-widest">Prestasi</div>
+                                <div className="text-[10px] text-violet-700 font-bold">{(academicRecord?.prestasi || []).length} data</div>
+                            </div>
+                            {(academicRecord?.prestasi || []).length === 0 ? (
+                                <div className="text-xs text-slate-400 italic text-center py-3">Belum ada data prestasi.</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {(academicRecord?.prestasi || []).slice(0, 6).map((p: any, i: number) => (
+                                        <div key={i} className="bg-white rounded-xl p-3 border border-violet-100">
+                                            <div className="flex justify-between items-start gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="text-xs font-bold truncate">{p.name || '-'}</div>
+                                                    <div className="text-[10px] text-slate-400 font-mono">{p.level || '-'} • {p.year || '-'}</div>
+                                                </div>
+                                                <div className="text-xs font-black text-violet-700">{p.poin ?? ''}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {(academicRecord?.prestasi || []).length > 6 && (
+                                        <div className="text-[10px] text-violet-700 text-center italic">+{(academicRecord?.prestasi || []).length - 6} prestasi lainnya</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Keuangan (Tabungan + Pembayaran + Gemari/Infaq) */}
+            {(displaySettings.showPayments || displaySettings.showSavings || displaySettings.showClassCash) && (
+                <div className="card space-y-4">
+                    <div className="flex items-center gap-2 text-emerald-700">
+                        <Wallet size={18} />
+                        <h3 className="font-black text-sm uppercase tracking-tight">Keuangan Siswa</h3>
+                    </div>
+
+                    {displaySettings.showSavings && (
+                        <div className="p-4 bg-emerald-50/40 rounded-2xl border border-emerald-100 space-y-3">
+                            <div className="flex justify-between items-center">
+                                <div className="text-[10px] font-black uppercase text-emerald-700 tracking-widest">Tabungan</div>
+                                <div className="text-sm font-black text-emerald-700">
+                                    {formatCurrency(mySavings.filter(t => t.type === 'deposit').reduce((a, t) => a + t.amount, 0) - mySavings.filter(t => t.type === 'withdrawal').reduce((a, t) => a + t.amount, 0))}
+                                </div>
+                            </div>
+                            {(mySavings.length === 0) ? (
+                                <div className="text-xs text-slate-400 italic text-center py-2">Belum ada transaksi tabungan.</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {[...mySavings].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8).map(t => (
+                                        <div key={t.id} className="flex justify-between items-center bg-white rounded-xl p-3 border border-emerald-100">
+                                            <div>
+                                                <div className="text-xs font-bold">{t.type === 'deposit' ? 'Setor' : 'Tarik'}</div>
+                                                <div className="text-[10px] text-slate-400 font-mono">{t.date}</div>
+                                            </div>
+                                            <div className={`text-xs font-black font-mono ${t.type === 'deposit' ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(t.amount)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {displaySettings.showPayments && (
+                        <div className="p-4 bg-blue-50/40 rounded-2xl border border-blue-100 space-y-3">
+                            <div className="flex justify-between items-center">
+                                <div className="text-[10px] font-black uppercase text-blue-700 tracking-widest">Rekap Pembayaran</div>
+                                <div className="text-sm font-black text-blue-700">{formatCurrency(myPayments.reduce((acc, p) => acc + (Number(p.amountPaid) || 0), 0))}</div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr className="text-[10px] uppercase tracking-widest text-slate-400">
+                                            <th className="text-left py-2 pr-3">Item</th>
+                                            <th className="text-right py-2 px-2">Tagihan</th>
+                                            <th className="text-right py-2 px-2">Dibayar</th>
+                                            <th className="text-right py-2 pl-2">Kurang</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {feeItems.length === 0 ? (
+                                            <tr><td colSpan={4} className="py-6 text-center text-slate-400 italic">Belum ada item tagihan.</td></tr>
+                                        ) : (
+                                            feeItems.map(i => {
+                                                const due = Number((i as any).amount) || 0;
+                                                const paid = Number(paymentsByItem[i.id]) || 0;
+                                                const kurang = Math.max(0, due - paid);
+                                                return (
+                                                    <tr key={i.id} className="border-t border-blue-100/60">
+                                                        <td className="py-2 pr-3">
+                                                            <div className="font-bold">{i.name}</div>
+                                                            <div className="text-[10px] text-slate-400 uppercase">{i.category}</div>
+                                                        </td>
+                                                        <td className="py-2 px-2 text-right font-mono">{formatCurrency(due)}</td>
+                                                        <td className="py-2 px-2 text-right font-mono text-emerald-700 font-black">{formatCurrency(paid)}</td>
+                                                        <td className="py-2 pl-2 text-right font-mono text-red-600 font-black">{formatCurrency(kurang)}</td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {extraBills.length > 0 && (
+                                <div className="pt-2 border-t border-blue-100 space-y-2">
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Tagihan Lain-lain</div>
+                                    {extraBills.map(b => (
+                                        <div key={b.id} className="flex justify-between items-center bg-white rounded-xl p-3 border border-blue-100">
+                                            <div className="text-xs font-bold">{b.label}</div>
+                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(b.amount)}</div>
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-between items-center text-xs font-black text-blue-700 pt-1">
+                                        <span>Total Lain-lain</span>
+                                        <span className="font-mono">{formatCurrency(extraBillsTotal)}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="pt-2 border-t border-blue-100 space-y-2">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Gemari & Infaq ({monthStr})</div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div className="bg-white rounded-xl p-3 border border-blue-100">
+                                        <div className="text-xs font-black text-slate-700">Gemari</div>
+                                        <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari {gemari.bebasDays ? `(bebas ${gemari.bebasDays})` : ''}</div>
+                                        <div className="flex justify-between items-center mt-2">
+                                            <div className="text-[10px] text-slate-400">Dibayar</div>
+                                            <div className="text-xs font-black font-mono text-emerald-700">{formatCurrency(gemari.paid)}</div>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <div className="text-[10px] text-slate-400">Kurang</div>
+                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(gemari.kurang)}</div>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white rounded-xl p-3 border border-blue-100">
+                                        <div className="text-xs font-black text-slate-700">Infaq Jumat</div>
+                                        <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat {infaq.bebasDays ? `(bebas ${infaq.bebasDays})` : ''}</div>
+                                        <div className="flex justify-between items-center mt-2">
+                                            <div className="text-[10px] text-slate-400">Dibayar</div>
+                                            <div className="text-xs font-black font-mono text-emerald-700">{formatCurrency(infaq.paid)}</div>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <div className="text-[10px] text-slate-400">Kurang</div>
+                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(infaq.kurang)}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-blue-100 space-y-2">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Riwayat Pembayaran Terbaru</div>
+                                {(myPayments.length === 0) ? (
+                                    <div className="text-xs text-slate-400 italic text-center py-2">Belum ada transaksi pembayaran.</div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {[...myPayments].sort((a, b) => (b.paymentDate || '').localeCompare(a.paymentDate || '')).slice(0, 10).map(p => (
+                                            <div key={p.id} className="flex justify-between items-center bg-white rounded-xl p-3 border border-blue-100">
+                                                <div className="min-w-0">
+                                                    <div className="text-xs font-bold truncate">{feeItems.find(i => i.id === p.feeItemId)?.name || p.feeItemId}</div>
+                                                    <div className="text-[10px] text-slate-400 font-mono">{p.paymentDate} • {(p.paymentMethod || '').toUpperCase()}</div>
+                                                </div>
+                                                <div className="text-xs font-black font-mono text-blue-700">{formatCurrency(Number(p.amountPaid) || 0)}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {!displaySettings.showGrades && !displaySettings.showAttendance && !displaySettings.showPayments && !displaySettings.showSavings && !displaySettings.showClassCash && (
                 <div className="card p-12 text-center space-y-4">
