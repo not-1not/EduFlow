@@ -738,6 +738,11 @@ function SubjectsView({
     const [showAddMaterial, setShowAddMaterial] = useState(false);
     const [newMaterial, setNewMaterial] = useState({ title: '', weight: 0 });
     const [materialWeightEdits, setMaterialWeightEdits] = useState<Record<string, number>>({});
+    const [showTemplateModal, setShowTemplateModal] = useState(false);
+    const [applyingTemplate, setApplyingTemplate] = useState(false);
+    const [materialTemplateItems, setMaterialTemplateItems] = useState<Array<{ id: string; title: string; weight: number }>>([
+        { id: `tpl-${Date.now()}`, title: '', weight: 0 }
+    ]);
 
     useEffect(() => {
         if (!subjects.length) {
@@ -807,6 +812,69 @@ function SubjectsView({
         onRefresh();
     };
 
+    const handleAddTemplateRow = () => {
+        setMaterialTemplateItems(prev => [...prev, { id: `tpl-${Date.now()}-${prev.length}`, title: '', weight: 0 }]);
+    };
+
+    const handleRemoveTemplateRow = (id: string) => {
+        setMaterialTemplateItems(prev => {
+            const next = prev.filter(item => item.id !== id);
+            return next.length > 0 ? next : [{ id: `tpl-${Date.now()}`, title: '', weight: 0 }];
+        });
+    };
+
+    const handleUpdateTemplateRow = (id: string, patch: Partial<{ title: string; weight: number }>) => {
+        setMaterialTemplateItems(prev =>
+            prev.map(item => item.id === id ? { ...item, ...patch } : item)
+        );
+    };
+
+    const handleApplyTemplateToAllSubjects = async () => {
+        const sanitizedTemplate = materialTemplateItems
+            .map(item => ({ title: item.title.trim(), weight: Number(item.weight) || 0 }))
+            .filter(item => item.title.length > 0);
+
+        if (sanitizedTemplate.length === 0) {
+            alert('Isi minimal satu materi pada template.');
+            return;
+        }
+        if (sanitizedTemplate.some(item => item.weight < 0 || item.weight > 100)) {
+            alert('Bobot template harus berada dalam rentang 0-100.');
+            return;
+        }
+        if (subjects.length === 0) {
+            alert('Belum ada mata pelajaran untuk diterapkan.');
+            return;
+        }
+
+        setApplyingTemplate(true);
+        try {
+            // Apply template to each subject: update existing title if found, otherwise create new material.
+            for (const subject of subjects) {
+                const subjectMaterials = materials.filter(m => m.subjectId === subject.id);
+                for (const tpl of sanitizedTemplate) {
+                    const existing = subjectMaterials.find(
+                        m => String(m.title || '').trim().toLowerCase() === tpl.title.toLowerCase()
+                    );
+                    if (existing) {
+                        await updateDoc(doc(db, 'materials', existing.id), { weight: tpl.weight });
+                    } else {
+                        await addDoc(collection(db, 'materials'), {
+                            subjectId: subject.id,
+                            title: tpl.title,
+                            weight: tpl.weight
+                        });
+                    }
+                }
+            }
+            setShowTemplateModal(false);
+            onRefresh();
+            alert('Template materi berhasil diterapkan ke semua mata pelajaran.');
+        } finally {
+            setApplyingTemplate(false);
+        }
+    };
+
     return (
         <div className="space-y-8">
             <div className="flex items-center justify-between">
@@ -814,9 +882,14 @@ function SubjectsView({
                     <h2 className="text-2xl font-bold tracking-tighter">Mata Pelajaran & Materi</h2>
                     <p className="text-sm text-text-secondary">Kelola kurikulum dan bobot penilaian</p>
                 </div>
-                <button onClick={() => setShowAddSubject(true)} className="btn-primary flex items-center gap-2">
-                    <Plus size={16} /> Tambah Mapel
-                </button>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setShowTemplateModal(true)} className="btn-small flex items-center gap-2">
+                        <FileSpreadsheet size={14} /> Template Semua Mapel
+                    </button>
+                    <button onClick={() => setShowAddSubject(true)} className="btn-primary flex items-center gap-2">
+                        <Plus size={16} /> Tambah Mapel
+                    </button>
+                </div>
             </div>
 
             <div className="space-y-6">
@@ -1044,6 +1117,83 @@ function SubjectsView({
                             <div className="flex gap-3 mt-8">
                                 <button onClick={() => setShowAddMaterial(false)} className="flex-1 py-3 border border-border rounded-xl font-bold text-sm hover:bg-slate-50 transition-all">Batal</button>
                                 <button onClick={handleAddMaterial} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-bold text-sm hover:bg-slate-950 transition-all border border-slate-800">Tambahkan</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showTemplateModal && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-8 max-w-3xl w-full shadow-2xl border border-border max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="text-xl font-bold">Template Daftar Materi Global</h3>
+                                <p className="text-xs text-text-secondary">Template ini akan diterapkan ke semua mata pelajaran.</p>
+                            </div>
+                            <button onClick={() => setShowTemplateModal(false)} aria-label="Tutup template materi"><X size={20} /></button>
+                        </div>
+
+                        <div className="card !p-0 overflow-hidden mb-4">
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th className="w-16">#</th>
+                                        <th>JUDUL MATERI / KOMPETENSI</th>
+                                        <th className="w-40">BOBOT (%)</th>
+                                        <th className="w-24">AKSI</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {materialTemplateItems.map((item, index) => (
+                                        <tr key={item.id}>
+                                            <td className="font-mono text-xs text-slate-400">{index + 1}</td>
+                                            <td>
+                                                <input
+                                                    type="text"
+                                                    className="w-full bg-slate-50 border border-border rounded px-3 py-2 outline-none focus:border-accent text-sm"
+                                                    placeholder="Contoh: Tugas Harian 1"
+                                                    value={item.title}
+                                                    onChange={(e) => handleUpdateTemplateRow(item.id, { title: e.target.value })}
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    max={100}
+                                                    className="w-full bg-slate-50 border border-border rounded px-3 py-2 outline-none focus:border-accent text-sm font-bold"
+                                                    value={item.weight}
+                                                    onChange={(e) => handleUpdateTemplateRow(item.id, { weight: parseInt(e.target.value) || 0 })}
+                                                />
+                                            </td>
+                                            <td>
+                                                <button
+                                                    onClick={() => handleRemoveTemplateRow(item.id)}
+                                                    className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1"
+                                                >
+                                                    <Trash2 size={12} /> Hapus
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex justify-between items-center gap-3">
+                            <button onClick={handleAddTemplateRow} className="btn-small flex items-center gap-2">
+                                <Plus size={14} /> Tambah Baris
+                            </button>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowTemplateModal(false)} className="px-5 py-2 border border-border rounded-xl font-bold text-sm">Batal</button>
+                                <button
+                                    onClick={handleApplyTemplateToAllSubjects}
+                                    className="btn-primary px-6 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                                    disabled={applyingTemplate}
+                                >
+                                    {applyingTemplate ? 'Menerapkan...' : 'Terapkan ke Semua Mapel'}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -2731,17 +2881,24 @@ function AttendanceView({
         }
     }, [classes, selectedClassId]);
 
-    const upsertAttendanceEntries = async (entries: Array<{ studentId: string; classId: string; date: string; status: AttendanceStatus }>) => {
+    const upsertAttendanceEntries = async (entries: Array<{ studentId: string; date: string; status: AttendanceStatus }>) => {
         for (const entry of entries) {
             const existing = attendanceRecords.find(r =>
                 r.studentId === entry.studentId &&
-                r.classId === entry.classId &&
                 r.date === entry.date
             );
             if (existing?.id) {
-                await updateDoc(doc(db, 'attendance', existing.id), entry);
+                await updateDoc(doc(db, 'attendance', existing.id), {
+                    studentId: entry.studentId,
+                    date: entry.date,
+                    status: entry.status
+                });
             } else {
-                await addDoc(collection(db, 'attendance'), entry);
+                await addDoc(collection(db, 'attendance'), {
+                    studentId: entry.studentId,
+                    date: entry.date,
+                    status: entry.status
+                });
             }
         }
     };
@@ -2750,7 +2907,6 @@ function AttendanceView({
         if (!selectedClassId || !selectedDate || currentHoliday || isSunday) return;
         const updates = classStudents.map(s => ({
             studentId: s.id,
-            classId: selectedClassId,
             date: selectedDate,
             status
         }));
@@ -2759,7 +2915,7 @@ function AttendanceView({
     };
 
     const handleSingleStatus = async (studentId: string, status: AttendanceStatus) => {
-        await upsertAttendanceEntries([{ studentId, classId: selectedClassId, date: selectedDate, status }]);
+        await upsertAttendanceEntries([{ studentId, date: selectedDate, status }]);
         onRefresh();
     };
 
@@ -2854,7 +3010,7 @@ function AttendanceView({
                         </thead>
                         <tbody>
                             {sortedData(classStudents).map((s: any) => {
-                                const record = attendanceRecords.find(r => r.studentId === s.id && r.date === selectedDate && r.classId === selectedClassId);
+                                const record = attendanceRecords.find(r => r.studentId === s.id && r.date === selectedDate);
                                 const disabled = !!currentHoliday || isSunday;
                                 return (
                                     <tr key={s.id} className="hover:bg-slate-50 transition-all">
@@ -2963,7 +3119,7 @@ function MonthlyAttendanceView({ students, month, attendanceRecords, classId, ho
                             {days.map(d => {
                                 const date = new Date(year, m - 1, d);
                                 const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                                const record = attendanceRecords.find(r => r.studentId === s.id && r.date === dateStr && r.classId === classId);
+                                const record = attendanceRecords.find(r => r.studentId === s.id && r.date === dateStr);
                                 const holidayInfo = isHoliday(date);
 
                                 return (
