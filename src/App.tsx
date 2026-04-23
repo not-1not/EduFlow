@@ -2881,25 +2881,22 @@ function AttendanceView({
         }
     }, [classes, selectedClassId]);
 
+    const getAttendanceRecord = (studentId: string, date: string) => {
+        const deterministicId = `${studentId}_${date}`;
+        const byDeterministicId = attendanceRecords.find(r => r.id === deterministicId);
+        if (byDeterministicId) return byDeterministicId;
+        const matches = attendanceRecords.filter(r => r.studentId === studentId && r.date === date);
+        return matches.length ? matches[matches.length - 1] : undefined;
+    };
+
     const upsertAttendanceEntries = async (entries: Array<{ studentId: string; date: string; status: AttendanceStatus }>) => {
         for (const entry of entries) {
-            const existing = attendanceRecords.find(r =>
-                r.studentId === entry.studentId &&
-                r.date === entry.date
-            );
-            if (existing?.id) {
-                await updateDoc(doc(db, 'attendance', existing.id), {
-                    studentId: entry.studentId,
-                    date: entry.date,
-                    status: entry.status
-                });
-            } else {
-                await addDoc(collection(db, 'attendance'), {
-                    studentId: entry.studentId,
-                    date: entry.date,
-                    status: entry.status
-                });
-            }
+            const deterministicId = `${entry.studentId}_${entry.date}`;
+            await setDoc(doc(db, 'attendance', deterministicId), {
+                studentId: entry.studentId,
+                date: entry.date,
+                status: entry.status
+            });
         }
     };
 
@@ -2910,13 +2907,23 @@ function AttendanceView({
             date: selectedDate,
             status
         }));
-        await upsertAttendanceEntries(updates);
-        onRefresh();
+        try {
+            await upsertAttendanceEntries(updates);
+            onRefresh();
+        } catch (error) {
+            console.error('Error setting batch attendance:', error);
+            alert('Gagal menyimpan presensi massal.');
+        }
     };
 
     const handleSingleStatus = async (studentId: string, status: AttendanceStatus) => {
-        await upsertAttendanceEntries([{ studentId, date: selectedDate, status }]);
-        onRefresh();
+        try {
+            await upsertAttendanceEntries([{ studentId, date: selectedDate, status }]);
+            onRefresh();
+        } catch (error) {
+            console.error('Error setting attendance:', error);
+            alert('Gagal menyimpan status presensi.');
+        }
     };
 
     return (
@@ -3010,7 +3017,7 @@ function AttendanceView({
                         </thead>
                         <tbody>
                             {sortedData(classStudents).map((s: any) => {
-                                const record = attendanceRecords.find(r => r.studentId === s.id && r.date === selectedDate);
+                                const record = getAttendanceRecord(s.id, selectedDate);
                                 const disabled = !!currentHoliday || isSunday;
                                 return (
                                     <tr key={s.id} className="hover:bg-slate-50 transition-all">
@@ -3091,6 +3098,14 @@ function MonthlyAttendanceView({ students, month, attendanceRecords, classId, ho
         return { holiday: false };
     };
 
+    const getAttendanceRecord = (studentId: string, date: string) => {
+        const deterministicId = `${studentId}_${date}`;
+        const byDeterministicId = attendanceRecords.find(r => r.id === deterministicId);
+        if (byDeterministicId) return byDeterministicId;
+        const matches = attendanceRecords.filter(r => r.studentId === studentId && r.date === date);
+        return matches.length ? matches[matches.length - 1] : undefined;
+    };
+
     return (
         <div className="p-4 overflow-x-auto min-w-full">
             <table className="w-full border-collapse">
@@ -3119,7 +3134,7 @@ function MonthlyAttendanceView({ students, month, attendanceRecords, classId, ho
                             {days.map(d => {
                                 const date = new Date(year, m - 1, d);
                                 const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                                const record = attendanceRecords.find(r => r.studentId === s.id && r.date === dateStr);
+                                const record = getAttendanceRecord(s.id, dateStr);
                                 const holidayInfo = isHoliday(date);
 
                                 return (
