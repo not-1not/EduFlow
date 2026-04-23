@@ -224,11 +224,33 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 return;
             }
 
+            const classList = (classesData as any[]) || [];
+            const classIdSet = new Set(classList.map((c: any) => String(c?.id || '')));
+
+            const resolveStudentClassId = (rawClassId: any): string => {
+                const raw = String(rawClassId ?? '').trim();
+                if (!raw) return '';
+                if (classIdSet.has(raw)) return raw;
+
+                // Backward compatibility: old imports/seed used "1", "2", ... as class pointer.
+                const numericIndex = Number(raw);
+                if (!Number.isNaN(numericIndex) && numericIndex >= 1 && numericIndex <= classList.length) {
+                    const mapped = String(classList[numericIndex - 1]?.id || '');
+                    if (mapped) return mapped;
+                }
+
+                // Fallback: if student classId stores class name, map by class name.
+                const byName = classList.find((c: any) => String(c?.name || '').trim() === raw);
+                if (byName?.id) return String(byName.id);
+
+                return raw;
+            };
+
             const normalizedStudents = (studentsData as any[]).map((s) => ({
                 ...s,
                 name: s?.name || s?.displayName || s?.fullName || s?.nama || '',
                 email: s?.email || '',
-                classId: s?.classId || '',
+                classId: resolveStudentClassId(s?.classId),
             }));
             setStudents(normalizedStudents as Student[]);
             setClasses(classesData as Class[]);
@@ -715,6 +737,7 @@ function SubjectsView({
     const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
     const [showAddMaterial, setShowAddMaterial] = useState(false);
     const [newMaterial, setNewMaterial] = useState({ title: '', weight: 0 });
+    const [materialWeightEdits, setMaterialWeightEdits] = useState<Record<string, number>>({});
 
     useEffect(() => {
         if (!subjects.length) {
@@ -725,6 +748,15 @@ function SubjectsView({
             setSelectedSubjectId(subjects[0].id);
         }
     }, [subjects, selectedSubjectId]);
+
+    useEffect(() => {
+        const currentSubjectMaterials = materials.filter(m => m.subjectId === selectedSubjectId);
+        const initialWeights: Record<string, number> = {};
+        currentSubjectMaterials.forEach(m => {
+            initialWeights[m.id] = Number(m.weight) || 0;
+        });
+        setMaterialWeightEdits(initialWeights);
+    }, [materials, selectedSubjectId]);
 
     const handleAddSubject = async () => {
         if (editingSubject) {
@@ -762,6 +794,16 @@ function SubjectsView({
     const handleDeleteMaterial = async (id: string) => {
         if (!confirm('Hapus materi ini?')) return;
         await deleteDoc(doc(db, 'materials', id));
+        onRefresh();
+    };
+
+    const handleSaveMaterialWeight = async (material: Material) => {
+        const updatedWeight = Number(materialWeightEdits[material.id]);
+        if (isNaN(updatedWeight) || updatedWeight < 0 || updatedWeight > 100) {
+            alert('Bobot harus berupa angka 0-100.');
+            return;
+        }
+        await updateDoc(doc(db, 'materials', material.id), { weight: updatedWeight });
         onRefresh();
     };
 
@@ -868,11 +910,32 @@ function SubjectsView({
                                     {materials.filter(m => m.subjectId === selectedSubjectId).map(m => (
                                         <tr key={m.id}>
                                             <td className="font-medium">{m.title}</td>
-                                            <td className="data-value">{m.weight}%</td>
+                                            <td className="data-value">
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        max={100}
+                                                        className="w-20 bg-slate-50 border border-border rounded px-2 py-1 text-sm font-bold outline-none focus:border-accent"
+                                                        value={materialWeightEdits[m.id] ?? (Number(m.weight) || 0)}
+                                                        onChange={(e) => setMaterialWeightEdits(prev => ({ ...prev, [m.id]: parseInt(e.target.value) || 0 }))}
+                                                    />
+                                                    <span className="text-xs">%</span>
+                                                </div>
+                                            </td>
                                             <td>
-                                                <button onClick={() => handleDeleteMaterial(m.id)} className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1">
-                                                    <Trash2 size={12} /> Hapus
-                                                </button>
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        onClick={() => handleSaveMaterialWeight(m)}
+                                                        disabled={(materialWeightEdits[m.id] ?? (Number(m.weight) || 0)) === (Number(m.weight) || 0)}
+                                                        className="text-emerald-600 font-bold text-xs hover:underline flex items-center gap-1 disabled:opacity-40 disabled:no-underline"
+                                                    >
+                                                        <Save size={12} /> Simpan
+                                                    </button>
+                                                    <button onClick={() => handleDeleteMaterial(m.id)} className="text-red-500 font-bold text-xs hover:underline flex items-center gap-1">
+                                                        <Trash2 size={12} /> Hapus
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -5588,7 +5651,11 @@ function AcademicView({
     }, [classes, selectedClassId]);
 
     useEffect(() => {
-        if (filteredStudents.length > 0 && !selectedStudentId) {
+        if (filteredStudents.length === 0) {
+            if (selectedStudentId) setSelectedStudentId('');
+            return;
+        }
+        if (!selectedStudentId || !filteredStudents.some(s => s.id === selectedStudentId)) {
             setSelectedStudentId(filteredStudents[0].id);
         }
     }, [filteredStudents, selectedStudentId]);
