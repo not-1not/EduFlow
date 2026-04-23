@@ -3086,6 +3086,7 @@ function AttendanceView({
                         attendanceRecords={attendanceRecords}
                         classId={selectedClassId}
                         holidays={holidays}
+                        onRefresh={onRefresh}
                     />
                 )}
             </div>
@@ -3104,16 +3105,33 @@ function StatusBtn({ label, active, color, onClick }: { label: string, active: b
     );
 }
 
-function MonthlyAttendanceView({ students, month, attendanceRecords, classId, holidays }: { students: Student[], month: string, attendanceRecords: AttendanceRecord[], classId: string, holidays: Holiday[] }) {
+function MonthlyAttendanceView({
+    students,
+    month,
+    attendanceRecords,
+    classId,
+    holidays,
+    onRefresh
+}: {
+    students: Student[],
+    month: string,
+    attendanceRecords: AttendanceRecord[],
+    classId: string,
+    holidays: Holiday[],
+    onRefresh: () => void
+}) {
     const [year, m] = month.split('-').map(Number);
     const daysInMonth = new Date(year, m, 0).getDate();
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const [edits, setEdits] = useState<Record<string, AttendanceStatus | null>>({});
+    const [saving, setSaving] = useState(false);
+    const statusCycle: Array<AttendanceStatus | null> = ['hadir', 'izin', 'sakit', 'alpa', null];
 
     const isHoliday = (date: Date) => {
         const day = date.getDay();
         const dateStr = date.toISOString().split('T')[0];
 
-        if (day === 0) return { holiday: true, name: 'Minggu' }; // Sunday
+        if (day === 0) return { holiday: true, name: 'Minggu' };
 
         const holiday = holidays.find(h => h.date === dateStr);
         if (holiday) return { holiday: true, name: holiday.name };
@@ -3129,8 +3147,97 @@ function MonthlyAttendanceView({ students, month, attendanceRecords, classId, ho
         return matches.length ? matches[matches.length - 1] : undefined;
     };
 
+    const getCellKey = (studentId: string, dateStr: string) => `${studentId}_${dateStr}`;
+
+    const getCellStatus = (studentId: string, dateStr: string): AttendanceStatus | null => {
+        const key = getCellKey(studentId, dateStr);
+        if (key in edits) return edits[key];
+        return (getAttendanceRecord(studentId, dateStr)?.status as AttendanceStatus | undefined) ?? null;
+    };
+
+    const toggleCellStatus = (studentId: string, dateStr: string) => {
+        const current = getCellStatus(studentId, dateStr);
+        const next = statusCycle[(statusCycle.indexOf(current) + 1) % statusCycle.length];
+        setEdits(prev => ({ ...prev, [getCellKey(studentId, dateStr)]: next }));
+    };
+
+    const saveAttendanceAdaptive = async (entry: { studentId: string; date: string; status: AttendanceStatus }) => {
+        if (!supabase) throw new Error('Supabase belum terkonfigurasi.');
+
+        const basePayload = {
+            id: `${entry.studentId}_${entry.date}`,
+            studentId: entry.studentId,
+            date: entry.date,
+            status: entry.status
+        };
+
+        const withClassPayload: any = { ...basePayload, classId };
+        let { error } = await supabase.from('attendance').upsert(withClassPayload, { onConflict: 'id' });
+
+        if (error) {
+            const message = String(error.message || '').toLowerCase();
+            const classIdColumnIssue = message.includes('classid') || message.includes('column') || message.includes('schema cache');
+            if (classIdColumnIssue) {
+                const retry = await supabase.from('attendance').upsert(basePayload, { onConflict: 'id' });
+                error = retry.error;
+            }
+        }
+
+        if (error) throw error;
+    };
+
+    const handleSaveMonthlyEdits = async () => {
+        const keys = Object.keys(edits);
+        if (keys.length === 0) return;
+        setSaving(true);
+        try {
+            for (const key of keys) {
+                const [studentId, date] = key.split('_');
+                const status = edits[key];
+                const existing = getAttendanceRecord(studentId, date);
+
+                if (!status) {
+                    if (existing?.id) {
+                        await deleteDoc(doc(db, 'attendance', existing.id));
+                    }
+                    continue;
+                }
+                await saveAttendanceAdaptive({ studentId, date, status });
+            }
+            setEdits({});
+            onRefresh();
+        } catch (error) {
+            console.error('Error saving monthly attendance edits:', error);
+            const msg = error instanceof Error ? error.message : String(error);
+            alert(`Gagal menyimpan rekap bulanan.\n${msg}`);
+        } finally {
+            setSaving(false);
+        }
+    };
+
     return (
         <div className="p-4 overflow-x-auto min-w-full">
+            {Object.keys(edits).length > 0 && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-between">
+                    <p className="text-xs font-bold text-blue-700">{Object.keys(edits).length} perubahan belum disimpan.</p>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setEdits({})}
+                            className="text-xs font-bold text-slate-600 hover:text-slate-800"
+                            disabled={saving}
+                        >
+                            Batal
+                        </button>
+                        <button
+                            onClick={handleSaveMonthlyEdits}
+                            className="btn-small !bg-blue-600 hover:!bg-blue-700 flex items-center gap-2"
+                            disabled={saving}
+                        >
+                            <Save size={14} /> {saving ? 'Menyimpan...' : 'Simpan Rekap'}
+                        </button>
+                    </div>
+                </div>
+            )}
             <table className="w-full border-collapse">
                 <thead>
                     <tr>
@@ -3157,18 +3264,23 @@ function MonthlyAttendanceView({ students, month, attendanceRecords, classId, ho
                             {days.map(d => {
                                 const date = new Date(year, m - 1, d);
                                 const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                                const record = getAttendanceRecord(s.id, dateStr);
+                                const status = getCellStatus(s.id, dateStr);
                                 const holidayInfo = isHoliday(date);
+                                const edited = getCellKey(s.id, dateStr) in edits;
 
                                 return (
-                                    <td key={d} className={`p-0 border border-border text-center ${holidayInfo.holiday ? 'bg-red-50/30' : ''}`}>
-                                        {record ? (
-                                            <div className={`w-full h-full min-h-[28px] flex items-center justify-center text-[10px] font-black ${record.status === 'hadir' ? 'text-success' :
-                                                    record.status === 'izin' ? 'text-blue-500' :
-                                                        record.status === 'sakit' ? 'text-yellow-500' :
+                                    <td
+                                        key={d}
+                                        className={`p-0 border border-border text-center ${holidayInfo.holiday ? 'bg-red-50/30' : 'cursor-pointer hover:bg-slate-100'} ${edited ? 'bg-blue-50/50' : ''}`}
+                                        onClick={() => !holidayInfo.holiday && toggleCellStatus(s.id, dateStr)}
+                                    >
+                                        {status ? (
+                                            <div className={`w-full h-full min-h-[28px] flex items-center justify-center text-[10px] font-black ${status === 'hadir' ? 'text-success' :
+                                                    status === 'izin' ? 'text-blue-500' :
+                                                        status === 'sakit' ? 'text-yellow-500' :
                                                             'text-red-500'
-                                                }`} title={`${dateStr}: ${record.status}`}>
-                                                {record.status === 'hadir' ? '✓' : record.status[0].toUpperCase()}
+                                                }`} title={`${dateStr}: ${status}`}>
+                                                {status === 'hadir' ? 'H' : status[0].toUpperCase()}
                                             </div>
                                         ) : (
                                             <div className="min-h-[28px] flex items-center justify-center">
@@ -3188,10 +3300,11 @@ function MonthlyAttendanceView({ students, month, attendanceRecords, classId, ho
                 </tbody>
             </table>
             <div className="mt-4 flex gap-6 text-[10px] font-bold uppercase tracking-widest text-text-secondary">
-                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-success rounded-full"></div> Hadir (✓)</div>
+                <div className="flex items-center gap-2"><div className="w-2 h-2 bg-success rounded-full"></div> Hadir (H)</div>
                 <div className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div> Izin (I)</div>
                 <div className="flex items-center gap-2"><div className="w-2 h-2 bg-yellow-500 rounded-full"></div> Sakit (S)</div>
                 <div className="flex items-center gap-2"><div className="w-2 h-2 bg-red-500 rounded-full"></div> Alpa (A)</div>
+                <div className="ml-auto text-[10px] italic opacity-60">Klik sel untuk ubah status.</div>
             </div>
         </div>
     );
@@ -7223,3 +7336,4 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
         </div>
     );
 }
+
