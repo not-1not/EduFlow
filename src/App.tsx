@@ -1236,11 +1236,25 @@ function GradesView({
     const [savingId, setSavingId] = useState<string | null>(null);
 
     useEffect(() => {
-        // Initialize bulk data with current values
+        // Initialize bulk data with current values or cache
         const initialBulk: { [key: string]: number } = {};
+        const cacheKey = `bulkData_${selectedMaterialId}_${selectedScoreType}`;
+        const cached = localStorage.getItem(cacheKey);
+        
+        let parsedCache: { [key: string]: number } | null = null;
+        if (cached) {
+            try {
+                parsedCache = JSON.parse(cached);
+            } catch (e) { }
+        }
+
         students.forEach(s => {
             const grade = grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId && g.scoreType === selectedScoreType);
-            initialBulk[s.id] = grade ? grade.value : 0;
+            if (parsedCache && typeof parsedCache[s.id] !== 'undefined') {
+                initialBulk[s.id] = parsedCache[s.id];
+            } else {
+                initialBulk[s.id] = grade ? grade.value : 0;
+            }
         });
         setBulkData(initialBulk);
     }, [selectedMaterialId, selectedScoreType, grades, students]);
@@ -1269,6 +1283,8 @@ function GradesView({
             value: parseInt(value as any) || 0
         }));
         await saveGradeEntries(updates as Array<{ studentId: string; materialId: string; scoreType: 'Pengetahuan' | 'Keterampilan'; value: number }>);
+        localStorage.removeItem(`bulkData_${selectedMaterialId}_${selectedScoreType}`);
+        alert('Nilai masal berhasil disimpan');
         onRefresh();
     };
 
@@ -1422,7 +1438,9 @@ function GradesView({
                                                                 if (editMode === 'manual') {
                                                                     handleSaveSingle(s.id, val);
                                                                 } else {
-                                                                    setBulkData({ ...bulkData, [s.id]: val });
+                                                                    const newBulkData = { ...bulkData, [s.id]: val };
+                                                                    setBulkData(newBulkData);
+                                                                    localStorage.setItem(`bulkData_${selectedMaterialId}_${selectedScoreType}`, JSON.stringify(newBulkData));
                                                                 }
                                                             }}
                                                             disabled={!selectedMaterialId || savingId === s.id}
