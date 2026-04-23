@@ -64,6 +64,15 @@ import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, wher
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 
+const sortStudentsForSelect = (students: Student[]) => {
+    return [...students].sort((a, b) => {
+        const aNum = a.attendanceNumber ?? Number.POSITIVE_INFINITY;
+        const bNum = b.attendanceNumber ?? Number.POSITIVE_INFINITY;
+        if (aNum !== bNum) return aNum - bNum;
+        return (a.name || '').localeCompare((b.name || ''), 'id-ID', { numeric: true, sensitivity: 'base' });
+    });
+};
+
 export default function App() {
     const { user, role, studentId, loading, logout } = useAuth();
 
@@ -94,7 +103,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [printSettings, setPrintSettings] = useState({ margin: '20mm', paperSize: 'A4' });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'attendanceNumber', direction: 'asc' });
     const [dashboardWidgets, setDashboardWidgets] = useState<DashboardWidget[]>([
         { id: '1', type: 'stats', title: 'Ringkasan Cepat', isVisible: true, order: 0 },
         { id: '2', type: 'arrears', title: 'Tunggakan Tertinggi', isVisible: true, order: 1 },
@@ -121,12 +130,14 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
         return [...data].sort((a: any, b: any) => {
             const aVal = a[sortConfig.key];
             const bVal = b[sortConfig.key];
-            if (aVal === bVal) return 0;
-            if (sortConfig.direction === 'asc') {
-                return aVal < bVal ? -1 : 1;
-            } else {
-                return aVal > bVal ? -1 : 1;
-            }
+            if (aVal == null && bVal == null) return 0;
+            if (aVal == null) return 1;
+            if (bVal == null) return -1;
+
+            let cmp = 0;
+            if (typeof aVal === 'number' && typeof bVal === 'number') cmp = aVal - bVal;
+            else cmp = String(aVal).localeCompare(String(bVal), 'id-ID', { numeric: true, sensitivity: 'base' });
+            return sortConfig.direction === 'asc' ? cmp : -cmp;
         });
     };
 
@@ -344,6 +355,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         setSelectedStudentId(id);
                         setCurrentView('student-profile');
                     }}
+                    onSetSortConfig={setSortConfig}
                     {...commonProps}
                 />;
             case 'classes':
@@ -1966,7 +1978,7 @@ function StatCard({ title, value, change, icon, iconColor = "text-accent" }: { t
     );
 }
 
-function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, currentSort, sortedData, SortableTH }: { students: Student[], classes: Class[], onRefresh: () => void, onViewProfile: (id: string) => void, onSort: (k: string) => void, currentSort: any, sortedData: any, SortableTH: any }) {
+function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onSetSortConfig, currentSort, sortedData, SortableTH }: { students: Student[], classes: Class[], onRefresh: () => void, onViewProfile: (id: string) => void, onSort: (k: string) => void, onSetSortConfig: (cfg: { key: string, direction: 'asc' | 'desc' } | null) => void, currentSort: any, sortedData: any, SortableTH: any }) {
     const [filter, setFilter] = useState('');
     const [showImport, setShowImport] = useState(false);
     const [fileName, setFileName] = useState('');
@@ -2241,6 +2253,19 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, cur
                     />
                 </div>
                 <div className="flex gap-2">
+                    <select
+                        className="bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                        value={currentSort?.key === 'name' ? 'abjad' : 'absen'}
+                        onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === 'abjad') onSetSortConfig({ key: 'name', direction: 'asc' });
+                            else onSetSortConfig({ key: 'attendanceNumber', direction: 'asc' });
+                        }}
+                        title="Urutkan daftar siswa"
+                    >
+                        <option value="absen">Urut No Absen</option>
+                        <option value="abjad">Urut Abjad</option>
+                    </select>
                     <button onClick={() => setShowBulkEdit(true)} className="btn-small flex items-center gap-2">
                         <Edit size={14} /> Edit Masal
                     </button>
@@ -4642,7 +4667,7 @@ function PaymentsView({
                                         onChange={e => setNewPayment({ ...newPayment, studentId: e.target.value })}
                                     >
                                         <option value="">Pilih Siswa</option>
-                                        {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                        {sortStudentsForSelect(students).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                     </select>
                                 </div>
                             )}
@@ -5544,7 +5569,7 @@ function SavingsView({
                                 onChange={e => setSelectedStudentId(e.target.value)}
                             >
                                 <option value="">Semua Siswa</option>
-                                {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                {sortStudentsForSelect(students).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
                         </div>
                         {selectedStudentId && (
@@ -5609,7 +5634,7 @@ function SavingsView({
                                     onChange={e => setNewTransaction({ ...newTransaction, studentId: e.target.value })}
                                 >
                                     <option value="">Pilih Siswa</option>
-                                    {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    {sortStudentsForSelect(students).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                 </select>
                             </div>
                             <div className="space-y-1">
@@ -6346,7 +6371,7 @@ function AcademicView({
                         onChange={e => setSelectedStudentId(e.target.value)}
                     >
                         <option value="">-- Pilih Siswa --</option>
-                        {filteredStudents.map(s => <option key={s.id} value={s.id}>{getStudentName(s)}</option>)}
+                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{getStudentName(s)}</option>)}
                     </select>
 
                     <button onClick={handleExportCSV} className="btn-small bg-slate-100 text-slate-700 hover:bg-slate-200" title="Download Template per Kelas">
@@ -6986,7 +7011,7 @@ function UsersManagementView({ students }: { students: Student[] }) {
                                             onChange={e => setFormData({ ...formData, studentId: e.target.value })}
                                         >
                                             <option value="">-- Pilih Siswa --</option>
-                                            {students.map(s => (
+                                            {sortStudentsForSelect(students).map(s => (
                                                 <option key={s.id} value={s.id}>{s.name} ({s.nisn || 'No NISN'})</option>
                                             ))}
                                         </select>
