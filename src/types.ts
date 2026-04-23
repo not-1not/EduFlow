@@ -49,7 +49,7 @@ export interface Subject {
     teacherName?: string; // Guru Mapel
 }
 
-export type AssessmentType = 'pengetahuan' | 'keterampilan' | 'pts' | 'pas';
+export type AssessmentType = 'formatif' | 'sumatif' | 'pengetahuan' | 'keterampilan' | 'pts' | 'pas';
 
 export interface Material {
     id: string;
@@ -64,7 +64,7 @@ export interface Grade {
     studentId: string;
     materialId: string;
     value: number;
-    scoreType?: 'Pengetahuan' | 'Keterampilan';
+    scoreType?: string;
 }
 
 export interface Class {

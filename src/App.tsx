@@ -1230,7 +1230,6 @@ function GradesView({
 }) {
     const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
     const [selectedMaterialId, setSelectedMaterialId] = useState<string>('');
-    const [selectedScoreType, setSelectedScoreType] = useState<'Pengetahuan' | 'Keterampilan'>('Pengetahuan');
     const [editMode, setEditMode] = useState<'manual' | 'bulk' | 'recap' | 'matrix'>('manual');
     const [bulkData, setBulkData] = useState<{ [key: string]: number }>({});
     const [savingId, setSavingId] = useState<string | null>(null);
@@ -1238,7 +1237,7 @@ function GradesView({
     useEffect(() => {
         // Initialize bulk data with current values or cache
         const initialBulk: { [key: string]: number } = {};
-        const cacheKey = `bulkData_${selectedMaterialId}_${selectedScoreType}`;
+        const cacheKey = `bulkData_${selectedMaterialId}`;
         const cached = localStorage.getItem(cacheKey);
         
         let parsedCache: { [key: string]: number } | null = null;
@@ -1249,7 +1248,7 @@ function GradesView({
         }
 
         students.forEach(s => {
-            const grade = grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId && g.scoreType === selectedScoreType);
+            const grade = grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId);
             if (parsedCache && typeof parsedCache[s.id] !== 'undefined') {
                 initialBulk[s.id] = parsedCache[s.id];
             } else {
@@ -1257,14 +1256,13 @@ function GradesView({
             }
         });
         setBulkData(initialBulk);
-    }, [selectedMaterialId, selectedScoreType, grades, students]);
+    }, [selectedMaterialId, grades, students]);
 
-    const saveGradeEntries = async (entries: Array<{ studentId: string; materialId: string; scoreType: 'Pengetahuan' | 'Keterampilan'; value: number }>) => {
+    const saveGradeEntries = async (entries: Array<{ studentId: string; materialId: string; value: number }>) => {
         for (const entry of entries) {
             const existing = grades.find(g =>
                 g.studentId === entry.studentId &&
-                g.materialId === entry.materialId &&
-                g.scoreType === entry.scoreType
+                g.materialId === entry.materialId
             );
             if (existing?.id) {
                 await updateDoc(doc(db, 'grades', existing.id), entry);
@@ -1279,18 +1277,17 @@ function GradesView({
         const updates = Object.entries(bulkData).map(([studentId, value]) => ({
             studentId,
             materialId: selectedMaterialId,
-            scoreType: selectedScoreType,
             value: parseInt(value as any) || 0
         }));
-        await saveGradeEntries(updates as Array<{ studentId: string; materialId: string; scoreType: 'Pengetahuan' | 'Keterampilan'; value: number }>);
-        localStorage.removeItem(`bulkData_${selectedMaterialId}_${selectedScoreType}`);
+        await saveGradeEntries(updates);
+        localStorage.removeItem(`bulkData_${selectedMaterialId}`);
         alert('Nilai masal berhasil disimpan');
         onRefresh();
     };
 
     const handleSaveSingle = async (studentId: string, value: number) => {
         setSavingId(studentId);
-        await saveGradeEntries([{ studentId, materialId: selectedMaterialId, scoreType: selectedScoreType, value }]);
+        await saveGradeEntries([{ studentId, materialId: selectedMaterialId, value }]);
         setSavingId(null);
         onRefresh();
     };
@@ -1392,20 +1389,6 @@ function GradesView({
                                         </div>
                                     </div>
 
-                                    {selectedMaterialId && (
-                                        <div className="flex items-center gap-2">
-                                            <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest" htmlFor="score-type-select">Jenis Nilai:</label>
-                                            <select
-                                                id="score-type-select"
-                                                className="bg-white border border-border rounded px-2 py-1 text-xs font-bold outline-none"
-                                                value={selectedScoreType}
-                                                onChange={(e) => setSelectedScoreType(e.target.value as any)}
-                                            >
-                                                <option value="Pengetahuan">Pengetahuan</option>
-                                                <option value="Keterampilan">Keterampilan</option>
-                                            </select>
-                                        </div>
-                                    )}
                                 </div>
                                 {editMode === 'bulk' && (
                                     <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-3 py-1 rounded-full uppercase tabular-nums">Peringatan: Mode Edit Masal Aktif</span>
@@ -1432,7 +1415,7 @@ function GradesView({
                                                             type="number"
                                                             aria-label={`Nilai untuk ${s.name}`}
                                                             className={`w-20 bg-slate-50 border border-border rounded px-2 py-1 outline-none font-bold transition-all ${savingId === s.id ? 'opacity-50 scale-95' : ''}`}
-                                                            value={editMode === 'manual' ? (grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId && g.scoreType === selectedScoreType)?.value ?? '') : (bulkData[s.id] || 0)}
+                                                            value={editMode === 'manual' ? (grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId)?.value ?? '') : (bulkData[s.id] || 0)}
                                                             onChange={e => {
                                                                 const val = parseInt(e.target.value) || 0;
                                                                 if (editMode === 'manual') {
@@ -1440,7 +1423,7 @@ function GradesView({
                                                                 } else {
                                                                     const newBulkData = { ...bulkData, [s.id]: val };
                                                                     setBulkData(newBulkData);
-                                                                    localStorage.setItem(`bulkData_${selectedMaterialId}_${selectedScoreType}`, JSON.stringify(newBulkData));
+                                                                    localStorage.setItem(`bulkData_${selectedMaterialId}`, JSON.stringify(newBulkData));
                                                                 }
                                                             }}
                                                             disabled={!selectedMaterialId || savingId === s.id}
@@ -1452,7 +1435,7 @@ function GradesView({
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    {grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId && g.scoreType === selectedScoreType) ? (
+                                                    {grades.find(g => g.studentId === s.id && g.materialId === selectedMaterialId) ? (
                                                         <span className="status-pill !bg-success/10 !text-success">Sudah Dinilai</span>
                                                     ) : (
                                                         <span className="status-pill !bg-red-50 !text-red-500">Belum Ada Nilai</span>
@@ -1484,30 +1467,22 @@ function GradesView({
                                     <thead>
                                         <tr className="bg-slate-50">
                                             <th rowSpan={2} className="border-r border-border sticky left-0 bg-slate-50 z-10">NAMA SISWA</th>
-                                            <th colSpan={materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'pengetahuan').length || 1} className="text-center border-r border-border text-blue-600 bg-blue-50/20">PENGETAHUAN</th>
-                                            <th colSpan={materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'keterampilan').length || 1} className="text-center border-r border-border text-emerald-600 bg-emerald-50/20">KETERAMPILAN</th>
-                                            <th className="text-center border-r border-border text-orange-600 bg-orange-50/20">PTS</th>
-                                            <th className="text-center border-r border-border text-purple-600 bg-purple-50/20">PAS</th>
+                                            <th colSpan={materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'formatif').length || 1} className="text-center border-r border-border text-blue-600 bg-blue-50/20">FORMATIF</th>
+                                            <th colSpan={materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'sumatif').length || 1} className="text-center border-r border-border text-orange-600 bg-orange-50/20">SUMATIF</th>
                                             <th rowSpan={2} className="bg-accent/5 sticky right-0 z-10">NILAI AKHIR</th>
                                         </tr>
                                         <tr>
-                                            {/* Pengetahuan */}
-                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'pengetahuan').map(m => (
+                                            {/* Formatif */}
+                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'formatif').map(m => (
                                                 <th key={m.id} className="text-[9px] font-normal" title={m.title}>{m.title.substring(0, 10)}..</th>
                                             ))}
-                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'pengetahuan').length === 0 && <th className="text-[9px] opacity-30 text-center">-</th>}
+                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'formatif').length === 0 && <th className="text-[9px] opacity-30 text-center">-</th>}
 
-                                            {/* Keterampilan */}
-                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'keterampilan').map(m => (
+                                            {/* Sumatif */}
+                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'sumatif').map(m => (
                                                 <th key={m.id} className="text-[9px] font-normal" title={m.title}>{m.title.substring(0, 10)}..</th>
                                             ))}
-                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'keterampilan').length === 0 && <th className="text-[9px] opacity-30 text-center">-</th>}
-
-                                            {/* PTS */}
-                                            <th className="text-[9px] font-normal text-center">NILAI</th>
-
-                                            {/* PAS */}
-                                            <th className="text-[9px] font-normal text-center">NILAI</th>
+                                            {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'sumatif').length === 0 && <th className="text-[9px] opacity-30 text-center">-</th>}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1516,45 +1491,40 @@ function GradesView({
                                                 const mats = materials.filter(m => m.subjectId === selectedSubjectId && m.type === type);
                                                 if (mats.length === 0) return 0;
                                                 let sum = 0;
+                                                let count = 0;
                                                 mats.forEach(m => {
-                                                    const gp = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id && gr.scoreType === 'Pengetahuan');
-                                                    const gk = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id && gr.scoreType === 'Keterampilan');
-                                                    sum += gp ? gp.value : 0;
-                                                    sum += gk ? gk.value : 0; // Or whatever formula. Just capturing both if exist
+                                                    // Since we changed score logic, let's just sum whatever grades are attached to this material
+                                                    const materialGrades = grades.filter(gr => gr.studentId === s.id && gr.materialId === m.id);
+                                                    if (materialGrades.length > 0) {
+                                                        sum += materialGrades.reduce((acc, g) => acc + g.value, 0) / materialGrades.length; // avg if multiple score types exist, otherwise just the value
+                                                        count++;
+                                                    }
                                                 });
-                                                return sum / (mats.length * 2); // Taking average of P & K
+                                                return count > 0 ? sum / count : 0;
                                             };
 
-                                            const avgP = getAvg('pengetahuan');
-                                            const avgK = getAvg('keterampilan');
-                                            const avgPTS = getAvg('pts');
-                                            const avgPAS = getAvg('pas');
+                                            const avgFormatif = getAvg('formatif');
+                                            const avgSumatif = getAvg('sumatif');
 
-                                            // Calculate NA based on 4 types
-                                            const na = (avgP + avgK + avgPTS + avgPAS) / 4;
+                                            // Calculate NA based on 2 types
+                                            const na = (avgFormatif + avgSumatif) / 2;
 
                                             return (
                                                 <tr key={s.id}>
                                                     <td className="font-bold whitespace-nowrap border-r border-border px-4 py-2 sticky left-0 bg-white group-hover:bg-slate-50 z-10">{s.name}</td>
-                                                    {/* Pengetahuan Grades */}
-                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'pengetahuan').map(m => {
-                                                        const gp = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id && gr.scoreType === 'Pengetahuan');
-                                                        return <td key={m.id} className="text-center font-mono text-xs">{gp ? gp.value : '-'}</td>;
+                                                    {/* Formatif Grades */}
+                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'formatif').map(m => {
+                                                        const g = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id);
+                                                        return <td key={m.id} className="text-center font-mono text-xs">{g ? g.value : '-'}</td>;
                                                     })}
-                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'pengetahuan').length === 0 && <td className="text-center opacity-30">-</td>}
+                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'formatif').length === 0 && <td className="text-center opacity-30">-</td>}
 
-                                                    {/* Keterampilan Grades */}
-                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'keterampilan').map(m => {
-                                                        const gk = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id && gr.scoreType === 'Keterampilan');
-                                                        return <td key={m.id} className="text-center font-mono text-xs">{gk ? gk.value : '-'}</td>;
+                                                    {/* Sumatif Grades */}
+                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'sumatif').map(m => {
+                                                        const g = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id);
+                                                        return <td key={m.id} className="text-center font-mono text-xs">{g ? g.value : '-'}</td>;
                                                     })}
-                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'keterampilan').length === 0 && <td className="text-center opacity-30">-</td>}
-
-                                                    {/* PTS Grade */}
-                                                    <td className="text-center font-mono text-xs border-l border-border bg-orange-50/5">{avgPTS > 0 ? avgPTS.toFixed(0) : '-'}</td>
-
-                                                    {/* PAS Grade */}
-                                                    <td className="text-center font-mono text-xs border-l border-border bg-purple-50/5">{avgPAS > 0 ? avgPAS.toFixed(0) : '-'}</td>
+                                                    {materials.filter(m => m.subjectId === selectedSubjectId && m.type === 'sumatif').length === 0 && <td className="text-center opacity-30">-</td>}
 
                                                     <td className="font-black text-accent bg-accent/5 text-center text-sm sticky right-0 z-10">{na.toFixed(1)}</td>
                                                 </tr>
@@ -1595,22 +1565,22 @@ function GradesView({
                                                             const mats = materials.filter(m => m.subjectId === sub.id && m.type === type);
                                                             if (mats.length === 0) return 0;
                                                             let sum = 0;
+                                                            let count = 0;
                                                             mats.forEach(m => {
-                                                                const gp = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id && gr.scoreType === 'Pengetahuan');
-                                                                const gk = grades.find(gr => gr.studentId === s.id && gr.materialId === m.id && gr.scoreType === 'Keterampilan');
-                                                                sum += gp ? gp.value : 0;
-                                                                sum += gk ? gk.value : 0;
+                                                                const materialGrades = grades.filter(gr => gr.studentId === s.id && gr.materialId === m.id);
+                                                                if (materialGrades.length > 0) {
+                                                                    sum += materialGrades.reduce((acc, g) => acc + g.value, 0) / materialGrades.length;
+                                                                    count++;
+                                                                }
                                                             });
-                                                            return sum / (mats.length * 2);
+                                                            return count > 0 ? sum / count : 0;
                                                         };
 
-                                                        const avgP = getAvg('pengetahuan');
-                                                        const avgK = getAvg('keterampilan');
-                                                        const avgPTS = getAvg('pts');
-                                                        const avgPAS = getAvg('pas');
+                                                        const avgFormatif = getAvg('formatif');
+                                                        const avgSumatif = getAvg('sumatif');
 
                                                         const subMaterials = materials.filter(m => m.subjectId === sub.id);
-                                                        const subTotal = subMaterials.length > 0 ? (avgP + avgK + avgPTS + avgPAS) / 4 : 0;
+                                                        const subTotal = subMaterials.length > 0 ? (avgFormatif + avgSumatif) / 2 : 0;
 
                                                         if (subMaterials.length > 0) {
                                                             classTotal += subTotal;
@@ -3334,13 +3304,13 @@ function AssignmentsView({ materials, subjects, onRefresh }: { materials: Materi
     const [newMaterial, setNewMaterial] = useState<{ title: string, weight: number, type: AssessmentType }>({
         title: '',
         weight: 25,
-        type: 'pengetahuan'
+        type: 'formatif'
     });
 
     const handleAddMaterial = async () => {
         if (!selectedSubjectId || !newMaterial.title) return alert('Lengkapi data');
         await addDoc(collection(db, 'materials'), { ...newMaterial, subjectId: selectedSubjectId });
-        setNewMaterial({ title: '', weight: 25, type: 'pengetahuan' });
+        setNewMaterial({ title: '', weight: 25, type: 'formatif' });
         setShowAdd(false);
         onRefresh();
     };
@@ -3384,10 +3354,9 @@ function AssignmentsView({ materials, subjects, onRefresh }: { materials: Materi
                                             <p className="text-sm font-bold">{m.title}</p>
                                             <div className="flex gap-2 items-center">
                                                 <p className="text-[10px] text-text-secondary">Bobot: {m.weight}%</p>
-                                                <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-tighter ${m.type === 'pengetahuan' ? 'bg-blue-100 text-blue-600' :
-                                                        m.type === 'keterampilan' ? 'bg-emerald-100 text-emerald-600' :
-                                                            m.type === 'pts' ? 'bg-orange-100 text-orange-600' :
-                                                                'bg-purple-100 text-purple-600'
+                                                <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-tighter ${m.type === 'formatif' ? 'bg-blue-100 text-blue-600' :
+                                                        m.type === 'sumatif' ? 'bg-orange-100 text-orange-600' :
+                                                            'bg-slate-100 text-slate-600'
                                                     }`}>
                                                     {m.type}
                                                 </span>
@@ -3440,10 +3409,8 @@ function AssignmentsView({ materials, subjects, onRefresh }: { materials: Materi
                                     value={newMaterial.type}
                                     onChange={e => setNewMaterial({ ...newMaterial, type: e.target.value as AssessmentType })}
                                 >
-                                    <option value="pengetahuan">Pengetahuan (Harian/Tugas)</option>
-                                    <option value="keterampilan">Keterampilan (Praktek/Proyek)</option>
-                                    <option value="pts">Penilaian Tengah Semester (PTS)</option>
-                                    <option value="pas">Penilaian Akhir Semester (PAS)</option>
+                                    <option value="formatif">Formatif</option>
+                                    <option value="sumatif">Sumatif</option>
                                 </select>
                             </div>
                             <div className="space-y-1">
@@ -4105,9 +4072,22 @@ function PaymentsView({
 
     const handleUpdatePayment = async () => {
         if (!editingPayment) return;
+        if (!Number.isFinite(editingPayment.amountPaid) || editingPayment.amountPaid <= 0) return alert('Nominal pembayaran harus lebih dari 0');
+        if (!editingPayment.paymentDate) return alert('Tanggal pembayaran wajib diisi');
         const { id, ...payload } = editingPayment as any;
         await updateDoc(doc(db, 'studentPayments', id), payload);
         setEditingPayment(null);
+        onRefresh();
+    };
+
+    const handleDeletePayment = async (payment: StudentPayment) => {
+        const s = students.find(st => st.id === payment.studentId);
+        const item = feeItems.find(i => i.id === payment.feeItemId);
+        const label = payment.isDeposit ? 'Titipan / Deposit' : (item?.name || 'Item');
+        const ok = window.confirm(`Hapus pembayaran ini?\n\nSiswa: ${s?.name || '-'}\nItem: ${label}\nNominal: ${formatCurrency(payment.amountPaid)}\nTanggal: ${payment.paymentDate}`);
+        if (!ok) return;
+        await deleteDoc(doc(db, 'studentPayments', payment.id));
+        if (editingPayment?.id === payment.id) setEditingPayment(null);
         onRefresh();
     };
 
@@ -4250,6 +4230,13 @@ function PaymentsView({
                                                     className="p-1.5 hover:bg-accent/10 text-accent rounded transition-all"
                                                 >
                                                     <Edit size={12} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeletePayment(p)}
+                                                    className="p-1.5 hover:bg-red-500/10 text-red-600 rounded transition-all"
+                                                    title="Hapus pembayaran"
+                                                >
+                                                    <Trash2 size={12} />
                                                 </button>
                                             </div>
                                         </td>
@@ -4525,6 +4512,12 @@ function PaymentsView({
                                                             >
                                                                 Koreksi
                                                             </button>
+                                                            <button
+                                                                onClick={() => handleDeletePayment(p)}
+                                                                className="text-[10px] font-bold text-text-secondary hover:text-red-600 underline uppercase mt-1 ml-3 opacity-0 group-hover:opacity-100 transition-all"
+                                                            >
+                                                                Hapus
+                                                            </button>
                                                         </div>
                                                     </div>
                                                     {p.notes && (
@@ -4581,7 +4574,7 @@ function PaymentsView({
                                     type="number"
                                     className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent font-bold"
                                     value={editingPayment.amountPaid}
-                                    onChange={e => setEditingPayment({ ...editingPayment, amountPaid: parseInt(e.target.value) })}
+                                    onChange={e => setEditingPayment({ ...editingPayment, amountPaid: Number(e.target.value) || 0 })}
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -4617,6 +4610,12 @@ function PaymentsView({
                                 />
                             </div>
                             <div className="flex gap-3 pt-4">
+                                <button
+                                    onClick={() => handleDeletePayment(editingPayment)}
+                                    className="px-5 py-3 border border-red-200 text-red-700 rounded-xl font-bold hover:bg-red-50"
+                                >
+                                    Hapus
+                                </button>
                                 <button onClick={() => setEditingPayment(null)} className="flex-1 px-6 py-3 border border-border rounded-xl font-bold">Batal</button>
                                 <button onClick={handleUpdatePayment} className="flex-1 btn-primary py-3 rounded-xl">Simpan Koreksi</button>
                             </div>
