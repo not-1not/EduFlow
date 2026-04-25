@@ -63,6 +63,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
+import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
 
 const sortStudentsForSelect = (students: Student[]) => {
     return [...students].sort((a, b) => {
@@ -758,47 +759,47 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     </AnimatePresence>
                 </div>
 
-                {showPrintModal && (
-                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-                        <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border border-border">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-xl font-bold">Pengaturan Cetak</h3>
-                                <button onClick={() => setShowPrintModal(false)} aria-label="Tutup pengaturan cetak"><X size={20} /></button>
-                            </div>
-                            <div className="space-y-4">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Ukuran Kertas</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
-                                        value={printSettings.paperSize}
-                                        onChange={e => setPrintSettings({ ...printSettings, paperSize: e.target.value })}
-                                        title="Pilih Ukuran Kertas"
-                                    >
-                                        <option value="A4">A4 (210 x 297 mm)</option>
-                                        <option value="F4">F4 / Folio (215 x 330 mm)</option>
-                                        <option value="Letter">Letter (215.9 x 279.4 mm)</option>
-                                    </select>
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Margin Halaman</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
-                                        value={printSettings.margin}
-                                        onChange={e => setPrintSettings({ ...printSettings, margin: e.target.value })}
-                                        title="Pilih Margin Halaman"
-                                    >
-                                        <option value="10mm">Sempit (10mm)</option>
-                                        <option value="20mm">Normal (20mm)</option>
-                                        <option value="25mm">Lebar (25mm)</option>
-                                    </select>
-                                </div>
-                                <button onClick={handlePrint} className="w-full btn-primary py-3 flex items-center justify-center gap-2 mt-4 transition-all hover:scale-[1.02] active:scale-95">
-                                    <Printer size={18} /> Mulai Cetak PDF
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+	                {showPrintModal && (
+	                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+	                        <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border border-border">
+	                            <div className="flex justify-between items-center mb-6">
+	                                <h3 className="text-xl font-bold">Pengaturan Cetak</h3>
+	                                <button onClick={() => setShowPrintModal(false)} aria-label="Tutup pengaturan cetak"><X size={20} /></button>
+	                            </div>
+	                            <div className="space-y-4">
+	                                <div className="space-y-1">
+	                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Ukuran Kertas</label>
+	                                    <select
+	                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
+	                                        value={printSettings.paperSize}
+	                                        onChange={e => setPrintSettings({ ...printSettings, paperSize: e.target.value })}
+	                                        title="Pilih Ukuran Kertas"
+	                                    >
+	                                        <option value="A4">A4 (210 x 297 mm)</option>
+	                                        <option value="F4">F4 / Folio (215 x 330 mm)</option>
+	                                        <option value="Letter">Letter (215.9 x 279.4 mm)</option>
+	                                    </select>
+	                                </div>
+	                                <div className="space-y-1">
+	                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Margin Halaman</label>
+	                                    <select
+	                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
+	                                        value={printSettings.margin}
+	                                        onChange={e => setPrintSettings({ ...printSettings, margin: e.target.value })}
+	                                        title="Pilih Margin Halaman"
+	                                    >
+	                                        <option value="10mm">Sempit (10mm)</option>
+	                                        <option value="20mm">Normal (20mm)</option>
+	                                        <option value="25mm">Lebar (25mm)</option>
+	                                    </select>
+	                                </div>
+	                                <button onClick={handlePrint} className="w-full btn-primary py-3 flex items-center justify-center gap-2 mt-4 transition-all hover:scale-[1.02] active:scale-95">
+	                                    <Printer size={18} /> Mulai Cetak PDF
+	                                </button>
+	                            </div>
+	                        </div>
+	                    </div>
+	                )}
             </main>
         </div>
     );
@@ -974,17 +975,17 @@ function SubjectsView({
                     <h2 className="text-2xl font-bold tracking-tighter">Mata Pelajaran & Materi</h2>
                     <p className="text-sm text-text-secondary">Kelola kurikulum dan bobot penilaian</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={() => setShowTemplateModal(true)} className="btn-small flex items-center gap-2">
-                        <FileSpreadsheet size={14} /> Template Semua Mapel
-                    </button>
-                    <button onClick={() => setShowAddSubject(true)} className="btn-primary flex items-center gap-2">
-                        <Plus size={16} /> Tambah Mapel
-                    </button>
-                </div>
-            </div>
+	                <div className="flex items-center gap-2">
+	                    <button onClick={() => setShowTemplateModal(true)} className="btn-small flex items-center gap-2">
+	                        <FileSpreadsheet size={14} /> Template Semua Mapel
+	                    </button>
+	                    <button onClick={() => setShowAddSubject(true)} className="btn-primary flex items-center gap-2">
+	                        <Plus size={16} /> Tambah Mapel
+	                    </button>
+	                </div>
+	            </div>
 
-            <div className="space-y-6">
+	            <div className="space-y-6">
                 <div className="card !p-0 overflow-hidden">
                     <div className="p-4 border-b border-border bg-slate-50/60 flex items-center justify-between">
                         <h3 className="stat-label">Tabel Mata Pelajaran</h3>
@@ -4093,10 +4094,11 @@ function PaymentsView({
     const [showAddItem, setShowAddItem] = useState(false);
     const [showAddDeposit, setShowAddDeposit] = useState(false);
     const [selectedClassId, setSelectedClassId] = useState('');
-    const [detailStudentId, setDetailStudentId] = useState<string | null>(initialStudentId || null);
-    const [editingPayment, setEditingPayment] = useState<StudentPayment | null>(null);
-    const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
-    const [savingExtraBills, setSavingExtraBills] = useState(false);
+	    const [detailStudentId, setDetailStudentId] = useState<string | null>(initialStudentId || null);
+	    const [editingPayment, setEditingPayment] = useState<StudentPayment | null>(null);
+	    const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
+	    const [savingExtraBills, setSavingExtraBills] = useState(false);
+	    const [hideAdditionalBills, setHideAdditionalBills] = useState(false);
 
     const [newSchoolDeposit, setNewSchoolDeposit] = useState({
         classId: '',
@@ -4265,11 +4267,12 @@ function PaymentsView({
 
     const getCashNominal = (type: 'gemari' | 'infaq') => type === 'gemari' ? 500 : 1000;
 
-    useEffect(() => {
-        if (!detailStudentId) return;
-        const st = students.find(s => s.id === detailStudentId);
-        setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
-    }, [detailStudentId, students]);
+	    useEffect(() => {
+	        if (!detailStudentId) return;
+	        const st = students.find(s => s.id === detailStudentId);
+	        setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
+	        setHideAdditionalBills(false);
+	    }, [detailStudentId, students]);
 
     const addExtraBill = () => {
         const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
@@ -4300,11 +4303,19 @@ function PaymentsView({
         }
     };
 
-    const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
-    const totalRequired = feeItems.reduce((acc, item) => acc + (item.category === 'wajib' ? item.amount * students.length : 0), 0);
-    const totalCollected = payments.reduce((acc, p) => acc + p.amountPaid, 0);
+	    const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
+	    const totalRequired = feeItems.reduce((acc, item) => acc + (item.category === 'wajib' ? item.amount * students.length : 0), 0);
+	    const totalCollected = payments.reduce((acc, p) => acc + p.amountPaid, 0);
+	
+	    const detailStudent = detailStudentId ? students.find(s => s.id === detailStudentId) : null;
+	    const detailClass = detailStudent ? classes.find(c => c.id === detailStudent.classId) : null;
+	    const detailPayments = detailStudentId ? payments.filter(p => p.studentId === detailStudentId) : [];
+	    const detailPaidAmount = detailPayments.reduce((acc, p) => acc + p.amountPaid, 0);
+	    const detailRequiredAmount = feeItems.filter(i => i.category === 'wajib').reduce((acc, i) => acc + i.amount, 0);
+	    const detailBalance = detailPaidAmount - detailRequiredAmount;
+	    const isDetailLunas = !!detailStudentId && detailBalance >= 0;
 
-    return (
+	    return (
         <div className="space-y-6 print-container relative">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">LAPORAN PEMBAYARAN SISWA</h1>
@@ -4623,16 +4634,25 @@ function PaymentsView({
                             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                             className="fixed top-0 right-0 h-full w-full max-w-xl bg-bg z-[70] shadow-2xl flex flex-col"
                         >
-                            <div className="p-6 border-b border-border bg-white flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-slate-900 text-yellow-400 rounded-full flex items-center justify-center font-black">
-                                        {students.find(s => s.id === detailStudentId)?.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-lg">{students.find(s => s.id === detailStudentId)?.name}</h3>
-                                        <p className="text-[10px] font-bold text-text-secondary uppercase">Rekapitulasi Pembayaran Personal</p>
-                                    </div>
-                                </div>
+	                            <div className="p-6 border-b border-border bg-white flex justify-between items-center">
+	                                <div className="flex items-center gap-3">
+	                                    <img
+	                                        src={sdn3PurwosariLogo}
+	                                        alt="Logo SDN 3 Purwosari"
+	                                        className="w-10 h-10 object-contain"
+	                                    />
+	                                    <div className="w-10 h-10 bg-slate-900 text-yellow-400 rounded-full flex items-center justify-center font-black">
+	                                        {detailStudent?.name?.charAt(0)}
+	                                    </div>
+	                                    <div>
+	                                        <h3 className="font-bold text-lg">{detailStudent?.name}</h3>
+	                                        <p className="text-[10px] font-bold text-text-secondary uppercase">Rekapitulasi Pembayaran Personal</p>
+	                                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-[10px] font-bold text-slate-500">
+	                                            <span>Kelas: {detailClass?.name || '-'}</span>
+	                                            <span>Wali: {detailClass?.homeroomTeacher || detailClass?.teacher || '-'}</span>
+	                                        </div>
+	                                    </div>
+	                                </div>
                                 <button
                                     onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
                                     className="p-2 hover:bg-slate-100 rounded-lg"
@@ -4641,34 +4661,37 @@ function PaymentsView({
                                 </button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-                                {/* Summary Section */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-4 bg-white rounded-2xl border border-border">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Terbayar</p>
-                                        <p className="text-xl font-black text-accent">
-                                            {formatCurrency(payments.filter(p => p.studentId === detailStudentId).reduce((acc, p) => acc + p.amountPaid, 0))}
-                                        </p>
-                                    </div>
-                                    <div className="p-4 bg-white rounded-2xl border border-border">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status Tunggakan</p>
-                                        {(() => {
-                                            const paidAmount = payments.filter(p => p.studentId === detailStudentId).reduce((acc, p) => acc + p.amountPaid, 0);
-                                            const required = feeItems.filter(i => i.category === 'wajib').reduce((acc, i) => acc + i.amount, 0);
-                                            const bal = paidAmount - required;
-                                            return (
-                                                <p className={`text-xl font-black ${bal >= 0 ? 'text-success' : 'text-red-500'}`}>
-                                                    {bal >= 0 ? 'LUNAS' : formatCurrency(Math.abs(bal))}
-                                                </p>
-                                            );
-                                        })()}
-                                    </div>
-                                </div>
+	                            <div className="flex-1 overflow-y-auto p-6">
+	                                <div className="relative">
+	                                    {isDetailLunas && (
+	                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center select-none">
+	                                            <div className="text-[72px] font-black tracking-[0.25em] text-emerald-600/10 rotate-[-20deg]">
+	                                                LUNAS
+	                                            </div>
+	                                        </div>
+	                                    )}
+	
+	                                    <div className="relative z-10 space-y-8">
+	                                        {/* Summary Section */}
+	                                        <div className="grid grid-cols-2 gap-4">
+	                                            <div className="p-4 bg-white rounded-2xl border border-border">
+	                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Terbayar</p>
+	                                                <p className="text-xl font-black text-accent">
+	                                                    {formatCurrency(detailPaidAmount)}
+	                                                </p>
+	                                            </div>
+	                                            <div className="p-4 bg-white rounded-2xl border border-border">
+	                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status Tunggakan</p>
+	                                                <p className={`text-xl font-black ${isDetailLunas ? 'text-success' : 'text-red-500'}`}>
+	                                                    {isDetailLunas ? 'LUNAS' : formatCurrency(Math.abs(detailBalance))}
+	                                                </p>
+	                                            </div>
+	                                        </div>
 
-                                {/* Tagihan Tambahan */}
-                                {(() => {
-                                    const st = students.find(s => s.id === detailStudentId);
-                                    if (!st) return null;
+	                                {/* Tagihan Tambahan */}
+	                                {(() => {
+	                                    const st = detailStudent;
+	                                    if (!st) return null;
 
                                     const monthStr = getCurrentMonthStr();
                                     const [yy, mm] = monthStr.split('-').map(Number);
@@ -4700,21 +4723,40 @@ function PaymentsView({
 
                                     return (
                                         <div className="space-y-4">
-                                            <div className="flex items-end justify-between">
-                                                <div>
-                                                    <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
-                                                    <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
-                                                </div>
-                                                <button onClick={addExtraBill} className="btn-small">+ Lain-lain</button>
-                                            </div>
+	                                            <div className="flex items-end justify-between gap-4">
+	                                                <div>
+	                                                    <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
+	                                                    <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
+	                                                </div>
+	                                                <div className="flex items-center gap-2">
+	                                                    <button
+	                                                        onClick={() => setHideAdditionalBills(v => !v)}
+	                                                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600"
+	                                                        aria-label={hideAdditionalBills ? 'Tampilkan tagihan tambahan' : 'Sembunyikan tagihan tambahan'}
+	                                                        title={hideAdditionalBills ? 'Tampilkan' : 'Sembunyikan'}
+	                                                    >
+	                                                        {hideAdditionalBills ? 'Show' : 'Hide'}
+	                                                    </button>
+	                                                    <button onClick={addExtraBill} className="btn-small" disabled={hideAdditionalBills}>+ Lain-lain</button>
+	                                                </div>
+	                                            </div>
 
-                                            <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
+	                                            {hideAdditionalBills ? (
+	                                                <div className="p-4 bg-white rounded-2xl border border-border flex items-center justify-between">
+	                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (disembunyikan)</div>
+	                                                    <div className="text-right">
+	                                                        <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+	                                                        <div className="text-[10px] text-slate-400">Klik Show untuk detail</div>
+	                                                    </div>
+	                                                </div>
+	                                            ) : (
+	                                                <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
                                                 <div className="flex justify-between items-center">
                                                     <div>
                                                         <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari</div>
                                                         <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)} {gemari.bebasDays ? `(- bebas setor ${gemari.bebasDays} hari)` : ''}</div>
-                                                    </div>
-                                                    <div className="text-right">
+	                                                </div>
+	                                                    <div className="text-right">
                                                         <div className="text-xs font-black text-red-500">{formatCurrency(gemari.kurang)}</div>
                                                         <div className="text-[10px] text-slate-400">Setor: {formatCurrency(gemari.paid)}</div>
                                                     </div>
@@ -4771,20 +4813,21 @@ function PaymentsView({
                                                     className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
                                                 >
                                                     {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
+	                                                </button>
+	                                            </div>
+	                                        )}
+	                                        </div>
+	                                    );
                                 })()}
 
                                 {/* Detailed History */}
                                 <div className="space-y-4">
                                     <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Riwayat Transaksi</h4>
                                     <div className="space-y-3">
-                                        {payments
-                                            .filter(p => p.studentId === detailStudentId)
-                                            .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate))
-                                            .map(p => (
+	                                        {detailPayments
+	                                            .slice()
+	                                            .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate))
+	                                            .map(p => (
                                                 <div key={p.id} className="p-4 bg-white rounded-2xl border border-border group hover:border-accent transition-all relative">
                                                     <div className="flex justify-between items-start">
                                                         <div>
@@ -4814,16 +4857,18 @@ function PaymentsView({
                                                     )}
                                                 </div>
                                             ))}
-                                        {payments.filter(p => p.studentId === detailStudentId).length === 0 && (
+	                                        {detailPayments.length === 0 && (
                                             <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-border">
                                                 <p className="text-xs text-slate-400 italic">Belum ada catatan pembayaran</p>
                                             </div>
                                         )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="p-6 bg-white border-t border-border">
+	                                    </div>
+	                                </div>
+	                                        </div>
+	                                    </div>
+	                                </div>
+	
+	                            <div className="p-6 bg-white border-t border-border">
                                 <button
                                     onClick={() => {
                                         openAddPaymentModal(detailStudentId || '');
