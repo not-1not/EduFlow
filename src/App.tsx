@@ -5210,6 +5210,7 @@ function ClassCashView({
         if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
         return false;
     });
+    const sortedFilteredStudents = sortStudentsForSelect(filteredStudents);
     const holiday = holidays.find(h => h.date === selectedDate);
     const dateObj = new Date(selectedDate);
     const isWeekend = dateObj.getDay() === 0;
@@ -5577,7 +5578,7 @@ function ClassCashView({
                         />
                     ) : viewMode === 'monthly' ? (
                         <MonthlyClassCashView
-                            students={filteredStudents}
+                            students={sortedFilteredStudents}
                             month={selectedMonth}
                             type={activeTab}
                             transactions={transactions}
@@ -5625,7 +5626,7 @@ function ClassCashView({
                                         onClick={() => {
                                             const nominal = getNominal();
                                             const newAmounts: { [key: string]: number } = {};
-                                            filteredStudents.forEach(s => newAmounts[s.id] = nominal);
+                                            sortedFilteredStudents.forEach(s => newAmounts[s.id] = nominal);
                                             setStudentAmounts(newAmounts);
                                         }}
                                         className="text-[10px] font-bold bg-success/10 text-success px-3 py-1 rounded-lg hover:bg-success/20 uppercase transition-all"
@@ -5651,7 +5652,7 @@ function ClassCashView({
                                         </tr>
                                     </thead>
                                     <tbody className={(holiday || isWeekend) ? 'opacity-50 pointer-events-none' : ''}>
-                                        {filteredStudents.map((s, idx) => {
+                                        {sortedFilteredStudents.map((s, idx) => {
                                             const nominal = getNominal();
                                             const isSetor = studentAmounts[s.id] !== undefined && studentAmounts[s.id] > 0;
                                             return (
@@ -5737,7 +5738,7 @@ function ClassCashView({
                                     onChange={e => setRangeForm({ ...rangeForm, studentId: e.target.value })}
                                 >
                                     <option value="">Pilih siswa...</option>
-                                    {filteredStudents.map((s) => (
+                                    {sortedFilteredStudents.map((s) => (
                                         <option key={s.id} value={s.id}>{getStudentName(s)}</option>
                                     ))}
                                 </select>
