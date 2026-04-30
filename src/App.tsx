@@ -74,6 +74,71 @@ const sortStudentsForSelect = (students: Student[]) => {
     });
 };
 
+type ClassCashWriteEntry = {
+    classId: string;
+    studentId?: string;
+    amount: number;
+    date: string;
+    type: 'gemari' | 'infaq';
+    notes?: string;
+    transactionType?: 'deposit' | 'withdrawal';
+};
+
+const buildClassCashKey = (entry: ClassCashWriteEntry) =>
+    `${entry.classId}__${entry.studentId || 'kolektif'}__${entry.type}__${entry.date}__${entry.transactionType || 'deposit'}`;
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
+    if (!entries.length) return { total: 0 };
+
+    const deduped = Array.from(
+        entries.reduce((map, entry) => {
+            map.set(buildClassCashKey(entry), entry);
+            return map;
+        }, new Map<string, ClassCashWriteEntry>()).values()
+    );
+
+    const rows = deduped.map((entry) => ({ ...entry, id: buildClassCashKey(entry) }));
+    const chunkSize = 300;
+    const maxRetries = 2;
+
+    for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        let lastError: any = null;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            if (!supabase) {
+                for (const row of chunk) {
+                    await setDoc(doc(db, 'classCashTransactions', row.id), row);
+                }
+                lastError = null;
+                break;
+            }
+
+            const { error } = await supabase
+                .from('classCashTransactions')
+                .upsert(chunk, { onConflict: 'id', ignoreDuplicates: false });
+
+            if (!error) {
+                lastError = null;
+                break;
+            }
+
+            lastError = error;
+            if (attempt < maxRetries) {
+                await delay(300 * (attempt + 1));
+            }
+        }
+
+        if (lastError) {
+            throw lastError;
+        }
+    }
+
+    return { total: rows.length };
+}
+
 export default function App() {
     const { user, role, studentId, loading, logout } = useAuth();
 
@@ -5364,39 +5429,14 @@ function ClassCashView({
         }
     };
 
-    const saveClassCashEntries = async (entries: Array<{
-        classId: string;
-        studentId?: string;
-        amount: number;
-        date: string;
-        type: 'gemari' | 'infaq';
-        notes?: string;
-        transactionType?: 'deposit' | 'withdrawal';
-    }>) => {
+    const saveClassCashEntries = async (entries: ClassCashWriteEntry[]) => {
         if (!entries.length) return;
 
-        const keyOf = (e: typeof entries[number]) =>
-            `${e.classId}__${e.studentId || 'kolektif'}__${e.type}__${e.date}__${e.transactionType || 'deposit'}`;
-
         // Deduplicate same logical row in a single save cycle.
-        const uniqueMap = new Map<string, typeof entries[number]>();
-        entries.forEach((e) => uniqueMap.set(keyOf(e), e));
+        const uniqueMap = new Map<string, ClassCashWriteEntry>();
+        entries.forEach((e) => uniqueMap.set(buildClassCashKey(e), e));
         const uniqueEntries = Array.from(uniqueMap.values());
-
-        const failures: string[] = [];
-        for (const entry of uniqueEntries) {
-            const stableId = keyOf(entry);
-            try {
-                await setDoc(doc(db, 'classCashTransactions', stableId), entry);
-            } catch (err) {
-                failures.push(stableId);
-                console.error('Gagal menyimpan entri kas/infaq:', stableId, err);
-            }
-        }
-
-        if (failures.length > 0) {
-            throw new Error(`Gagal menyimpan ${failures.length} dari ${uniqueEntries.length} entri.`);
-        }
+        await persistClassCashEntries(uniqueEntries);
 
         // Optional realtime mirror to spreadsheet via webhook (Google Apps Script).
         if (classCashSheetWebhook) {
@@ -5407,7 +5447,7 @@ function ClassCashView({
                     const student = entry.studentId ? studentsById.get(entry.studentId) : null;
                     const klass = classesById.get(entry.classId);
                     return {
-                        key: keyOf(entry),
+                        key: buildClassCashKey(entry),
                         timestamp: new Date().toISOString(),
                         spreadsheetId: classCashSpreadsheetId,
                         targetSheet: entry.type === 'gemari' ? classCashGemariSheetName : classCashInfaqSheetName,
@@ -6248,14 +6288,7 @@ function MonthlyClassCashView({
         });
 
         try {
-            // Use deterministic upsert to prevent partial/random misses.
-            const saveOne = async (entry: any) => {
-                const stableId = `${entry.classId}__${entry.studentId || 'kolektif'}__${entry.type}__${entry.date}__${entry.transactionType || 'deposit'}`;
-                await setDoc(doc(db, 'classCashTransactions', stableId), entry);
-            };
-            for (const entry of entries) {
-                await saveOne(entry);
-            }
+            await persistClassCashEntries(entries);
             setEdits({});
             onRefresh();
         } catch (error) {
