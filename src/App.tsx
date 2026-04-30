@@ -60,7 +60,7 @@ import {
     LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, addDocs, supabase } from './firebase';
+import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
@@ -5313,7 +5313,7 @@ function ClassCashView({
 
             if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
 
-            await addDocs(collection(db, 'classCashTransactions'), entries);
+            await saveClassCashEntries(entries);
 
             onRefresh();
             setShowRangeModal(false);
@@ -5350,13 +5350,48 @@ function ClassCashView({
         if (entries.length === 0) return alert('Input nominal terlebih dahulu');
 
         try {
-            await addDocs(collection(db, 'classCashTransactions'), entries);
+            await saveClassCashEntries(entries);
             setStudentAmounts({});
             onRefresh();
             alert(`Berhasil menyimpan ${entries.length} data ${activeTab}`);
         } catch (error) {
             console.error('Gagal menyimpan input harian kas/infaq:', error);
             alert('Gagal menyimpan semua data. Tidak ada data baru yang disimpan. Silakan coba lagi.');
+        }
+    };
+
+    const saveClassCashEntries = async (entries: Array<{
+        classId: string;
+        studentId?: string;
+        amount: number;
+        date: string;
+        type: 'gemari' | 'infaq';
+        notes?: string;
+        transactionType?: 'deposit' | 'withdrawal';
+    }>) => {
+        if (!entries.length) return;
+
+        const keyOf = (e: typeof entries[number]) =>
+            `${e.classId}__${e.studentId || 'kolektif'}__${e.type}__${e.date}__${e.transactionType || 'deposit'}`;
+
+        // Deduplicate same logical row in a single save cycle.
+        const uniqueMap = new Map<string, typeof entries[number]>();
+        entries.forEach((e) => uniqueMap.set(keyOf(e), e));
+        const uniqueEntries = Array.from(uniqueMap.values());
+
+        const failures: string[] = [];
+        for (const entry of uniqueEntries) {
+            const stableId = keyOf(entry);
+            try {
+                await setDoc(doc(db, 'classCashTransactions', stableId), entry);
+            } catch (err) {
+                failures.push(stableId);
+                console.error('Gagal menyimpan entri kas/infaq:', stableId, err);
+            }
+        }
+
+        if (failures.length > 0) {
+            throw new Error(`Gagal menyimpan ${failures.length} dari ${uniqueEntries.length} entri.`);
         }
     };
 
@@ -6167,7 +6202,14 @@ function MonthlyClassCashView({
         });
 
         try {
-            await addDocs(collection(db, 'classCashTransactions'), entries);
+            // Use deterministic upsert to prevent partial/random misses.
+            const saveOne = async (entry: any) => {
+                const stableId = `${entry.classId}__${entry.studentId || 'kolektif'}__${entry.type}__${entry.date}__${entry.transactionType || 'deposit'}`;
+                await setDoc(doc(db, 'classCashTransactions', stableId), entry);
+            };
+            for (const entry of entries) {
+                await saveOne(entry);
+            }
             setEdits({});
             onRefresh();
         } catch (error) {
