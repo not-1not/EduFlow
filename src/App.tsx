@@ -60,7 +60,7 @@ import {
     LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
+import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, addDocs, supabase } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
@@ -5313,9 +5313,7 @@ function ClassCashView({
 
             if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
 
-            for (const entry of entries) {
-                await addDoc(collection(db, 'classCashTransactions'), entry);
-            }
+            await addDocs(collection(db, 'classCashTransactions'), entries);
 
             onRefresh();
             setShowRangeModal(false);
@@ -5351,13 +5349,15 @@ function ClassCashView({
 
         if (entries.length === 0) return alert('Input nominal terlebih dahulu');
 
-        for (const entry of entries) {
-            await addDoc(collection(db, 'classCashTransactions'), entry);
+        try {
+            await addDocs(collection(db, 'classCashTransactions'), entries);
+            setStudentAmounts({});
+            onRefresh();
+            alert(`Berhasil menyimpan ${entries.length} data ${activeTab}`);
+        } catch (error) {
+            console.error('Gagal menyimpan input harian kas/infaq:', error);
+            alert('Gagal menyimpan semua data. Tidak ada data baru yang disimpan. Silakan coba lagi.');
         }
-
-        setStudentAmounts({});
-        onRefresh();
-        alert(`Berhasil menyimpan ${entries.length} data ${activeTab}`);
     };
 
     const formatCurrency = (amount: number) => {
@@ -6166,12 +6166,14 @@ function MonthlyClassCashView({
             };
         });
 
-        for (const entry of entries) {
-            await addDoc(collection(db, 'classCashTransactions'), entry);
+        try {
+            await addDocs(collection(db, 'classCashTransactions'), entries);
+            setEdits({});
+            onRefresh();
+        } catch (error) {
+            console.error('Gagal menyimpan mass edit bulanan kas/infaq:', error);
+            alert('Gagal menyimpan mass edit bulanan. Silakan coba lagi.');
         }
-
-        setEdits({});
-        onRefresh();
     };
 
     const hasEdits = Object.keys(edits).length > 0;

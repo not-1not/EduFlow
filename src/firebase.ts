@@ -122,6 +122,24 @@ export const addDoc = async (col: any, data: any) => {
     return { id: newId };
 };
 
+export const addDocs = async (col: any, rows: any[]) => {
+    if (!supabase) throw new Error("Supabase is not configured.");
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+
+    const tableName = getTableName(col?.name || col);
+    const payloads = rows.map((row) => ({ ...row, id: Math.random().toString(36).substr(2, 9) }));
+
+    console.log("Bulk insert to Supabase:", tableName, payloads.length, "rows");
+
+    const { error } = await supabase.from(tableName).insert(payloads);
+    if (error) {
+        console.error("Supabase Bulk Insert Error:", error);
+        throw error;
+    }
+
+    return payloads.map((p) => ({ id: p.id }));
+};
+
 export const setDoc = async (document: any, data: any) => {
     if (!supabase) throw new Error("Supabase is not configured.");
     
