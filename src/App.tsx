@@ -5185,6 +5185,7 @@ function ClassCashView({
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+    const [showMonthPicker, setShowMonthPicker] = useState(false);
     const [studentAmounts, setStudentAmounts] = useState<{ [key: string]: number }>({});
 
     const [showHistory, setShowHistory] = useState(false);
@@ -5193,6 +5194,7 @@ function ClassCashView({
     const [rangeForm, setRangeForm] = useState({
         startDate: '',
         endDate: '',
+        targetType: 'active' as 'active' | 'gemari' | 'infaq' | 'both',
         status: 'setor' as 'setor' | 'bebas_setor',
         customAmount: 0
     });
@@ -5274,28 +5276,33 @@ function ClassCashView({
 
         const entries: any[] = [];
         let currentDate = new Date(start);
+        const targetTypes = rangeForm.targetType === 'both'
+            ? (['gemari', 'infaq'] as const)
+            : ([(rangeForm.targetType === 'active' ? activeTab : rangeForm.targetType)] as const);
 
         while (currentDate <= end) {
             const dateStr = [currentDate.getFullYear(), ('0' + (currentDate.getMonth() + 1)).slice(-2), ('0' + currentDate.getDate()).slice(-2)].join('-');
             const isH = holidays.some(h => h.date === dateStr);
             const dayOfWeek = currentDate.getDay();
 
-            let validDay = false;
-            if (activeTab === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
-            if (activeTab === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
+            targetTypes.forEach((targetType) => {
+                let validDay = false;
+                if (targetType === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
+                if (targetType === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
 
-            if (validDay || rangeForm.status === 'bebas_setor') {
-                filteredStudents.forEach(s => {
-                    entries.push({
-                        classId: selectedClassId,
-                        studentId: s.id,
-                        amount: rangeForm.status === 'setor' ? (rangeForm.customAmount || getNominal()) : 0,
-                        date: dateStr,
-                        type: activeTab,
-                        notes: rangeForm.status === 'bebas_setor' ? 'Bebas Setor' : `Mass input - ${activeTab}`
+                if (validDay || rangeForm.status === 'bebas_setor') {
+                    filteredStudents.forEach(s => {
+                        entries.push({
+                            classId: selectedClassId,
+                            studentId: s.id,
+                            amount: rangeForm.status === 'setor' ? (rangeForm.customAmount || (targetType === 'gemari' ? 500 : 1000)) : 0,
+                            date: dateStr,
+                            type: targetType,
+                            notes: rangeForm.status === 'bebas_setor' ? 'Bebas Setor' : `Mass input - ${targetType}`
+                        });
                     });
-                });
-            }
+                }
+            });
             currentDate.setDate(currentDate.getDate() + 1);
         }
 
@@ -5308,6 +5315,14 @@ function ClassCashView({
         onRefresh();
         setShowRangeModal(false);
         alert(`Berhasil merekam batch data (${entries.length} entri).`);
+    };
+
+    const jumpMonth = (offset: number) => {
+        const [yearStr, monthStr] = selectedMonth.split('-');
+        const date = new Date(Number(yearStr), Number(monthStr) - 1 + offset, 1);
+        const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        setSelectedMonth(month);
+        setSelectedDate(`${month}-01`);
     };
 
     const handleSave = async () => {
@@ -5413,6 +5428,30 @@ function ClassCashView({
                     </div>
 
                     <div className="card space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pemilihan Bulan</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button onClick={() => jumpMonth(-1)} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">Bulan Lalu</button>
+                                <button onClick={() => { const now = new Date(); const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; setSelectedMonth(m); setSelectedDate(`${m}-01`); }} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">Bulan Ini</button>
+                                <button onClick={() => setShowMonthPicker(v => !v)} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">{showMonthPicker ? 'Tutup' : 'Pilih Bulan'}</button>
+                            </div>
+                        </div>
+
+                        {showMonthPicker && (
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Bulan Aktif</label>
+                                <input
+                                    type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
+                                    placeholder="YYYY-MM"
+                                    pattern="\d{4}-\d{2}"
+                                    title="Format: YYYY-MM"
+                                    className="w-full bg-slate-50 border border-border rounded-xl p-4 outline-none font-bold text-base focus:border-accent"
+                                    value={selectedMonth}
+                                    onChange={e => { setSelectedMonth(e.target.value); if (e.target.value) setSelectedDate(`${e.target.value}-01`); }}
+                                />
+                            </div>
+                        )}
+
                         {viewMode === 'monthly' || viewMode === 'ledger' ? (
                             <div className="space-y-1">
                                 <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pilih Bulan</label>
@@ -5477,10 +5516,16 @@ function ClassCashView({
                         )}
 
                         <button
-                            onClick={() => setShowRangeModal(true)}
+                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'gemari' })); setShowRangeModal(true); }}
                             className="w-full mt-4 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
                         >
-                            <CalendarCheck size={16} /> Input Rentang Tanggal
+                            <CalendarCheck size={16} /> Input Rentang Gemari
+                        </button>
+                        <button
+                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'infaq' })); setShowRangeModal(true); }}
+                            className="w-full mt-2 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
+                        >
+                            <CalendarCheck size={16} /> Input Rentang Infaq
                         </button>
 
                         <div className="card space-y-3 mt-4 border border-blue-100 bg-blue-50/20">
@@ -5673,7 +5718,20 @@ function ClassCashView({
                             <h3 className="text-xl font-bold">Input Rentang Tanggal</h3>
                             <button onClick={() => setShowRangeModal(false)} aria-label="Tutup modal rentang tanggal"><X size={20} /></button>
                         </div>
-                        <div className="space-y-4">
+                            <div className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis Pembayaran</label>
+                                <select
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
+                                    value={rangeForm.targetType}
+                                    onChange={e => setRangeForm({ ...rangeForm, targetType: e.target.value as any })}
+                                >
+                                    <option value="active">Tab Aktif ({activeTab === 'gemari' ? 'Gemari' : 'Infaq'})</option>
+                                    <option value="gemari">Gemari</option>
+                                    <option value="infaq">Infaq</option>
+                                    <option value="both">Gemari + Infaq</option>
+                                </select>
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold uppercase text-text-secondary">Awal</label>
