@@ -5191,6 +5191,10 @@ function ClassCashView({
     const [showHistory, setShowHistory] = useState(false);
     const [showRangeModal, setShowRangeModal] = useState(false);
     const [isSavingRange, setIsSavingRange] = useState(false);
+    const classCashSheetWebhook = (import.meta as any)?.env?.VITE_CLASSCASH_SHEET_WEBHOOK_URL as string | undefined;
+    const classCashSpreadsheetId = ((import.meta as any)?.env?.VITE_CLASSCASH_SPREADSHEET_ID as string | undefined) || '1oKnCNX5SLz37-8h_XNPuNi-yKTfqvBilw34kzNCHsdo';
+    const classCashGemariSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_GEMARI_SHEET_NAME as string | undefined) || 'Sheet1';
+    const classCashInfaqSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_INFAQ_SHEET_NAME as string | undefined) || 'Sheet2';
 
     const [rangeForm, setRangeForm] = useState({
         startDate: '',
@@ -5392,6 +5396,48 @@ function ClassCashView({
 
         if (failures.length > 0) {
             throw new Error(`Gagal menyimpan ${failures.length} dari ${uniqueEntries.length} entri.`);
+        }
+
+        // Optional realtime mirror to spreadsheet via webhook (Google Apps Script).
+        if (classCashSheetWebhook) {
+            try {
+                const studentsById = new Map(students.map((s) => [s.id, s]));
+                const classesById = new Map(classes.map((c) => [c.id, c]));
+                const payload = uniqueEntries.map((entry) => {
+                    const student = entry.studentId ? studentsById.get(entry.studentId) : null;
+                    const klass = classesById.get(entry.classId);
+                    return {
+                        key: keyOf(entry),
+                        timestamp: new Date().toISOString(),
+                        spreadsheetId: classCashSpreadsheetId,
+                        targetSheet: entry.type === 'gemari' ? classCashGemariSheetName : classCashInfaqSheetName,
+                        tanggal: entry.date,
+                        kelasId: entry.classId,
+                        kelas: klass?.name || entry.classId,
+                        studentId: entry.studentId || '',
+                        noAbsen: (student as any)?.attendanceNumber ?? '',
+                        namaSiswa: student ? getStudentName(student) : 'Kolektif',
+                        jenis: entry.type,
+                        tipeTransaksi: entry.transactionType || 'deposit',
+                        nominal: entry.amount,
+                        status: entry.amount > 0 ? 'Setor' : 'Bebas Setor',
+                        catatan: entry.notes || ''
+                    };
+                });
+
+                await fetch(classCashSheetWebhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                    source: 'EduFlow-ClassCash',
+                    mode: 'upsert',
+                    records: payload
+                })
+                });
+            } catch (sheetError) {
+                // Do not fail primary DB save when sheet sync is unavailable.
+                console.error('Sinkron spreadsheet gagal:', sheetError);
+            }
         }
     };
 
