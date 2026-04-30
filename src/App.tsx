@@ -5190,10 +5190,12 @@ function ClassCashView({
 
     const [showHistory, setShowHistory] = useState(false);
     const [showRangeModal, setShowRangeModal] = useState(false);
+    const [isSavingRange, setIsSavingRange] = useState(false);
 
     const [rangeForm, setRangeForm] = useState({
         startDate: '',
         endDate: '',
+        studentId: '',
         targetType: 'active' as 'active' | 'gemari' | 'infaq' | 'both',
         status: 'setor' as 'setor' | 'bebas_setor',
         customAmount: 0
@@ -5269,52 +5271,60 @@ function ClassCashView({
 
     const handleSaveRange = async () => {
         if (!rangeForm.startDate || !rangeForm.endDate) return alert('Pilih tanggal awal dan akhir!');
+        if (!rangeForm.studentId) return alert('Pilih nama siswa terlebih dahulu!');
+        if (isSavingRange) return;
 
         const start = new Date(rangeForm.startDate);
         const end = new Date(rangeForm.endDate);
         if (start > end) return alert('Tanggal akhir harus lebih besar atau sama dengan tanggal awal!');
 
-        const entries: any[] = [];
-        let currentDate = new Date(start);
-        const targetTypes = rangeForm.targetType === 'both'
-            ? (['gemari', 'infaq'] as const)
-            : ([(rangeForm.targetType === 'active' ? activeTab : rangeForm.targetType)] as const);
+        setIsSavingRange(true);
+        try {
+            const entries: any[] = [];
+            let currentDate = new Date(start);
+            const targetTypes = rangeForm.targetType === 'both'
+                ? (['gemari', 'infaq'] as const)
+                : ([(rangeForm.targetType === 'active' ? activeTab : rangeForm.targetType)] as const);
 
-        while (currentDate <= end) {
-            const dateStr = [currentDate.getFullYear(), ('0' + (currentDate.getMonth() + 1)).slice(-2), ('0' + currentDate.getDate()).slice(-2)].join('-');
-            const isH = holidays.some(h => h.date === dateStr);
-            const dayOfWeek = currentDate.getDay();
+            while (currentDate <= end) {
+                const dateStr = [currentDate.getFullYear(), ('0' + (currentDate.getMonth() + 1)).slice(-2), ('0' + currentDate.getDate()).slice(-2)].join('-');
+                const isH = holidays.some(h => h.date === dateStr);
+                const dayOfWeek = currentDate.getDay();
 
-            targetTypes.forEach((targetType) => {
-                let validDay = false;
-                if (targetType === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
-                if (targetType === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
+                targetTypes.forEach((targetType) => {
+                    let validDay = false;
+                    if (targetType === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
+                    if (targetType === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
 
-                if (validDay || rangeForm.status === 'bebas_setor') {
-                    filteredStudents.forEach(s => {
+                    if (validDay || rangeForm.status === 'bebas_setor') {
                         entries.push({
                             classId: selectedClassId,
-                            studentId: s.id,
+                            studentId: rangeForm.studentId,
                             amount: rangeForm.status === 'setor' ? (rangeForm.customAmount || (targetType === 'gemari' ? 500 : 1000)) : 0,
                             date: dateStr,
                             type: targetType,
-                            notes: rangeForm.status === 'bebas_setor' ? 'Bebas Setor' : `Mass input - ${targetType}`
+                            notes: rangeForm.status === 'bebas_setor' ? 'Bebas Setor' : `Input rentang - ${targetType}`
                         });
-                    });
-                }
-            });
-            currentDate.setDate(currentDate.getDate() + 1);
+                    }
+                });
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
+
+            for (const entry of entries) {
+                await addDoc(collection(db, 'classCashTransactions'), entry);
+            }
+
+            onRefresh();
+            setShowRangeModal(false);
+            alert(`Berhasil menyimpan ${entries.length} entri untuk siswa terpilih.`);
+        } catch (error) {
+            console.error('Gagal menyimpan input rentang:', error);
+            alert('Gagal menyimpan input rentang. Silakan coba lagi.');
+        } finally {
+            setIsSavingRange(false);
         }
-
-        if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
-
-        for (const entry of entries) {
-            await addDoc(collection(db, 'classCashTransactions'), entry);
-        }
-
-        onRefresh();
-        setShowRangeModal(false);
-        alert(`Berhasil merekam batch data (${entries.length} entri).`);
     };
 
     const jumpMonth = (offset: number) => {
@@ -5516,13 +5526,13 @@ function ClassCashView({
                         )}
 
                         <button
-                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'gemari' })); setShowRangeModal(true); }}
+                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'gemari', studentId: '' })); setShowRangeModal(true); }}
                             className="w-full mt-4 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
                         >
                             <CalendarCheck size={16} /> Input Rentang Gemari
                         </button>
                         <button
-                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'infaq' })); setShowRangeModal(true); }}
+                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'infaq', studentId: '' })); setShowRangeModal(true); }}
                             className="w-full mt-2 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
                         >
                             <CalendarCheck size={16} /> Input Rentang Infaq
@@ -5720,6 +5730,19 @@ function ClassCashView({
                         </div>
                             <div className="space-y-4">
                             <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nama Siswa</label>
+                                <select
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
+                                    value={rangeForm.studentId}
+                                    onChange={e => setRangeForm({ ...rangeForm, studentId: e.target.value })}
+                                >
+                                    <option value="">Pilih siswa...</option>
+                                    {filteredStudents.map((s) => (
+                                        <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="space-y-1">
                                 <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis Pembayaran</label>
                                 <select
                                     className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
@@ -5774,8 +5797,13 @@ function ClassCashView({
                                     />
                                 </div>
                             )}
-                            <button onClick={handleSaveRange} className="btn-primary w-full py-4 rounded-xl mt-4">
-                                Simpan & Rekap
+                            <button
+                                type="button"
+                                onClick={handleSaveRange}
+                                disabled={isSavingRange}
+                                className={`btn-primary w-full py-4 rounded-xl mt-4 ${isSavingRange ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                                {isSavingRange ? 'Menyimpan...' : 'Simpan & Rekap'}
                             </button>
                         </div>
                     </div>
