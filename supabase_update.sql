@@ -145,8 +145,26 @@ CREATE TABLE IF NOT EXISTS "classCashTransactions" (
     "transactionType" TEXT,
     amount NUMERIC,
     date TEXT,
+    "period_month" TEXT,
     notes TEXT
 );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='classCashTransactions' AND column_name='period_month') THEN
+        ALTER TABLE "classCashTransactions" ADD COLUMN "period_month" TEXT;
+    END IF;
+END $$;
+
+UPDATE "classCashTransactions"
+SET "period_month" = substring(date from 1 for 7)
+WHERE "period_month" IS NULL AND date IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_classcash_class_month
+ON "classCashTransactions" ("classId", "period_month");
+
+CREATE INDEX IF NOT EXISTS idx_classcash_student_month
+ON "classCashTransactions" ("studentId", "period_month");
 
 CREATE TABLE IF NOT EXISTS "schoolDeposits" (
     id TEXT PRIMARY KEY,

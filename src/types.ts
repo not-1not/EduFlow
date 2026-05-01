@@ -144,6 +144,7 @@ export interface ClassCashTransaction {
     transactionType?: 'deposit' | 'withdrawal'; // 'deposit' by default
     amount: number;
     date: string;
+    period_month?: string; // YYYY-MM
     notes?: string;
 }
 

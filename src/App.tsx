@@ -79,13 +79,55 @@ type ClassCashWriteEntry = {
     studentId?: string;
     amount: number;
     date: string;
+    period_month?: string;
     type: 'gemari' | 'infaq';
     notes?: string;
     transactionType?: 'deposit' | 'withdrawal';
 };
 
+const getPeriodMonth = (dateValue: string) => String(dateValue || '').slice(0, 7);
+const CLASSCASH_EDIT_KEY_SEPARATOR = '::';
+const CLASSCASH_TARGET_YEAR = '2026';
+const CLASSCASH_MONTH_TABLES = Array.from({ length: 12 }, (_, i) => `classCashTransactions_${CLASSCASH_TARGET_YEAR}_${String(i + 1).padStart(2, '0')}`);
+const getClassCashTableByDate = (dateValue: string) => {
+    const month = getPeriodMonth(dateValue);
+    const [year, mm] = month.split('-');
+    if (year && mm) return `classCashTransactions_${year}_${mm}`;
+    return `classCashTransactions_${CLASSCASH_TARGET_YEAR}_01`;
+};
+
+const applyClassCashFilters = (queryBuilder: any, filters: { studentId?: string; classId?: string; amount?: number }) => {
+    let q = queryBuilder;
+    if (filters.studentId !== undefined) q = q.eq('studentId', filters.studentId);
+    if (filters.classId !== undefined) q = q.eq('classId', filters.classId);
+    if (filters.amount !== undefined) q = q.eq('amount', filters.amount);
+    return q;
+};
+
+async function fetchClassCashTransactions(filters: { studentId?: string; classId?: string; amount?: number } = {}) {
+    if (!supabase) return [] as any[];
+    const responses = await Promise.all(
+        CLASSCASH_MONTH_TABLES.map((tableName) =>
+            applyClassCashFilters(supabase.from(tableName).select('*'), filters)
+        )
+    );
+
+    const merged: any[] = [];
+    responses.forEach(({ data, error }, idx) => {
+        if (error) {
+            console.error(`Error fetching ${CLASSCASH_MONTH_TABLES[idx]}:`, error);
+            return;
+        }
+        if (Array.isArray(data)) merged.push(...data);
+    });
+    return merged.map((t) => ({
+        ...t,
+        period_month: t?.period_month || getPeriodMonth(String(t?.date || ''))
+    }));
+}
+
 const buildClassCashKey = (entry: ClassCashWriteEntry) =>
-    `${entry.classId}__${entry.studentId || 'kolektif'}__${entry.type}__${entry.date}__${entry.transactionType || 'deposit'}`;
+    `${entry.classId}__${entry.studentId || 'kolektif'}__${entry.type}__${entry.date}__${entry.transactionType || 'deposit'}__${getPeriodMonth(entry.date)}`;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -99,40 +141,69 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
         }, new Map<string, ClassCashWriteEntry>()).values()
     );
 
-    const rows = deduped.map((entry) => ({ ...entry, id: buildClassCashKey(entry) }));
-    const chunkSize = 300;
+    const rows = deduped.map((entry) => ({
+        ...entry,
+        period_month: getPeriodMonth(entry.date),
+        id: buildClassCashKey(entry)
+    }));
+    const chunkSize = 200;
     const maxRetries = 2;
+    const groupedByTable = rows.reduce((acc, row) => {
+        const tableName = getClassCashTableByDate(row.date);
+        if (!acc[tableName]) acc[tableName] = [];
+        acc[tableName].push(row);
+        return acc;
+    }, {} as Record<string, any[]>);
 
-    for (let i = 0; i < rows.length; i += chunkSize) {
-        const chunk = rows.slice(i, i + chunkSize);
-        let lastError: any = null;
+    for (const [tableName, tableRows] of Object.entries(groupedByTable)) {
+        const rowsToDelete = tableRows.filter((row) => Number(row.amount) < 0);
+        const rowsToUpsert = tableRows.filter((row) => Number(row.amount) >= 0);
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        for (let i = 0; i < rowsToDelete.length; i += chunkSize) {
+            const deleteChunk = rowsToDelete.slice(i, i + chunkSize);
+            const deleteIds = deleteChunk.map((row) => row.id).filter(Boolean);
+            if (!deleteIds.length) continue;
             if (!supabase) {
-                for (const row of chunk) {
-                    await setDoc(doc(db, 'classCashTransactions', row.id), row);
+                for (const deleteId of deleteIds) {
+                    await deleteDoc(doc(db, tableName, deleteId));
                 }
-                lastError = null;
-                break;
+                continue;
             }
-
-            const { error } = await supabase
-                .from('classCashTransactions')
-                .upsert(chunk, { onConflict: 'id', ignoreDuplicates: false });
-
-            if (!error) {
-                lastError = null;
-                break;
-            }
-
-            lastError = error;
-            if (attempt < maxRetries) {
-                await delay(300 * (attempt + 1));
-            }
+            const { error } = await supabase.from(tableName).delete().in('id', deleteIds);
+            if (error) throw error;
         }
 
-        if (lastError) {
-            throw lastError;
+        for (let i = 0; i < rowsToUpsert.length; i += chunkSize) {
+            const chunk = rowsToUpsert.slice(i, i + chunkSize);
+            let lastError: any = null;
+
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                if (!supabase) {
+                    for (const row of chunk) {
+                        await setDoc(doc(db, tableName, row.id), row);
+                    }
+                    lastError = null;
+                    break;
+                }
+
+                const { error } = await supabase
+                    .from(tableName)
+                    .upsert(chunk, { onConflict: 'id', ignoreDuplicates: false });
+
+                if (!error) {
+                    lastError = null;
+                    break;
+                }
+
+                lastError = error;
+                if (attempt < maxRetries) {
+                    await delay(300 * (attempt + 1));
+                }
+            }
+
+            if (lastError) {
+                throw lastError;
+            }
         }
     }
 
@@ -277,15 +348,8 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     'savingsTransactions(studentId)'
                 )) || [];
 
-                const myClassCash = (await getCollectionData(
-                    query(collection(db, 'classCashTransactions'), where('studentId', '==', String(studentId))),
-                    'classCashTransactions(studentId)'
-                )) || [];
-
-                const bebasSetor = me?.classId ? ((await getCollectionData(
-                    query(collection(db, 'classCashTransactions'), where('classId', '==', String(me.classId)), where('amount', '==', 0)),
-                    'classCashTransactions(classId,amount=0)'
-                )) || []) : [];
+                const myClassCash = await fetchClassCashTransactions({ studentId: String(studentId) });
+                const bebasSetor = me?.classId ? await fetchClassCashTransactions({ classId: String(me.classId), amount: 0 }) : [];
 
                 const uniq: Record<string, boolean> = {};
                 const mergedClassCash = [...myClassCash, ...bebasSetor].filter((t: any) => {
@@ -324,7 +388,6 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 'feeItems',
                 'studentPayments',
                 'savingsTransactions',
-                'classCashTransactions',
                 'schoolDeposits'
             ] as const;
 
@@ -346,7 +409,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
             const feeItemsData = dataMap.feeItems;
             const paymentsData = dataMap.studentPayments;
             const savingsData = dataMap.savingsTransactions;
-            const classCashData = dataMap.classCashTransactions;
+            const classCashData = await fetchClassCashTransactions();
             const schoolDepositsData = dataMap.schoolDeposits;
 
             // Seed initial data if students collection is empty
@@ -6246,7 +6309,7 @@ function MonthlyClassCashView({
 
     const getCellKey = (studentId: string, d: number) => {
         const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        return `${studentId}_${dateStr}`;
+        return `${studentId}${CLASSCASH_EDIT_KEY_SEPARATOR}${dateStr}`;
     };
 
     const getRecordAmount = (studentId: string, d: number) => {
@@ -6276,7 +6339,12 @@ function MonthlyClassCashView({
         if (keys.length === 0) return alert('Tidak ada perubahan untuk disimpan.');
 
         const entries = keys.map(k => {
-            const [studentId, dateStr] = k.split('_');
+            const sepIndex = k.lastIndexOf(CLASSCASH_EDIT_KEY_SEPARATOR);
+            if (sepIndex < 0) {
+                return null;
+            }
+            const studentId = k.slice(0, sepIndex);
+            const dateStr = k.slice(sepIndex + CLASSCASH_EDIT_KEY_SEPARATOR.length);
             return {
                 classId,
                 studentId,
@@ -6285,7 +6353,7 @@ function MonthlyClassCashView({
                 type,
                 notes: `Mass Edit Bulanan - ${type}`
             };
-        });
+        }).filter(Boolean) as ClassCashWriteEntry[];
 
         try {
             await persistClassCashEntries(entries);
@@ -6438,10 +6506,11 @@ function LedgerClassCashView({
             transactionType: 'withdrawal',
             amount: Number(expense.amount),
             date: expense.date,
+            period_month: getPeriodMonth(expense.date),
             notes: expense.notes
         };
 
-        await addDoc(collection(db, 'classCashTransactions'), entry);
+        await addDoc(collection(db, getClassCashTableByDate(expense.date)), entry);
 
         setExpense({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
         setShowAddForm(false);

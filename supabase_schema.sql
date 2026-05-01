@@ -156,8 +156,15 @@ CREATE TABLE IF NOT EXISTS "classCashTransactions" (
     "transactionType" TEXT,
     amount NUMERIC,
     date TEXT,
+    "period_month" TEXT,
     notes TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_classcash_class_month
+ON "classCashTransactions" ("classId", "period_month");
+
+CREATE INDEX IF NOT EXISTS idx_classcash_student_month
+ON "classCashTransactions" ("studentId", "period_month");
 
 -- 13. School Deposits Table
 CREATE TABLE IF NOT EXISTS "schoolDeposits" (
