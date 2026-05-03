@@ -57,11 +57,13 @@ import {
     Zap,
     Palette,
     TrendingDown,
+    MessageSquare,
+    Send,
     LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
-import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings } from './types';
+import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings, ChatMessage } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
 
@@ -105,10 +107,11 @@ const applyClassCashFilters = (queryBuilder: any, filters: { studentId?: string;
 };
 
 async function fetchClassCashTransactions(filters: { studentId?: string; classId?: string; amount?: number } = {}) {
-    if (!supabase) return [] as any[];
+    const sb = supabase;
+    if (!sb) return [] as any[];
     const responses = await Promise.all(
         CLASSCASH_MONTH_TABLES.map((tableName) =>
-            applyClassCashFilters(supabase.from(tableName).select('*'), filters)
+            applyClassCashFilters(sb.from(tableName).select('*'), filters)
         )
     );
 
@@ -546,6 +549,10 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     onNavigate={setCurrentView}
                     {...commonProps}
                 />;
+            case 'messages':
+                return role === 'admin'
+                    ? <AdminMessagesView user={user} students={students} />
+                    : <StudentMessagesView user={user} students={students} studentId={String(studentId || '')} />;
             case 'students':
                 return <StudentsView
                     students={students}
@@ -686,6 +693,13 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         active={role === 'student' ? currentView === 'student-dashboard' : currentView === 'dashboard'}
                         collapsed={isSidebarCollapsed}
                         onClick={() => { setCurrentView(role === 'student' ? 'student-dashboard' : 'dashboard'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                    />
+                    <NavItem
+                        icon={<MessageSquare size={20} />}
+                        label="Pesan / Chat"
+                        active={currentView === 'messages'}
+                        collapsed={isSidebarCollapsed}
+                        onClick={() => { setCurrentView('messages'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                     />
                     {role === 'admin' && (
                         <NavItem
@@ -835,18 +849,19 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         >
                             {isSidebarCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
                         </button>
-                        <h1 className="text-[16px] lg:text-[18px] font-bold truncate">
-                            {currentView === 'student-dashboard' ? 'Dashboard Siswa' :
-                                currentView === 'dashboard' ? 'Ringkasan Dashboard' :
-                                currentView === 'students' ? 'Database Siswa' :
-                                    currentView === 'classes' ? 'Daftar Kelas' :
-                                        currentView === 'subjects' ? 'Manajemen Mata Pelajaran' :
-                                            currentView === 'grades' ? 'Manajemen Nilai Siswa' :
-                                                currentView === 'payments' ? 'Pembayaran Uang Sekolah' :
-                                                    currentView === 'savings' ? 'Tabungan Siswa' :
-                                                        currentView === 'attendance' ? 'Presensi Siswa' :
-                                                            currentView === 'class-cash' ? 'KAS & Infaq Kelas' : 'Pengaturan'}
-                        </h1>
+                         <h1 className="text-[16px] lg:text-[18px] font-bold truncate">
+                             {currentView === 'student-dashboard' ? 'Dashboard Siswa' :
+                                 currentView === 'dashboard' ? 'Ringkasan Dashboard' :
+                                    currentView === 'messages' ? 'Pesan / Chat' :
+                                     currentView === 'students' ? 'Database Siswa' :
+                                         currentView === 'classes' ? 'Daftar Kelas' :
+                                             currentView === 'subjects' ? 'Manajemen Mata Pelajaran' :
+                                                 currentView === 'grades' ? 'Manajemen Nilai Siswa' :
+                                                     currentView === 'payments' ? 'Pembayaran Uang Sekolah' :
+                                                         currentView === 'savings' ? 'Tabungan Siswa' :
+                                                             currentView === 'attendance' ? 'Presensi Siswa' :
+                                                                 currentView === 'class-cash' ? 'KAS & Infaq Kelas' : 'Pengaturan'}
+                         </h1>
                         <div className="hidden sm:block h-4 w-px bg-border flex-shrink-0"></div>
                         <div className="hidden sm:block">
                             <ClockDisplay holidays={holidays} />
@@ -887,47 +902,47 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     </AnimatePresence>
                 </div>
 
-	                {showPrintModal && (
-	                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-	                        <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border border-border">
-	                            <div className="flex justify-between items-center mb-6">
-	                                <h3 className="text-xl font-bold">Pengaturan Cetak</h3>
-	                                <button onClick={() => setShowPrintModal(false)} aria-label="Tutup pengaturan cetak"><X size={20} /></button>
-	                            </div>
-	                            <div className="space-y-4">
-	                                <div className="space-y-1">
-	                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Ukuran Kertas</label>
-	                                    <select
-	                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
-	                                        value={printSettings.paperSize}
-	                                        onChange={e => setPrintSettings({ ...printSettings, paperSize: e.target.value })}
-	                                        title="Pilih Ukuran Kertas"
-	                                    >
-	                                        <option value="A4">A4 (210 x 297 mm)</option>
-	                                        <option value="F4">F4 / Folio (215 x 330 mm)</option>
-	                                        <option value="Letter">Letter (215.9 x 279.4 mm)</option>
-	                                    </select>
-	                                </div>
-	                                <div className="space-y-1">
-	                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Margin Halaman</label>
-	                                    <select
-	                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
-	                                        value={printSettings.margin}
-	                                        onChange={e => setPrintSettings({ ...printSettings, margin: e.target.value })}
-	                                        title="Pilih Margin Halaman"
-	                                    >
-	                                        <option value="10mm">Sempit (10mm)</option>
-	                                        <option value="20mm">Normal (20mm)</option>
-	                                        <option value="25mm">Lebar (25mm)</option>
-	                                    </select>
-	                                </div>
-	                                <button onClick={handlePrint} className="w-full btn-primary py-3 flex items-center justify-center gap-2 mt-4 transition-all hover:scale-[1.02] active:scale-95">
-	                                    <Printer size={18} /> Mulai Cetak PDF
-	                                </button>
-	                            </div>
-	                        </div>
-	                    </div>
-	                )}
+                {showPrintModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+                        <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border border-border">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold">Pengaturan Cetak</h3>
+                                <button onClick={() => setShowPrintModal(false)} aria-label="Tutup pengaturan cetak"><X size={20} /></button>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Ukuran Kertas</label>
+                                    <select
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
+                                        value={printSettings.paperSize}
+                                        onChange={e => setPrintSettings({ ...printSettings, paperSize: e.target.value })}
+                                        title="Pilih Ukuran Kertas"
+                                    >
+                                        <option value="A4">A4 (210 x 297 mm)</option>
+                                        <option value="F4">F4 / Folio (215 x 330 mm)</option>
+                                        <option value="Letter">Letter (215.9 x 279.4 mm)</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Margin Halaman</label>
+                                    <select
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-sm"
+                                        value={printSettings.margin}
+                                        onChange={e => setPrintSettings({ ...printSettings, margin: e.target.value })}
+                                        title="Pilih Margin Halaman"
+                                    >
+                                        <option value="10mm">Sempit (10mm)</option>
+                                        <option value="20mm">Normal (20mm)</option>
+                                        <option value="25mm">Lebar (25mm)</option>
+                                    </select>
+                                </div>
+                                <button onClick={handlePrint} className="w-full btn-primary py-3 flex items-center justify-center gap-2 mt-4 transition-all hover:scale-[1.02] active:scale-95">
+                                    <Printer size={18} /> Mulai Cetak PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </main>
         </div>
     );
@@ -1103,17 +1118,17 @@ function SubjectsView({
                     <h2 className="text-2xl font-bold tracking-tighter">Mata Pelajaran & Materi</h2>
                     <p className="text-sm text-text-secondary">Kelola kurikulum dan bobot penilaian</p>
                 </div>
-	                <div className="flex items-center gap-2">
-	                    <button onClick={() => setShowTemplateModal(true)} className="btn-small flex items-center gap-2">
-	                        <FileSpreadsheet size={14} /> Template Semua Mapel
-	                    </button>
-	                    <button onClick={() => setShowAddSubject(true)} className="btn-primary flex items-center gap-2">
-	                        <Plus size={16} /> Tambah Mapel
-	                    </button>
-	                </div>
-	            </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setShowTemplateModal(true)} className="btn-small flex items-center gap-2">
+                        <FileSpreadsheet size={14} /> Template Semua Mapel
+                    </button>
+                    <button onClick={() => setShowAddSubject(true)} className="btn-primary flex items-center gap-2">
+                        <Plus size={16} /> Tambah Mapel
+                    </button>
+                </div>
+            </div>
 
-	            <div className="space-y-6">
+            <div className="space-y-6">
                 <div className="card !p-0 overflow-hidden">
                     <div className="p-4 border-b border-border bg-slate-50/60 flex items-center justify-between">
                         <h3 className="stat-label">Tabel Mata Pelajaran</h3>
@@ -1460,7 +1475,7 @@ function GradesView({
         const initialBulk: { [key: string]: number } = {};
         const cacheKey = `bulkData_${selectedMaterialId}`;
         const cached = localStorage.getItem(cacheKey);
-        
+
         let parsedCache: { [key: string]: number } | null = null;
         if (cached) {
             try {
@@ -2244,8 +2259,8 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
             const escapeCsv = (str: any) => {
                 if (str === undefined || str === null) return '';
                 const stringVal = String(str);
-                return stringVal.includes(',') || stringVal.includes('"') || stringVal.includes('\n') 
-                    ? `"${stringVal.replace(/"/g, '""')}"` 
+                return stringVal.includes(',') || stringVal.includes('"') || stringVal.includes('\n')
+                    ? `"${stringVal.replace(/"/g, '""')}"`
                     : stringVal;
             };
             return [
@@ -2343,7 +2358,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
     const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        
+
         const reader = new FileReader();
         reader.onload = (event) => {
             const text = event.target?.result as string;
@@ -2356,7 +2371,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
     const handleImport = async () => {
         const lines = importText.split('\n').filter(l => l.trim());
         let dataLines = lines;
-        
+
         if (lines.length > 0 && lines[0].toLowerCase().includes('id') && lines[0].toLowerCase().includes('name')) {
             dataLines = lines.slice(1);
         }
@@ -2370,7 +2385,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
                 fatherName, fatherBirthYear, fatherNik, motherName, motherBirthYear, motherNik,
                 guardianName, guardianBirthYear, guardianNik, distanceToSchool, attendanceNumber
             ] = row;
-            
+
             const classObj = classes.find(c => c.id === classId?.trim());
             const existing = students.find(s => s.id === id?.trim() || (nisn && s.nisn === nisn?.trim()) || (nis && s.nis === nis?.trim()));
 
@@ -2383,7 +2398,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
                 gradeValue: parseFloat(gradeValue?.trim() || '0') || 0,
                 nisn: nisn?.trim() || '',
                 nis: nis?.trim() || '',
-                gender: (gender?.trim() ? (gender.trim().charAt(0).toUpperCase() === 'P' ? 'P' : 'L') : undefined) as 'L'|'P' | undefined,
+                gender: (gender?.trim() ? (gender.trim().charAt(0).toUpperCase() === 'P' ? 'P' : 'L') : undefined) as 'L' | 'P' | undefined,
                 phone: phone?.trim() || '',
                 address: address?.trim() || '',
                 dusun: dusun?.trim() || '',
@@ -2561,16 +2576,16 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
                                             >
                                                 <Search size={14} />
                                             </button>
-                                            <button 
-                                                onClick={() => { setEditingStudent(s); setShowAdd(true); }} 
+                                            <button
+                                                onClick={() => { setEditingStudent(s); setShowAdd(true); }}
                                                 className="p-1.5 hover:bg-slate-100 rounded text-text-secondary"
                                                 title="Ubah Data Siswa"
                                                 aria-label="Ubah Data Siswa"
                                             >
                                                 <Edit size={14} />
                                             </button>
-                                            <button 
-                                                onClick={() => handleDeleteStudent(s.id)} 
+                                            <button
+                                                onClick={() => handleDeleteStudent(s.id)}
                                                 className="p-1.5 hover:bg-red-50 rounded text-red-500"
                                                 title="Hapus Data Siswa"
                                                 aria-label="Hapus Data Siswa"
@@ -3283,9 +3298,9 @@ function AttendanceView({
                                         <td className="text-center w-24">
                                             {record ? (
                                                 <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full shadow-sm tracking-tighter ${record.status === 'hadir' ? 'text-success bg-success/10 border border-success/20' :
-                                                        record.status === 'izin' ? 'text-blue-600 bg-blue-50 border border-blue-100' :
-                                                            record.status === 'sakit' ? 'text-yellow-600 bg-yellow-50 border border-yellow-100' :
-                                                                'text-red-600 bg-red-50 border border-red-100'
+                                                    record.status === 'izin' ? 'text-blue-600 bg-blue-50 border border-blue-100' :
+                                                        record.status === 'sakit' ? 'text-yellow-600 bg-yellow-50 border border-yellow-100' :
+                                                            'text-red-600 bg-red-50 border border-red-100'
                                                     }`}>
                                                     {record.status}
                                                 </span>
@@ -3498,9 +3513,9 @@ function MonthlyAttendanceView({
                                     >
                                         {status ? (
                                             <div className={`w-full h-full min-h-[28px] flex items-center justify-center text-[10px] font-black ${status === 'hadir' ? 'text-success' :
-                                                    status === 'izin' ? 'text-blue-500' :
-                                                        status === 'sakit' ? 'text-yellow-500' :
-                                                            'text-red-500'
+                                                status === 'izin' ? 'text-blue-500' :
+                                                    status === 'sakit' ? 'text-yellow-500' :
+                                                        'text-red-500'
                                                 }`} title={`${dateStr}: ${status}`}>
                                                 {status === 'hadir' ? 'H' : status[0].toUpperCase()}
                                             </div>
@@ -3589,8 +3604,8 @@ function AssignmentsView({ materials, subjects, onRefresh }: { materials: Materi
                                             <div className="flex gap-2 items-center">
                                                 <p className="text-[10px] text-text-secondary">Bobot: {m.weight}%</p>
                                                 <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-tighter ${m.type === 'formatif' ? 'bg-blue-100 text-blue-600' :
-                                                        m.type === 'sumatif' ? 'bg-orange-100 text-orange-600' :
-                                                            'bg-slate-100 text-slate-600'
+                                                    m.type === 'sumatif' ? 'bg-orange-100 text-orange-600' :
+                                                        'bg-slate-100 text-slate-600'
                                                     }`}>
                                                     {m.type}
                                                 </span>
@@ -4079,9 +4094,9 @@ function StudentProfileView({
                                         <td className="font-mono text-[10px]">{a.date}</td>
                                         <td>
                                             <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${a.status === 'hadir' ? 'text-success bg-success/10' :
-                                                    a.status === 'izin' ? 'text-blue-600 bg-blue-50' :
-                                                        a.status === 'sakit' ? 'text-yellow-600 bg-yellow-50' :
-                                                            'text-red-600 bg-red-50'
+                                                a.status === 'izin' ? 'text-blue-600 bg-blue-50' :
+                                                    a.status === 'sakit' ? 'text-yellow-600 bg-yellow-50' :
+                                                        'text-red-600 bg-red-50'
                                                 }`}>
                                                 {a.status[0].toUpperCase()}
                                             </span>
@@ -4222,11 +4237,11 @@ function PaymentsView({
     const [showAddItem, setShowAddItem] = useState(false);
     const [showAddDeposit, setShowAddDeposit] = useState(false);
     const [selectedClassId, setSelectedClassId] = useState('');
-	    const [detailStudentId, setDetailStudentId] = useState<string | null>(initialStudentId || null);
-	    const [editingPayment, setEditingPayment] = useState<StudentPayment | null>(null);
-	    const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
-	    const [savingExtraBills, setSavingExtraBills] = useState(false);
-	    const [hideAdditionalBills, setHideAdditionalBills] = useState(false);
+    const [detailStudentId, setDetailStudentId] = useState<string | null>(initialStudentId || null);
+    const [editingPayment, setEditingPayment] = useState<StudentPayment | null>(null);
+    const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
+    const [savingExtraBills, setSavingExtraBills] = useState(false);
+    const [hideAdditionalBills, setHideAdditionalBills] = useState(false);
 
     const [newSchoolDeposit, setNewSchoolDeposit] = useState({
         classId: '',
@@ -4395,12 +4410,12 @@ function PaymentsView({
 
     const getCashNominal = (type: 'gemari' | 'infaq') => type === 'gemari' ? 500 : 1000;
 
-	    useEffect(() => {
-	        if (!detailStudentId) return;
-	        const st = students.find(s => s.id === detailStudentId);
-	        setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
-	        setHideAdditionalBills(false);
-	    }, [detailStudentId, students]);
+    useEffect(() => {
+        if (!detailStudentId) return;
+        const st = students.find(s => s.id === detailStudentId);
+        setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
+        setHideAdditionalBills(false);
+    }, [detailStudentId, students]);
 
     const addExtraBill = () => {
         const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
@@ -4431,19 +4446,19 @@ function PaymentsView({
         }
     };
 
-	    const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
-	    const totalRequired = feeItems.reduce((acc, item) => acc + (item.category === 'wajib' ? item.amount * students.length : 0), 0);
-	    const totalCollected = payments.reduce((acc, p) => acc + p.amountPaid, 0);
-	
-	    const detailStudent = detailStudentId ? students.find(s => s.id === detailStudentId) : null;
-	    const detailClass = detailStudent ? classes.find(c => c.id === detailStudent.classId) : null;
-	    const detailPayments = detailStudentId ? payments.filter(p => p.studentId === detailStudentId) : [];
-	    const detailPaidAmount = detailPayments.reduce((acc, p) => acc + p.amountPaid, 0);
-	    const detailRequiredAmount = feeItems.filter(i => i.category === 'wajib').reduce((acc, i) => acc + i.amount, 0);
-	    const detailBalance = detailPaidAmount - detailRequiredAmount;
-	    const isDetailLunas = !!detailStudentId && detailBalance >= 0;
+    const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
+    const totalRequired = feeItems.reduce((acc, item) => acc + (item.category === 'wajib' ? item.amount * students.length : 0), 0);
+    const totalCollected = payments.reduce((acc, p) => acc + p.amountPaid, 0);
 
-	    return (
+    const detailStudent = detailStudentId ? students.find(s => s.id === detailStudentId) : null;
+    const detailClass = detailStudent ? classes.find(c => c.id === detailStudent.classId) : null;
+    const detailPayments = detailStudentId ? payments.filter(p => p.studentId === detailStudentId) : [];
+    const detailPaidAmount = detailPayments.reduce((acc, p) => acc + p.amountPaid, 0);
+    const detailRequiredAmount = feeItems.filter(i => i.category === 'wajib').reduce((acc, i) => acc + i.amount, 0);
+    const detailBalance = detailPaidAmount - detailRequiredAmount;
+    const isDetailLunas = !!detailStudentId && detailBalance >= 0;
+
+    return (
         <div className="space-y-6 print-container relative">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">LAPORAN PEMBAYARAN SISWA</h1>
@@ -4762,25 +4777,25 @@ function PaymentsView({
                             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                             className="fixed top-0 right-0 h-full w-full max-w-xl bg-bg z-[70] shadow-2xl flex flex-col"
                         >
-	                            <div className="p-6 border-b border-border bg-white flex justify-between items-center">
-	                                <div className="flex items-center gap-3">
-	                                    <img
-	                                        src={sdn3PurwosariLogo}
-	                                        alt="Logo SDN 3 Purwosari"
-	                                        className="w-10 h-10 object-contain"
-	                                    />
-	                                    <div className="w-10 h-10 bg-slate-900 text-yellow-400 rounded-full flex items-center justify-center font-black">
-	                                        {detailStudent?.name?.charAt(0)}
-	                                    </div>
-	                                    <div>
-	                                        <h3 className="font-bold text-lg">{detailStudent?.name}</h3>
-	                                        <p className="text-[10px] font-bold text-text-secondary uppercase">Rekapitulasi Pembayaran Personal</p>
-	                                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-[10px] font-bold text-slate-500">
-	                                            <span>Kelas: {detailClass?.name || '-'}</span>
-	                                            <span>Wali: {detailClass?.homeroomTeacher || detailClass?.teacher || '-'}</span>
-	                                        </div>
-	                                    </div>
-	                                </div>
+                            <div className="p-6 border-b border-border bg-white flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                    <img
+                                        src={sdn3PurwosariLogo}
+                                        alt="Logo SDN 3 Purwosari"
+                                        className="w-10 h-10 object-contain"
+                                    />
+                                    <div className="w-10 h-10 bg-slate-900 text-yellow-400 rounded-full flex items-center justify-center font-black">
+                                        {detailStudent?.name?.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-lg">{detailStudent?.name}</h3>
+                                        <p className="text-[10px] font-bold text-text-secondary uppercase">Rekapitulasi Pembayaran Personal</p>
+                                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-[10px] font-bold text-slate-500">
+                                            <span>Kelas: {detailClass?.name || '-'}</span>
+                                            <span>Wali: {detailClass?.homeroomTeacher || detailClass?.teacher || '-'}</span>
+                                        </div>
+                                    </div>
+                                </div>
                                 <button
                                     onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
                                     className="p-2 hover:bg-slate-100 rounded-lg"
@@ -4789,214 +4804,214 @@ function PaymentsView({
                                 </button>
                             </div>
 
-	                            <div className="flex-1 overflow-y-auto p-6">
-	                                <div className="relative">
-	                                    {isDetailLunas && (
-	                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center select-none">
-	                                            <div className="text-[72px] font-black tracking-[0.25em] text-emerald-600/10 rotate-[-20deg]">
-	                                                LUNAS
-	                                            </div>
-	                                        </div>
-	                                    )}
-	
-	                                    <div className="relative z-10 space-y-8">
-	                                        {/* Summary Section */}
-	                                        <div className="grid grid-cols-2 gap-4">
-	                                            <div className="p-4 bg-white rounded-2xl border border-border">
-	                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Terbayar</p>
-	                                                <p className="text-xl font-black text-accent">
-	                                                    {formatCurrency(detailPaidAmount)}
-	                                                </p>
-	                                            </div>
-	                                            <div className="p-4 bg-white rounded-2xl border border-border">
-	                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status Tunggakan</p>
-	                                                <p className={`text-xl font-black ${isDetailLunas ? 'text-success' : 'text-red-500'}`}>
-	                                                    {isDetailLunas ? 'LUNAS' : formatCurrency(Math.abs(detailBalance))}
-	                                                </p>
-	                                            </div>
-	                                        </div>
+                            <div className="flex-1 overflow-y-auto p-6">
+                                <div className="relative">
+                                    {isDetailLunas && (
+                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center select-none">
+                                            <div className="text-[72px] font-black tracking-[0.25em] text-emerald-600/10 rotate-[-20deg]">
+                                                LUNAS
+                                            </div>
+                                        </div>
+                                    )}
 
-	                                {/* Tagihan Tambahan */}
-	                                {(() => {
-	                                    const st = detailStudent;
-	                                    if (!st) return null;
+                                    <div className="relative z-10 space-y-8">
+                                        {/* Summary Section */}
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="p-4 bg-white rounded-2xl border border-border">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Terbayar</p>
+                                                <p className="text-xl font-black text-accent">
+                                                    {formatCurrency(detailPaidAmount)}
+                                                </p>
+                                            </div>
+                                            <div className="p-4 bg-white rounded-2xl border border-border">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status Tunggakan</p>
+                                                <p className={`text-xl font-black ${isDetailLunas ? 'text-success' : 'text-red-500'}`}>
+                                                    {isDetailLunas ? 'LUNAS' : formatCurrency(Math.abs(detailBalance))}
+                                                </p>
+                                            </div>
+                                        </div>
 
-                                    const monthStr = getCurrentMonthStr();
-                                    const [yy, mm] = monthStr.split('-').map(Number);
-                                    const monthLabel = new Date(yy, (mm || 1) - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+                                        {/* Tagihan Tambahan */}
+                                        {(() => {
+                                            const st = detailStudent;
+                                            if (!st) return null;
 
-                                    const classId = String((st as any)?.classId || '');
-                                    const calc = (type: 'gemari' | 'infaq') => {
-                                        const nominal = getCashNominal(type);
-                                        const targetDays = countTargetDays(type, monthStr);
-                                        const target = targetDays * nominal;
+                                            const monthStr = getCurrentMonthStr();
+                                            const [yy, mm] = monthStr.split('-').map(Number);
+                                            const monthLabel = new Date(yy, (mm || 1) - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
 
-                                        const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
-                                        const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
-                                        const targetReal = Math.max(0, target - (bebasDates.size * nominal));
+                                            const classId = String((st as any)?.classId || '');
+                                            const calc = (type: 'gemari' | 'infaq') => {
+                                                const nominal = getCashNominal(type);
+                                                const targetDays = countTargetDays(type, monthStr);
+                                                const target = targetDays * nominal;
 
-                                        const paid = monthTx
-                                            .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
-                                            .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
-                                            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                                                const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
+                                                const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+                                                const targetReal = Math.max(0, target - (bebasDates.size * nominal));
 
-                                        const kurang = Math.max(0, targetReal - paid);
-                                        return { nominal, targetDays, bebasDays: bebasDates.size, targetReal, paid, kurang };
-                                    };
+                                                const paid = monthTx
+                                                    .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
+                                                    .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
+                                                    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
-                                    const gemari = calc('gemari');
-                                    const infaq = calc('infaq');
-                                    const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-                                    const totalAdditional = gemari.kurang + infaq.kurang + otherTotal;
+                                                const kurang = Math.max(0, targetReal - paid);
+                                                return { nominal, targetDays, bebasDays: bebasDates.size, targetReal, paid, kurang };
+                                            };
 
-                                    return (
-                                        <div className="space-y-4">
-	                                            <div className="flex items-end justify-between gap-4">
-	                                                <div>
-	                                                    <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
-	                                                    <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
-	                                                </div>
-	                                                <div className="flex items-center gap-2">
-	                                                    <button
-	                                                        onClick={() => setHideAdditionalBills(v => !v)}
-	                                                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600"
-	                                                        aria-label={hideAdditionalBills ? 'Tampilkan tagihan tambahan' : 'Sembunyikan tagihan tambahan'}
-	                                                        title={hideAdditionalBills ? 'Tampilkan' : 'Sembunyikan'}
-	                                                    >
-	                                                        {hideAdditionalBills ? 'Show' : 'Hide'}
-	                                                    </button>
-	                                                    <button onClick={addExtraBill} className="btn-small" disabled={hideAdditionalBills}>+ Lain-lain</button>
-	                                                </div>
-	                                            </div>
+                                            const gemari = calc('gemari');
+                                            const infaq = calc('infaq');
+                                            const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+                                            const totalAdditional = gemari.kurang + infaq.kurang + otherTotal;
 
-	                                            {hideAdditionalBills ? (
-	                                                <div className="p-4 bg-white rounded-2xl border border-border flex items-center justify-between">
-	                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (disembunyikan)</div>
-	                                                    <div className="text-right">
-	                                                        <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-	                                                        <div className="text-[10px] text-slate-400">Klik Show untuk detail</div>
-	                                                    </div>
-	                                                </div>
-	                                            ) : (
-	                                                <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
-                                                <div className="flex justify-between items-center">
-                                                    <div>
-                                                        <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari</div>
-                                                        <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)} {gemari.bebasDays ? `(- bebas setor ${gemari.bebasDays} hari)` : ''}</div>
-	                                                </div>
-	                                                    <div className="text-right">
-                                                        <div className="text-xs font-black text-red-500">{formatCurrency(gemari.kurang)}</div>
-                                                        <div className="text-[10px] text-slate-400">Setor: {formatCurrency(gemari.paid)}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <div>
-                                                        <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Infaq Jumat</div>
-                                                        <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)} {infaq.bebasDays ? `(- bebas setor ${infaq.bebasDays} Jumat)` : ''}</div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="text-xs font-black text-red-500">{formatCurrency(infaq.kurang)}</div>
-                                                        <div className="text-[10px] text-slate-400">Setor: {formatCurrency(infaq.paid)}</div>
-                                                    </div>
-                                                </div>
-
-                                                {(extraBills || []).length > 0 && (
-                                                    <div className="pt-2 border-t border-border space-y-2">
-                                                        {(extraBills || []).map(b => (
-                                                            <div key={b.id} className="flex gap-2 items-center">
-                                                                <input
-                                                                    className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
-                                                                    value={b.label}
-                                                                    onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
-                                                                    placeholder="Nama tagihan lain-lain"
-                                                                />
-                                                                <input
-                                                                    type="number"
-                                                                    className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
-                                                                    value={Number(b.amount) || 0}
-                                                                    onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
-                                                                    min={0}
-                                                                />
-                                                                <button
-                                                                    onClick={() => removeExtraBill(b.id)}
-                                                                    className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
-                                                                    title="Hapus tagihan lain-lain"
-                                                                    aria-label="Hapus tagihan lain-lain"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-
-                                                <div className="pt-3 border-t border-border flex items-center justify-between">
-                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
-                                                    <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                </div>
-
-                                                <button
-                                                    onClick={saveExtraBills}
-                                                    disabled={savingExtraBills}
-                                                    className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
-                                                >
-                                                    {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
-	                                                </button>
-	                                            </div>
-	                                        )}
-	                                        </div>
-	                                    );
-                                })()}
-
-                                {/* Detailed History */}
-                                <div className="space-y-4">
-                                    <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Riwayat Transaksi</h4>
-                                    <div className="space-y-3">
-	                                        {detailPayments
-	                                            .slice()
-	                                            .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate))
-	                                            .map(p => (
-                                                <div key={p.id} className="p-4 bg-white rounded-2xl border border-border group hover:border-accent transition-all relative">
-                                                    <div className="flex justify-between items-start">
+                                            return (
+                                                <div className="space-y-4">
+                                                    <div className="flex items-end justify-between gap-4">
                                                         <div>
-                                                            <p className="text-sm font-bold">{p.isDeposit ? 'Titipan / Deposit' : feeItems.find(i => i.id === p.feeItemId)?.name}</p>
-                                                            <p className="text-[10px] text-slate-400 font-mono italic">{p.paymentDate} • {p.paymentMethod.toUpperCase()}</p>
+                                                            <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
+                                                            <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
                                                         </div>
-                                                        <div className="text-right">
-                                                            <p className="font-black text-accent">{formatCurrency(p.amountPaid)}</p>
+                                                        <div className="flex items-center gap-2">
                                                             <button
-                                                                onClick={() => setEditingPayment(p)}
-                                                                className="text-[10px] font-bold text-text-secondary hover:text-accent underline uppercase mt-1 opacity-0 group-hover:opacity-100 transition-all"
+                                                                onClick={() => setHideAdditionalBills(v => !v)}
+                                                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600"
+                                                                aria-label={hideAdditionalBills ? 'Tampilkan tagihan tambahan' : 'Sembunyikan tagihan tambahan'}
+                                                                title={hideAdditionalBills ? 'Tampilkan' : 'Sembunyikan'}
                                                             >
-                                                                Koreksi
+                                                                {hideAdditionalBills ? 'Show' : 'Hide'}
                                                             </button>
-                                                            <button
-                                                                onClick={() => handleDeletePayment(p)}
-                                                                className="text-[10px] font-bold text-text-secondary hover:text-red-600 underline uppercase mt-1 ml-3 opacity-0 group-hover:opacity-100 transition-all"
-                                                            >
-                                                                Hapus
-                                                            </button>
+                                                            <button onClick={addExtraBill} className="btn-small" disabled={hideAdditionalBills}>+ Lain-lain</button>
                                                         </div>
                                                     </div>
-                                                    {p.notes && (
-                                                        <div className="mt-3 p-2 bg-slate-50 rounded-lg text-[10px] font-medium text-slate-600 border border-slate-100">
-                                                            Note: {p.notes}
+
+                                                    {hideAdditionalBills ? (
+                                                        <div className="p-4 bg-white rounded-2xl border border-border flex items-center justify-between">
+                                                            <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (disembunyikan)</div>
+                                                            <div className="text-right">
+                                                                <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                                <div className="text-[10px] text-slate-400">Klik Show untuk detail</div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
+                                                            <div className="flex justify-between items-center">
+                                                                <div>
+                                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari</div>
+                                                                    <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)} {gemari.bebasDays ? `(- bebas setor ${gemari.bebasDays} hari)` : ''}</div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="text-xs font-black text-red-500">{formatCurrency(gemari.kurang)}</div>
+                                                                    <div className="text-[10px] text-slate-400">Setor: {formatCurrency(gemari.paid)}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex justify-between items-center">
+                                                                <div>
+                                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Infaq Jumat</div>
+                                                                    <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)} {infaq.bebasDays ? `(- bebas setor ${infaq.bebasDays} Jumat)` : ''}</div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="text-xs font-black text-red-500">{formatCurrency(infaq.kurang)}</div>
+                                                                    <div className="text-[10px] text-slate-400">Setor: {formatCurrency(infaq.paid)}</div>
+                                                                </div>
+                                                            </div>
+
+                                                            {(extraBills || []).length > 0 && (
+                                                                <div className="pt-2 border-t border-border space-y-2">
+                                                                    {(extraBills || []).map(b => (
+                                                                        <div key={b.id} className="flex gap-2 items-center">
+                                                                            <input
+                                                                                className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
+                                                                                value={b.label}
+                                                                                onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
+                                                                                placeholder="Nama tagihan lain-lain"
+                                                                            />
+                                                                            <input
+                                                                                type="number"
+                                                                                className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
+                                                                                value={Number(b.amount) || 0}
+                                                                                onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
+                                                                                min={0}
+                                                                            />
+                                                                            <button
+                                                                                onClick={() => removeExtraBill(b.id)}
+                                                                                className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
+                                                                                title="Hapus tagihan lain-lain"
+                                                                                aria-label="Hapus tagihan lain-lain"
+                                                                            >
+                                                                                <Trash2 size={16} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            <div className="pt-3 border-t border-border flex items-center justify-between">
+                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
+                                                                <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                            </div>
+
+                                                            <button
+                                                                onClick={saveExtraBills}
+                                                                disabled={savingExtraBills}
+                                                                className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
+                                                            >
+                                                                {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
+                                                            </button>
                                                         </div>
                                                     )}
                                                 </div>
-                                            ))}
-	                                        {detailPayments.length === 0 && (
-                                            <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-border">
-                                                <p className="text-xs text-slate-400 italic">Belum ada catatan pembayaran</p>
+                                            );
+                                        })()}
+
+                                        {/* Detailed History */}
+                                        <div className="space-y-4">
+                                            <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Riwayat Transaksi</h4>
+                                            <div className="space-y-3">
+                                                {detailPayments
+                                                    .slice()
+                                                    .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate))
+                                                    .map(p => (
+                                                        <div key={p.id} className="p-4 bg-white rounded-2xl border border-border group hover:border-accent transition-all relative">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <p className="text-sm font-bold">{p.isDeposit ? 'Titipan / Deposit' : feeItems.find(i => i.id === p.feeItemId)?.name}</p>
+                                                                    <p className="text-[10px] text-slate-400 font-mono italic">{p.paymentDate} • {p.paymentMethod.toUpperCase()}</p>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="font-black text-accent">{formatCurrency(p.amountPaid)}</p>
+                                                                    <button
+                                                                        onClick={() => setEditingPayment(p)}
+                                                                        className="text-[10px] font-bold text-text-secondary hover:text-accent underline uppercase mt-1 opacity-0 group-hover:opacity-100 transition-all"
+                                                                    >
+                                                                        Koreksi
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDeletePayment(p)}
+                                                                        className="text-[10px] font-bold text-text-secondary hover:text-red-600 underline uppercase mt-1 ml-3 opacity-0 group-hover:opacity-100 transition-all"
+                                                                    >
+                                                                        Hapus
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            {p.notes && (
+                                                                <div className="mt-3 p-2 bg-slate-50 rounded-lg text-[10px] font-medium text-slate-600 border border-slate-100">
+                                                                    Note: {p.notes}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                {detailPayments.length === 0 && (
+                                                    <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-border">
+                                                        <p className="text-xs text-slate-400 italic">Belum ada catatan pembayaran</p>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-	                                    </div>
-	                                </div>
-	                                        </div>
-	                                    </div>
-	                                </div>
-	
-	                            <div className="p-6 bg-white border-t border-border">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-6 bg-white border-t border-border">
                                 <button
                                     onClick={() => {
                                         openAddPaymentModal(detailStudentId || '');
@@ -5532,10 +5547,10 @@ function ClassCashView({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                    source: 'EduFlow-ClassCash',
-                    mode: 'upsert',
-                    records: payload
-                })
+                        source: 'EduFlow-ClassCash',
+                        mode: 'upsert',
+                        records: payload
+                    })
                 });
             } catch (sheetError) {
                 // Do not fail primary DB save when sheet sync is unavailable.
@@ -5913,7 +5928,7 @@ function ClassCashView({
                             <h3 className="text-xl font-bold">Input Rentang Tanggal</h3>
                             <button onClick={() => setShowRangeModal(false)} aria-label="Tutup modal rentang tanggal"><X size={20} /></button>
                         </div>
-                            <div className="space-y-4">
+                        <div className="space-y-4">
                             <div className="space-y-1">
                                 <label className="text-[10px] font-bold uppercase text-text-secondary">Nama Siswa</label>
                                 <select
@@ -6457,7 +6472,7 @@ function LedgerClassCashView({
     transactions: ClassCashTransaction[],
     students: Student[],
     classId: string,
-    type: string,
+    type: 'gemari' | 'infaq',
     month: string,
     onRefresh: () => void,
     formatCurrency: (n: number) => string,
@@ -6467,9 +6482,13 @@ function LedgerClassCashView({
     sortedData: any,
     SortableTH: any
 }) {
-    const [showAddForm, setShowAddForm] = useState(false);
-    const [expense, setExpense] = useState({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [showAddExpenseForm, setShowAddExpenseForm] = useState(false);
+    const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
+    const [expense, setExpense] = useState({ date: todayStr, amount: '', notes: '' });
+    const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '' });
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const studentsForSelect = sortStudentsForSelect(students);
 
     // Running balance calculation must be independent of current sorting/view
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -6500,7 +6519,7 @@ function LedgerClassCashView({
         if (!expense.amount || isNaN(Number(expense.amount))) return alert('Nominal tidak valid!');
         if (!expense.notes) return alert('Keterangan pengeluaran wajib diisi!');
 
-        const entry = {
+        const entry: ClassCashWriteEntry = {
             classId,
             type,
             transactionType: 'withdrawal',
@@ -6510,10 +6529,31 @@ function LedgerClassCashView({
             notes: expense.notes
         };
 
-        await addDoc(collection(db, getClassCashTableByDate(expense.date)), entry);
+        await persistClassCashEntries([entry]);
 
-        setExpense({ date: new Date().toISOString().split('T')[0], amount: '', notes: '' });
-        setShowAddForm(false);
+        setExpense({ date: todayStr, amount: '', notes: '' });
+        setShowAddExpenseForm(false);
+        onRefresh();
+    };
+
+    const handleAddIncome = async () => {
+        if (!income.studentId) return alert('Pilih siswa terlebih dahulu!');
+        if (!income.amount || isNaN(Number(income.amount))) return alert('Nominal tidak valid!');
+
+        const entry: ClassCashWriteEntry = {
+            classId,
+            studentId: income.studentId,
+            type,
+            transactionType: 'deposit',
+            amount: Number(income.amount),
+            date: income.date,
+            period_month: getPeriodMonth(income.date)
+        };
+
+        await persistClassCashEntries([entry]);
+
+        setIncome({ date: todayStr, studentId: '', amount: '' });
+        setShowAddIncomeForm(false);
         onRefresh();
     };
 
@@ -6525,14 +6565,29 @@ function LedgerClassCashView({
                     <p className="text-[10px] font-bold text-slate-400">Pemasukan & Pengeluaran {type.toUpperCase()}</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => setShowAddForm(!showAddForm)} className="btn-small bg-red-100 text-red-600 hover:bg-red-200 font-bold flex items-center gap-2">
-                        {showAddForm ? <X size={14} /> : <Plus size={14} />} {showAddForm ? 'Batal' : 'Tambah Pengeluaran'}
+                    <button
+                        onClick={() => {
+                            setShowAddIncomeForm(false);
+                            setShowAddExpenseForm(v => !v);
+                        }}
+                        className="btn-small bg-red-100 text-red-600 hover:bg-red-200 font-bold flex items-center gap-2"
+                    >
+                        {showAddExpenseForm ? <X size={14} /> : <Plus size={14} />} {showAddExpenseForm ? 'Batal' : 'Tambah Pengeluaran'}
+                    </button>
+                    <button
+                        onClick={() => {
+                            setShowAddExpenseForm(false);
+                            setShowAddIncomeForm(v => !v);
+                        }}
+                        className="btn-small bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold flex items-center gap-2"
+                    >
+                        {showAddIncomeForm ? <X size={14} /> : <Plus size={14} />} {showAddIncomeForm ? 'Batal' : 'Tambah Pemasukan'}
                     </button>
                     <button onClick={onOpenPrint} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500" aria-label="Cetak Laporan Kas"><Printer size={16} /></button>
                 </div>
             </div>
 
-            {showAddForm && (
+            {showAddExpenseForm && (
                 <div className="p-4 bg-red-50 border-b border-red-100 flex gap-4 items-end">
                     <div className="space-y-1">
                         <label className="text-[10px] font-bold text-red-800 uppercase">Tanggal</label>
@@ -6548,6 +6603,35 @@ function LedgerClassCashView({
                     </div>
                     <button onClick={handleAddExpense} className="btn-small bg-red-800 hover:bg-red-900 text-white h-[38px] shadow-lg">
                         Simpan Pengeluaran
+                    </button>
+                </div>
+            )}
+
+            {showAddIncomeForm && (
+                <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex gap-4 items-end">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Tanggal</label>
+                        <input type="date" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" value={income.date} onChange={e => setIncome({ ...income, date: e.target.value })} />
+                    </div>
+                    <div className="space-y-1 flex-1">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Siswa</label>
+                        <select
+                            className="p-2 rounded border border-emerald-200 outline-none w-full text-sm bg-white"
+                            value={income.studentId}
+                            onChange={e => setIncome({ ...income, studentId: e.target.value })}
+                        >
+                            <option value="">Pilih siswa...</option>
+                            {studentsForSelect.map((s) => (
+                                <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Nominal (Rp)</label>
+                        <input type="number" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" placeholder="0" value={income.amount} onChange={e => setIncome({ ...income, amount: e.target.value })} />
+                    </div>
+                    <button onClick={handleAddIncome} className="btn-small bg-emerald-700 hover:bg-emerald-800 text-white h-[38px] shadow-lg">
+                        Simpan Pemasukan
                     </button>
                 </div>
             )}
@@ -6601,6 +6685,268 @@ const GradeInput = ({ value, onChange, placeholder = '' }: any) => {
         />
     );
 };
+
+const CHAT_BROADCAST_THREAD_ID = 'broadcast';
+const getDirectChatThreadId = (studentId: string) => `admin__${studentId}`;
+
+function AdminMessagesView({ user, students }: { user: any; students: Student[] }) {
+    const [mode, setMode] = useState<'direct' | 'broadcast'>('direct');
+    const studentsForSelect = sortStudentsForSelect(students);
+    const [selectedStudentId, setSelectedStudentId] = useState<string>(studentsForSelect[0]?.id || '');
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [text, setText] = useState('');
+
+    const threadId = mode === 'broadcast' ? CHAT_BROADCAST_THREAD_ID : (selectedStudentId ? getDirectChatThreadId(selectedStudentId) : '');
+
+    const fetchThread = async () => {
+        if (!threadId) return setMessages([]);
+        try {
+            setLoading(true);
+            const snap = await getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', threadId), orderBy('createdAt', 'asc')));
+            setMessages(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })));
+        } catch (e) {
+            console.error('Error fetching chatMessages:', e);
+            setMessages([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchThread();
+    }, [threadId]);
+
+    const handleSend = async () => {
+        const msg = text.trim();
+        if (!msg) return;
+        if (mode === 'direct' && !selectedStudentId) return alert('Pilih siswa terlebih dahulu!');
+
+        const payload: Omit<ChatMessage, 'id'> = {
+            threadId,
+            studentId: mode === 'direct' ? selectedStudentId : null,
+            kind: mode === 'direct' ? 'direct' : 'broadcast',
+            senderRole: 'admin',
+            senderUserId: user?.uid || user?.id || null,
+            message: msg,
+            createdAt: new Date().toISOString()
+        };
+
+        await addDoc(collection(db, 'chatMessages'), payload);
+        setText('');
+        fetchThread();
+    };
+
+    const targetStudent = students.find(s => s.id === selectedStudentId);
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+
+    return (
+        <div className="p-6 h-full flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
+                    <p className="text-sm text-text-secondary">Komunikasi admin dengan siswa (1:1) atau broadcast</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setMode('direct')} className={`btn-small ${mode === 'direct' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Chat Siswa</button>
+                    <button onClick={() => setMode('broadcast')} className={`btn-small ${mode === 'broadcast' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Broadcast</button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
+                <div className="card !p-4 lg:col-span-1 flex flex-col gap-3 min-h-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-text-secondary">
+                        {mode === 'broadcast' ? 'Broadcast' : 'Pilih Siswa'}
+                    </p>
+                    {mode === 'direct' ? (
+                        <div className="space-y-2">
+                            <select className="p-2 rounded border border-border w-full bg-white" value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)}>
+                                {studentsForSelect.map(s => (
+                                    <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+                                ))}
+                            </select>
+                            <div className="p-3 rounded-xl bg-slate-50 border border-border">
+                                <div className="text-xs font-bold">{targetStudent ? getStudentName(targetStudent) : '-'}</div>
+                                <div className="text-[10px] text-slate-500">Thread: {threadId || '-'}</div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="p-3 rounded-xl bg-slate-50 border border-border">
+                            <div className="text-xs font-bold">Broadcast ke semua siswa</div>
+                            <div className="text-[10px] text-slate-500">Thread: {CHAT_BROADCAST_THREAD_ID}</div>
+                        </div>
+                    )}
+
+                    <div className="mt-auto text-[10px] text-slate-500 leading-relaxed">
+                        Tips: gunakan broadcast untuk pengumuman umum, gunakan chat siswa untuk komunikasi pribadi.
+                    </div>
+                </div>
+
+                <div className="card !p-0 lg:col-span-2 flex flex-col min-h-0">
+                    <div className="p-4 border-b border-border bg-slate-50/50 flex items-center justify-between">
+                        <div className="min-w-0">
+                            <div className="text-xs font-black uppercase tracking-widest truncate">
+                                {mode === 'broadcast' ? 'Broadcast' : (targetStudent ? `Chat: ${getStudentName(targetStudent)}` : 'Chat')}
+                            </div>
+                            <div className="text-[10px] text-slate-400 truncate">{threadId || '-'}</div>
+                        </div>
+                        <button onClick={fetchThread} className="btn-small bg-slate-100 hover:bg-slate-200 text-slate-700">Refresh</button>
+                    </div>
+
+                    <div className="p-4 flex-1 overflow-y-auto min-h-0 space-y-3">
+                        {loading ? (
+                            <div className="py-12 text-center text-text-secondary opacity-40 font-mono">LOADING CHAT...</div>
+                        ) : messages.length === 0 ? (
+                            <div className="py-12 text-center text-text-secondary opacity-40 italic">Belum ada pesan</div>
+                        ) : messages.map((m) => {
+                            const mine = m.senderRole === 'admin';
+                            return (
+                                <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 border ${mine ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-border'}`}>
+                                        <div className="text-sm whitespace-pre-wrap">{m.message}</div>
+                                        <div className={`text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-slate-400'}`}>{String(m.createdAt || '').replace('T', ' ').slice(0, 16)}</div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="p-4 border-t border-border bg-white flex gap-2">
+                        <input
+                            type="text"
+                            className="flex-1 p-3 rounded-xl border border-border outline-none"
+                            placeholder={mode === 'broadcast' ? 'Tulis pesan broadcast...' : 'Tulis pesan ke siswa...'}
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
+                        />
+                        <button onClick={handleSend} className="btn-small bg-accent hover:bg-accent/90 text-white flex items-center gap-2 px-4">
+                            <Send size={16} /> Kirim
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function StudentMessagesView({ user, students, studentId }: { user: any; students: Student[]; studentId: string }) {
+    const [mode, setMode] = useState<'direct' | 'broadcast'>('direct');
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [text, setText] = useState('');
+    const student = students.find(s => s.id === studentId);
+
+    const threadId = mode === 'broadcast' ? CHAT_BROADCAST_THREAD_ID : (studentId ? getDirectChatThreadId(studentId) : '');
+
+    const fetchThread = async () => {
+        if (!threadId) return setMessages([]);
+        try {
+            setLoading(true);
+            const snap = await getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', threadId), orderBy('createdAt', 'asc')));
+            setMessages(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })));
+        } catch (e) {
+            console.error('Error fetching chatMessages:', e);
+            setMessages([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchThread();
+    }, [threadId]);
+
+    const handleSend = async () => {
+        if (mode !== 'direct') return;
+        const msg = text.trim();
+        if (!msg) return;
+        if (!studentId) return alert('Akun siswa belum terhubung ke data siswa.');
+
+        const payload: Omit<ChatMessage, 'id'> = {
+            threadId,
+            studentId,
+            kind: 'direct',
+            senderRole: 'student',
+            senderUserId: user?.uid || user?.id || null,
+            message: msg,
+            createdAt: new Date().toISOString()
+        };
+
+        await addDoc(collection(db, 'chatMessages'), payload);
+        setText('');
+        fetchThread();
+    };
+
+    return (
+        <div className="p-6 h-full flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
+                    <p className="text-sm text-text-secondary">Chat dengan admin dan lihat broadcast sekolah</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setMode('direct')} className={`btn-small ${mode === 'direct' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Chat Admin</button>
+                    <button onClick={() => setMode('broadcast')} className={`btn-small ${mode === 'broadcast' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Broadcast</button>
+                </div>
+            </div>
+
+            {!studentId && (
+                <div className="card border-l-4 border-l-red-500">
+                    <p className="text-sm font-bold text-red-600">Akun belum terhubung ke data siswa.</p>
+                    <p className="text-xs text-text-secondary">Minta admin menghubungkan user ke `studentId`.</p>
+                </div>
+            )}
+
+            <div className="card !p-0 flex flex-col flex-1 min-h-0">
+                <div className="p-4 border-b border-border bg-slate-50/50 flex items-center justify-between">
+                    <div className="min-w-0">
+                        <div className="text-xs font-black uppercase tracking-widest truncate">
+                            {mode === 'broadcast' ? 'Broadcast' : `Chat Admin${student?.name ? ` - ${student.name}` : ''}`}
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">{threadId || '-'}</div>
+                    </div>
+                    <button onClick={fetchThread} className="btn-small bg-slate-100 hover:bg-slate-200 text-slate-700">Refresh</button>
+                </div>
+
+                <div className="p-4 flex-1 overflow-y-auto min-h-0 space-y-3">
+                    {loading ? (
+                        <div className="py-12 text-center text-text-secondary opacity-40 font-mono">LOADING CHAT...</div>
+                    ) : messages.length === 0 ? (
+                        <div className="py-12 text-center text-text-secondary opacity-40 italic">Belum ada pesan</div>
+                    ) : messages.map((m) => {
+                        const mine = m.senderRole === 'student';
+                        return (
+                            <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[85%] rounded-2xl px-4 py-3 border ${mine ? 'bg-accent text-white border-accent' : 'bg-white border-border'}`}>
+                                    <div className="text-sm whitespace-pre-wrap">{m.message}</div>
+                                    <div className={`text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-slate-400'}`}>{String(m.createdAt || '').replace('T', ' ').slice(0, 16)}</div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {mode === 'direct' && (
+                    <div className="p-4 border-t border-border bg-white flex gap-2">
+                        <input
+                            type="text"
+                            className="flex-1 p-3 rounded-xl border border-border outline-none"
+                            placeholder="Tulis pesan ke admin..."
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
+                            disabled={!studentId}
+                        />
+                        <button onClick={handleSend} className="btn-small bg-accent hover:bg-accent/90 text-white flex items-center gap-2 px-4" disabled={!studentId}>
+                            <Send size={16} /> Kirim
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
 const DEFAULT_MAPEL = [
     "Pend. Agama dan Budi Pekerti",
@@ -7331,7 +7677,7 @@ function UsersManagementView({ students }: { students: Student[] }) {
 
             <div className="flex gap-4 items-center bg-white p-4 rounded-xl border border-border shadow-sm">
                 <Search size={18} className="text-slate-400" />
-                <select 
+                <select
                     title="Filter berdasarkan Peran"
                     className="bg-transparent text-sm font-bold outline-none flex-1"
                     value={roleFilter}
@@ -7499,7 +7845,7 @@ function UsersManagementView({ students }: { students: Student[] }) {
 
                                     <div className="text-center pt-2">
                                         <p className="text-[9px] font-bold text-slate-400 leading-relaxed italic">
-                                            Simpan kartu ini dengan baik. Jangan berikan akses <br /> 
+                                            Simpan kartu ini dengan baik. Jangan berikan akses <br />
                                             akun Anda kepada siapapun.
                                         </p>
                                     </div>

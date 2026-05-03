@@ -247,5 +247,33 @@ export interface UserAccount {
     password?: string;
 }
 
-export type View = 'dashboard' | 'student-dashboard' | 'students' | 'classes' | 'attendance' | 'settings' | 'grades' | 'subjects' | 'student-profile' | 'payments' | 'savings' | 'class-cash' | 'academic' | 'users';
+export type ChatMessageKind = 'direct' | 'broadcast';
+
+export interface ChatMessage {
+    id: string;
+    threadId: string; // e.g. "admin__<studentId>" or "broadcast"
+    studentId?: string | null; // for direct chat / targeting
+    kind: ChatMessageKind;
+    senderRole: UserRole; // 'admin' | 'student'
+    senderUserId?: string | null;
+    message: string;
+    createdAt: string; // ISO string
+}
+
+export type View =
+    | 'dashboard'
+    | 'student-dashboard'
+    | 'messages'
+    | 'students'
+    | 'classes'
+    | 'attendance'
+    | 'settings'
+    | 'grades'
+    | 'subjects'
+    | 'student-profile'
+    | 'payments'
+    | 'savings'
+    | 'class-cash'
+    | 'academic'
+    | 'users';
 

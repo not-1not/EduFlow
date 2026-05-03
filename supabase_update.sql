@@ -197,3 +197,21 @@ CREATE TABLE IF NOT EXISTS "dashboardWidgets" (
 INSERT INTO settings (id, "appName", "schoolName", "schoolAddress", "themeColor")
 VALUES ('default', 'EduFlow', 'Sekolah Contoh', 'Jl. Merdeka No. 1', '#3b82f6')
 ON CONFLICT (id) DO NOTHING;
+
+-- Chat Messages Table (Admin <-> Siswa + Broadcast)
+CREATE TABLE IF NOT EXISTS "chatMessages" (
+    id TEXT PRIMARY KEY,
+    "threadId" TEXT,
+    "studentId" TEXT,
+    kind TEXT,
+    "senderRole" TEXT,
+    "senderUserId" TEXT,
+    message TEXT,
+    "createdAt" TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_chatmessages_thread_created
+ON "chatMessages" ("threadId", "createdAt");
+
+CREATE INDEX IF NOT EXISTS idx_chatmessages_student_created
+ON "chatMessages" ("studentId", "createdAt");
