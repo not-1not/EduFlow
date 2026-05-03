@@ -623,7 +623,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
             case 'academic':
                 return <AcademicView students={students} classes={classes} {...commonProps} />;
             case 'users':
-                return <UsersManagementView students={students} />;
+                return <UsersManagementView students={students} classes={classes} />;
             case 'settings':
                 return <SettingsView settings={appSettings || { appName: '', schoolName: '', schoolAddress: '', headmasterName: '', themeColor: '#3B82F6', features: { enableSavings: true, enableClassCash: true, enableAcademic: true, enablePayments: true, enableAttendance: true } }} onSettingsSaved={fetchData} />;
             default:
@@ -7554,13 +7554,17 @@ function AcademicView({
     );
 }
 
-function UsersManagementView({ students }: { students: Student[] }) {
+function UsersManagementView({ students, classes }: { students: Student[]; classes: Class[] }) {
     const [users, setUsers] = useState<UserAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
     const [showPrintAccount, setShowPrintAccount] = useState<UserAccount | null>(null);
     const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
     const [roleFilter, setRoleFilter] = useState<string>('all');
+    const [bulkClassId, setBulkClassId] = useState<string>('');
+    const [bulkPassword, setBulkPassword] = useState<string>('');
+    const [bulkSkipExisting, setBulkSkipExisting] = useState(true);
+    const [bulkCreating, setBulkCreating] = useState(false);
     const [formData, setFormData] = useState<Partial<UserAccount>>({
         email: '',
         displayName: '',
@@ -7571,6 +7575,40 @@ function UsersManagementView({ students }: { students: Student[] }) {
     });
 
     const filteredUsers = users.filter(u => roleFilter === 'all' || u.role === roleFilter);
+    const studentsForSelect = sortStudentsForSelect(students);
+
+    const slugifyUsername = (v: string) =>
+        String(v || '')
+            .toLowerCase()
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '.')
+            .replace(/(^\\.)|(\\.$)/g, '')
+            .slice(0, 24);
+
+    const generatePassword = () => String(Math.floor(100000 + Math.random() * 900000));
+
+    const buildDefaultUsernameForStudent = (s: Student) => {
+        const base = String(s.nisn || s.nis || '').trim();
+        if (base) return base;
+        const namePart = slugifyUsername(s.name || 'siswa');
+        const numPart = s.attendanceNumber != null ? String(s.attendanceNumber) : '';
+        const candidate = [numPart, namePart].filter(Boolean).join('.');
+        return candidate || `siswa.${String(s.id).slice(0, 6)}`;
+    };
+
+    const makeUniqueUsername = (candidate: string, existing: Set<string>) => {
+        let u = String(candidate || '').trim();
+        if (!u) u = 'siswa';
+        let attempt = 0;
+        let out = u;
+        while (existing.has(out)) {
+            attempt += 1;
+            out = `${u}.${attempt}`;
+        }
+        existing.add(out);
+        return out;
+    };
 
     const handleDownloadCSV = () => {
         const headers = ['Nama', 'Email', 'Username', 'Password', 'Role', 'Status Tautan'];
@@ -7613,6 +7651,64 @@ function UsersManagementView({ students }: { students: Student[] }) {
     useEffect(() => {
         fetchUsers();
     }, []);
+
+    useEffect(() => {
+        if (!bulkClassId) {
+            setBulkClassId(classes?.[0]?.id || '');
+        }
+    }, [classes, bulkClassId]);
+
+    const handleBulkCreate = async () => {
+        if (!bulkClassId) return alert('Pilih kelas terlebih dahulu.');
+        const targetStudents = studentsForSelect.filter(s => s.classId === bulkClassId);
+        if (targetStudents.length === 0) return alert('Tidak ada siswa di kelas ini.');
+
+        const existingUsernames = new Set(users.map(u => String(u.username || '').trim()).filter(Boolean));
+        const existingStudentIdLinked = new Set(users.filter(u => u.role === 'student' && u.studentId).map(u => String(u.studentId)));
+
+        const toCreate: Array<{ id: string; row: any }> = [];
+        for (const s of targetStudents) {
+            const alreadyLinked = existingStudentIdLinked.has(String(s.id));
+            if (bulkSkipExisting && alreadyLinked) continue;
+
+            const baseUsername = buildDefaultUsernameForStudent(s);
+            const username = makeUniqueUsername(baseUsername, existingUsernames);
+            const password = bulkPassword.trim() ? bulkPassword.trim() : generatePassword();
+            const email = String(s.email || '').trim() || `${username}@eduflow.local`;
+
+            const newId = Math.random().toString(36).substr(2, 9);
+            toCreate.push({
+                id: newId,
+                row: {
+                    uid: '',
+                    email,
+                    displayName: s.name,
+                    role: 'student',
+                    studentId: s.id,
+                    username,
+                    password,
+                    createdAt: new Date().toISOString()
+                }
+            });
+        }
+
+        if (toCreate.length === 0) return alert('Semua siswa sudah punya akun (tidak ada yang dibuat).');
+        if (!confirm(`Buat ${toCreate.length} akun siswa untuk kelas ini?`)) return;
+
+        try {
+            setBulkCreating(true);
+            for (const item of toCreate) {
+                await setDoc(doc(db, 'users', item.id), item.row);
+            }
+            alert(`Berhasil membuat ${toCreate.length} akun siswa.`);
+            fetchUsers();
+        } catch (e) {
+            console.error('Bulk create users error:', e);
+            alert('Gagal membuat akun massal. Coba lagi.');
+        } finally {
+            setBulkCreating(false);
+        }
+    };
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -7673,6 +7769,45 @@ function UsersManagementView({ students }: { students: Student[] }) {
                         <UserPlus size={18} /> Tambah Akun
                     </button>
                 </div>
+            </div>
+
+            <div className="card border border-border">
+                <div className="flex flex-col lg:flex-row gap-4 items-end">
+                    <div className="flex-1 space-y-1">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] block ml-1">Buat Akun Massal (per Kelas)</label>
+                        <select className="w-full p-3 border border-border rounded-xl font-bold text-sm bg-white outline-none" value={bulkClassId} onChange={e => setBulkClassId(e.target.value)}>
+                            <option value="">Pilih kelas...</option>
+                            {classes.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="w-full lg:w-[260px] space-y-1">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] block ml-1">Password Default (opsional)</label>
+                        <input
+                            type="text"
+                            className="w-full p-3 border border-border rounded-xl font-mono text-sm outline-none"
+                            placeholder="Kosongkan = acak per siswa"
+                            value={bulkPassword}
+                            onChange={e => setBulkPassword(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 w-full lg:w-auto pb-2">
+                        <input id="bulkSkipExisting" type="checkbox" className="w-4 h-4" checked={bulkSkipExisting} onChange={e => setBulkSkipExisting(e.target.checked)} />
+                        <label htmlFor="bulkSkipExisting" className="text-xs font-bold text-slate-600">Lewati siswa yang sudah punya akun</label>
+                    </div>
+                    <button
+                        onClick={handleBulkCreate}
+                        disabled={bulkCreating}
+                        className="btn-primary flex items-center gap-2 justify-center w-full lg:w-auto disabled:opacity-50"
+                        title="Buat akun individual untuk semua siswa dalam kelas"
+                    >
+                        <Users size={18} /> {bulkCreating ? 'Membuat...' : 'Buat Akun Massal'}
+                    </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
+                    Akun dibuat per siswa (bukan per kelas). Username otomatis (prioritas: NISN/NIS, lalu nama+absen) dan dapat diubah kapan saja lewat tombol Edit.
+                </p>
             </div>
 
             <div className="flex gap-4 items-center bg-white p-4 rounded-xl border border-border shadow-sm">
