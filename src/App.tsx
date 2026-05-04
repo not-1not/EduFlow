@@ -4248,7 +4248,7 @@ function PaymentsView({
     const [showPrintBill, setShowPrintBill] = useState(false);
 
     // Rekap Gemari & Infaq pada rekap pembayaran personal memakai periode Tahun Ajaran (Juli–Juni)
-    const GEMARI_INFAQ_ACADEMIC_START_MONTH = '2025-07';
+    const GEMARI_INFAQ_ACADEMIC_START_MONTH = '2026-01';
     const GEMARI_INFAQ_ACADEMIC_END_MONTH = '2026-06';
     const GEMARI_INFAQ_PERIOD_KEY = `${GEMARI_INFAQ_ACADEMIC_START_MONTH}..${GEMARI_INFAQ_ACADEMIC_END_MONTH}`;
 
@@ -5013,7 +5013,7 @@ function PaymentsView({
                                             if (!st) return null;
 
                                             const months = listMonthsBetweenInclusive(GEMARI_INFAQ_ACADEMIC_START_MONTH, GEMARI_INFAQ_ACADEMIC_END_MONTH);
-                                            const periodLabel = 'Juli 2025 - Juni 2026';
+                                            const periodLabel = 'Januari 2026 - Juni 2026';
 
                                             const classId = String((st as any)?.classId || '');
                                             const calc = (type: 'gemari' | 'infaq') => {
@@ -5099,7 +5099,7 @@ function PaymentsView({
                                                                             </div>
                                                                             <div className="text-right">
                                                                                 <div className="text-xs font-black text-red-500">{formatCurrency(combined)}</div>
-                                                                                <div className="text-[10px] text-slate-400">Setor (Juli 2025-Juni 2026): {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
+                                                                                <div className="text-[10px] text-slate-400">Setor (Jan 2026-Jun 2026): {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
                                                                             </div>
                                                                         </div>
 
