@@ -4242,6 +4242,10 @@ function PaymentsView({
     const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
     const [savingExtraBills, setSavingExtraBills] = useState(false);
     const [hideAdditionalBills, setHideAdditionalBills] = useState(false);
+    const [gemariInfaqManualAmount, setGemariInfaqManualAmount] = useState<number | ''>('');
+    const [gemariInfaqManualNote, setGemariInfaqManualNote] = useState('');
+    const [savingGemariInfaqManual, setSavingGemariInfaqManual] = useState(false);
+    const [showPrintBill, setShowPrintBill] = useState(false);
 
     const [newSchoolDeposit, setNewSchoolDeposit] = useState({
         classId: '',
@@ -4274,6 +4278,12 @@ function PaymentsView({
             setNewPayment(prev => ({ ...prev, studentId: initialStudentId }));
         }
     }, [initialStudentId]);
+
+    useEffect(() => {
+        if (showPrintBill) document.body.classList.add('bill-printing');
+        else document.body.classList.remove('bill-printing');
+        return () => document.body.classList.remove('bill-printing');
+    }, [showPrintBill]);
 
     const handleAddPayment = async () => {
         if (!newPayment.studentId) return alert('Pilih siswa terlebih dahulu');
@@ -4415,6 +4425,10 @@ function PaymentsView({
         const st = students.find(s => s.id === detailStudentId);
         setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
         setHideAdditionalBills(false);
+        const monthStr = getCurrentMonthStr();
+        const adj = (st?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === monthStr);
+        setGemariInfaqManualAmount(adj?.amount ?? '');
+        setGemariInfaqManualNote(adj?.note ?? '');
     }, [detailStudentId, students]);
 
     const addExtraBill = () => {
@@ -4446,6 +4460,25 @@ function PaymentsView({
         }
     };
 
+    const saveGemariInfaqManual = async () => {
+        if (!detailStudentId) return;
+        setSavingGemariInfaqManual(true);
+        try {
+            const st = students.find(s => s.id === detailStudentId);
+            const monthStr = getCurrentMonthStr();
+            const prev = (st?.paymentGemariInfaqAdjustments || []).filter((a: any) => a.month !== monthStr);
+
+            const amountVal = (gemariInfaqManualAmount === '' ? undefined : Number(gemariInfaqManualAmount));
+            const noteVal = (gemariInfaqManualNote || '').trim();
+            const next = [...prev, { month: monthStr, amount: amountVal, note: noteVal }];
+
+            await updateDoc(doc(db, 'students', detailStudentId), { paymentGemariInfaqAdjustments: next });
+            onRefresh();
+        } finally {
+            setSavingGemariInfaqManual(false);
+        }
+    };
+
     const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
     const totalRequired = feeItems.reduce((acc, item) => acc + (item.category === 'wajib' ? item.amount * students.length : 0), 0);
     const totalCollected = payments.reduce((acc, p) => acc + p.amountPaid, 0);
@@ -4460,6 +4493,109 @@ function PaymentsView({
 
     return (
         <div className="space-y-6 print-container relative">
+            {showPrintBill && detailStudentId && (
+                <>
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+                        <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-border">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-black uppercase tracking-widest">Cetak Kartu Tagihan</h3>
+                                <button onClick={() => setShowPrintBill(false)} aria-label="Tutup cetak kartu tagihan" className="p-2 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-4">Klik cetak untuk menyimpan sebagai PDF atau mencetak langsung.</p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowPrintBill(false)} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200">Batal</button>
+                                <button onClick={() => { window.print(); setShowPrintBill(false); }} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-950 flex items-center justify-center gap-2">
+                                    <Printer size={16} /> Cetak
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bill-print-root print-container">
+                        <div className="print-header">
+                            <h1 className="text-2xl font-black uppercase tracking-tighter">KARTU TAGIHAN SISWA</h1>
+                            <p className="text-xs font-bold text-slate-500">Periode: {getCurrentMonthStr()}</p>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="border border-black p-4 rounded">
+                                <div className="flex justify-between gap-6">
+                                    <div>
+                                        <div className="text-xs text-slate-500">Nama</div>
+                                        <div className="font-black">{detailStudent?.name || '-'}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs text-slate-500">Kelas</div>
+                                        <div className="font-black">{detailClass?.name || '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border border-black p-4 rounded space-y-3">
+                                <div className="font-black uppercase tracking-wider text-sm border-b border-black pb-2">Rincian Tagihan</div>
+                                <div className="space-y-2">
+                                    {feeItems.map(i => {
+                                        const due = Number((i as any).amount) || 0;
+                                        const paid = Number(detailPayments.filter(p => p.feeItemId === i.id).reduce((sum, p) => sum + (Number(p.amountPaid) || 0), 0)) || 0;
+                                        const kurang = Math.max(0, due - paid);
+                                        return (
+                                            <div key={i.id} className="flex justify-between text-xs">
+                                                <div className="font-bold">{i.name}</div>
+                                                <div className="font-mono">{formatCurrency(kurang)}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="pt-2 border-t border-black space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <div className="font-bold">Kekurangan Gemari &amp; Infaq</div>
+                                        <div className="font-mono">{(() => {
+                                            const st = detailStudent;
+                                            if (!st) return formatCurrency(0);
+                                            const monthStr = getCurrentMonthStr();
+                                            const classId = String((st as any)?.classId || '');
+                                            const calc = (type: 'gemari' | 'infaq') => {
+                                                const nominal = getCashNominal(type);
+                                                const targetDays = countTargetDays(type, monthStr);
+                                                const target = targetDays * nominal;
+
+                                                const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
+                                                const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+                                                const targetReal = Math.max(0, target - (bebasDates.size * nominal));
+
+                                                const paid = monthTx
+                                                    .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
+                                                    .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
+                                                    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+                                                const kurang = Math.max(0, targetReal - paid);
+                                                return { kurang };
+                                            };
+
+                                            const autoCombined = (Number(calc('gemari').kurang) || 0) + (Number(calc('infaq').kurang) || 0);
+                                            const combined = (gemariInfaqManualAmount === '' ? autoCombined : (Number(gemariInfaqManualAmount) || 0));
+                                            return formatCurrency(combined);
+                                        })()}</div>
+                                    </div>
+                                    {(extraBills || []).map(b => (
+                                        <div key={b.id} className="flex justify-between text-xs">
+                                            <div className="font-bold">{b.label}</div>
+                                            <div className="font-mono">{formatCurrency(Number(b.amount) || 0)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {gemariInfaqManualNote?.trim() && (
+                                    <div className="pt-3">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-1">Catatan</div>
+                                        <div className="text-xs">{gemariInfaqManualNote.trim()}</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">LAPORAN PEMBAYARAN SISWA</h1>
                 <p className="text-xs font-bold text-slate-500">Periode: {new Date().getFullYear()}</p>
@@ -4796,12 +4932,22 @@ function PaymentsView({
                                         </div>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
-                                    className="p-2 hover:bg-slate-100 rounded-lg"
-                                >
-                                    <X size={20} />
-                                </button>
+                                <div className="flex items-center gap-2 no-print">
+                                    <button
+                                        onClick={() => setShowPrintBill(true)}
+                                        className="btn-small !bg-slate-900 !text-yellow-400 flex items-center gap-2"
+                                        title="Cetak kartu tagihan"
+                                    >
+                                        <Printer size={14} /> Cetak
+                                    </button>
+                                    <button
+                                        onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
+                                        className="p-2 hover:bg-slate-100 rounded-lg"
+                                        title="Tutup"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-6">
@@ -4862,7 +5008,9 @@ function PaymentsView({
                                             const gemari = calc('gemari');
                                             const infaq = calc('infaq');
                                             const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-                                            const totalAdditional = gemari.kurang + infaq.kurang + otherTotal;
+                                            const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
+                                            const combined = (gemariInfaqManualAmount === '' ? autoCombined : (Number(gemariInfaqManualAmount) || 0));
+                                            const totalAdditional = combined + otherTotal;
 
                                             return (
                                                 <div className="space-y-4">
@@ -4894,26 +5042,69 @@ function PaymentsView({
                                                         </div>
                                                     ) : (
                                                         <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
-                                                            <div className="flex justify-between items-center">
-                                                                <div>
-                                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari</div>
-                                                                    <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)} {gemari.bebasDays ? `(- bebas setor ${gemari.bebasDays} hari)` : ''}</div>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <div className="text-xs font-black text-red-500">{formatCurrency(gemari.kurang)}</div>
-                                                                    <div className="text-[10px] text-slate-400">Setor: {formatCurrency(gemari.paid)}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <div>
-                                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Infaq Jumat</div>
-                                                                    <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)} {infaq.bebasDays ? `(- bebas setor ${infaq.bebasDays} Jumat)` : ''}</div>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <div className="text-xs font-black text-red-500">{formatCurrency(infaq.kurang)}</div>
-                                                                    <div className="text-[10px] text-slate-400">Setor: {formatCurrency(infaq.paid)}</div>
-                                                                </div>
-                                                            </div>
+                                                            {(() => {
+                                                                const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
+                                                                const manual = gemariInfaqManualAmount === '' ? null : (Number(gemariInfaqManualAmount) || 0);
+                                                                const combined = manual === null ? autoCombined : manual;
+                                                                const note = (gemariInfaqManualNote || '').trim();
+
+                                                                return (
+                                                                    <>
+                                                                        <div className="flex justify-between items-start gap-4">
+                                                                            <div className="min-w-0">
+                                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari &amp; Infaq</div>
+                                                                                <div className="text-[10px] text-slate-400">
+                                                                                    Gemari: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)}{gemari.bebasDays ? ` (- bebas setor ${gemari.bebasDays} hari)` : ''}
+                                                                                </div>
+                                                                                <div className="text-[10px] text-slate-400">
+                                                                                    Infaq: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)}{infaq.bebasDays ? ` (- bebas setor ${infaq.bebasDays} Jumat)` : ''}
+                                                                                </div>
+                                                                                {note && (
+                                                                                    <div className="mt-2 text-[10px] font-bold text-slate-600 bg-slate-50 border border-border rounded-lg px-2.5 py-2">
+                                                                                        {note}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-right">
+                                                                                <div className="text-xs font-black text-red-500">{formatCurrency(combined)}</div>
+                                                                                <div className="text-[10px] text-slate-400">Setor: {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="no-print pt-2 border-t border-border space-y-2">
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                                                                                <div className="sm:col-span-1">
+                                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Override Nominal</div>
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        className="w-full bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
+                                                                                        value={gemariInfaqManualAmount}
+                                                                                        onChange={(e) => setGemariInfaqManualAmount(e.target.value === '' ? '' : (Number(e.target.value) || 0))}
+                                                                                        placeholder="Kosongkan = otomatis"
+                                                                                    />
+                                                                                </div>
+                                                                                <div className="sm:col-span-2">
+                                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Catatan (Opsional)</div>
+                                                                                    <input
+                                                                                        className="w-full bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
+                                                                                        value={gemariInfaqManualNote}
+                                                                                        onChange={(e) => setGemariInfaqManualNote(e.target.value)}
+                                                                                        placeholder="Tambahan informasi untuk kartu tagihan"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={saveGemariInfaqManual}
+                                                                                disabled={savingGemariInfaqManual}
+                                                                                className="w-full px-3 py-2 rounded-xl bg-slate-900 text-yellow-400 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
+                                                                            >
+                                                                                {savingGemariInfaqManual ? 'Menyimpan...' : 'Simpan Kekurangan Gemari & Infaq'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </>
+                                                                );
+                                                            })()}
 
                                                             {(extraBills || []).length > 0 && (
                                                                 <div className="pt-2 border-t border-border space-y-2">
@@ -7039,7 +7230,8 @@ function AcademicView({
         if (!record) return errs;
 
         if ((record.rapot || []).some((r: any) =>
-            ['s41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
+            // Format baru (5 semester) + backward-compat format lama (P|K)
+            ['s41', 's42', 's51', 's52', 's61', 's41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
                 r[k] !== '' && r[k] !== null && r[k] !== undefined && (Number(r[k]) < 0 || Number(r[k]) > 100)
             )
         )) {
@@ -7075,7 +7267,7 @@ function AcademicView({
         if (record.rapot && record.rapot.length > 0) {
             if (!confirm('Mapel saat ini sudah ada. Terapkan template akan menambahkan mapel default di bawahnya. Lanjutkan?')) return;
         }
-        const templates = DEFAULT_MAPEL.map(m => ({ subject: m, s41_p: '', s41_k: '', s42_p: '', s42_k: '', s51_p: '', s51_k: '', s52_p: '', s52_k: '', s61_p: '', s61_k: '' }));
+        const templates = DEFAULT_MAPEL.map(m => ({ subject: m, s41: '', s42: '', s51: '', s52: '', s61: '' }));
         setRecord({ ...record, rapot: [...(record.rapot || []), ...templates] });
     };
 
@@ -7096,7 +7288,7 @@ function AcademicView({
         // Header format:
         let csv = 'ID Siswa,Nama Siswa,TKA,';
         for (let i = 1; i <= 15; i++) {
-            csv += `Mapel${i},K4S1P_${i},K4S1K_${i},K4S2P_${i},K4S2K_${i},K5S1P_${i},K5S1K_${i},K5S2P_${i},K5S2K_${i},K6S1P_${i},K6S1K_${i},`;
+            csv += `Mapel${i},K4S1_${i},K4S2_${i},K5S1_${i},K5S2_${i},K6S1_${i},Jumlah_${i},Rata2_${i},`;
         }
         csv += 'NumIjazah\n'; // Just an example structure
 
@@ -7107,16 +7299,30 @@ function AcademicView({
             for (let i = 0; i < 15; i++) {
                 if (rec.rapot && rec.rapot[i]) {
                     const r = rec.rapot[i];
+                    const vals = [
+                        r.s41 ?? r.s41_p ?? r.s41_k,
+                        r.s42 ?? r.s42_p ?? r.s42_k,
+                        r.s51 ?? r.s51_p ?? r.s51_k,
+                        r.s52 ?? r.s52_p ?? r.s52_k,
+                        r.s61 ?? r.s61_p ?? r.s61_k,
+                    ];
+                    const nums = vals
+                        .filter((v: any) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
+                        .map((v: any) => Number(v));
+                    const sum = nums.reduce((a: number, b: number) => a + b, 0);
+                    const avg = nums.length > 0 ? (sum / nums.length) : 0;
                     row.push(
                         `"${r.subject}"`,
-                        r.s41_p || '', r.s41_k || '',
-                        r.s42_p || '', r.s42_k || '',
-                        r.s51_p || '', r.s51_k || '',
-                        r.s52_p || '', r.s52_k || '',
-                        r.s61_p || '', r.s61_k || ''
+                        vals[0] ?? '',
+                        vals[1] ?? '',
+                        vals[2] ?? '',
+                        vals[3] ?? '',
+                        vals[4] ?? '',
+                        nums.length > 0 ? String(sum) : '',
+                        nums.length > 0 ? avg.toFixed(2) : ''
                     );
                 } else {
-                    row.push('', '', '', '', '', '', '', '', '', '', '');
+                    row.push('', '', '', '', '', '', '', '');
                 }
             }
             csv += row.join(',') + '\n';
@@ -7138,6 +7344,8 @@ function AcademicView({
         reader.onload = async (evt) => {
             const text = evt.target?.result as string;
             const lines = text.split('\n');
+            const headerLine = (lines[0] || '').replace(/^\uFEFF/, '').trim();
+            const isOldFormat = headerLine.includes('K4S1P_1') || headerLine.includes('K4S1K_1');
 
             const newRecords = [];
             const existing = await loadAcademicRecords();
@@ -7154,21 +7362,32 @@ function AcademicView({
                 let colIdx = 3;
                 for (let m = 0; m < 15; m++) {
                     if (cols[colIdx]) {
-                        rapot.push({
-                            subject: cols[colIdx],
-                            s41_p: cols[colIdx + 1] || '',
-                            s41_k: cols[colIdx + 2] || '',
-                            s42_p: cols[colIdx + 3] || '',
-                            s42_k: cols[colIdx + 4] || '',
-                            s51_p: cols[colIdx + 5] || '',
-                            s51_k: cols[colIdx + 6] || '',
-                            s52_p: cols[colIdx + 7] || '',
-                            s52_k: cols[colIdx + 8] || '',
-                            s61_p: cols[colIdx + 9] || '',
-                            s61_k: cols[colIdx + 10] || ''
-                        });
+                        if (isOldFormat) {
+                            rapot.push({
+                                subject: cols[colIdx],
+                                s41_p: cols[colIdx + 1] || '',
+                                s41_k: cols[colIdx + 2] || '',
+                                s42_p: cols[colIdx + 3] || '',
+                                s42_k: cols[colIdx + 4] || '',
+                                s51_p: cols[colIdx + 5] || '',
+                                s51_k: cols[colIdx + 6] || '',
+                                s52_p: cols[colIdx + 7] || '',
+                                s52_k: cols[colIdx + 8] || '',
+                                s61_p: cols[colIdx + 9] || '',
+                                s61_k: cols[colIdx + 10] || ''
+                            });
+                        } else {
+                            rapot.push({
+                                subject: cols[colIdx],
+                                s41: cols[colIdx + 1] || '',
+                                s42: cols[colIdx + 2] || '',
+                                s51: cols[colIdx + 3] || '',
+                                s52: cols[colIdx + 4] || '',
+                                s61: cols[colIdx + 5] || ''
+                            });
+                        }
                     }
-                    colIdx += 11;
+                    colIdx += isOldFormat ? 11 : 8;
                 }
 
                 const existingRec = existing.find((r: any) => r.studentId === studentId);
@@ -7195,7 +7414,7 @@ function AcademicView({
     const handleAddMapelRapot = () => {
         setRecord({
             ...record,
-            rapot: [...(record.rapot || []), { subject: '', s41_p: '', s41_k: '', s42_p: '', s42_k: '', s51_p: '', s51_k: '', s52_p: '', s52_k: '', s61_p: '', s61_k: '' }]
+            rapot: [...(record.rapot || []), { subject: '', s41: '', s42: '', s51: '', s52: '', s61: '' }]
         });
     };
 
@@ -7246,16 +7465,30 @@ function AcademicView({
         setRecord({ ...record, ijazah: newIjazah });
     };
 
+    const getRapotSemesterNumber = (r: any, key: 's41' | 's42' | 's51' | 's52' | 's61') => {
+        const direct = r?.[key];
+        if (direct !== '' && direct !== null && direct !== undefined && !isNaN(Number(direct))) return Number(direct);
+
+        const p = r?.[`${key}_p`];
+        const k = r?.[`${key}_k`];
+        const hasP = p !== '' && p !== null && p !== undefined && !isNaN(Number(p));
+        const hasK = k !== '' && k !== null && k !== undefined && !isNaN(Number(k));
+        if (hasP && hasK) return (Number(p) + Number(k)) / 2;
+        if (hasP) return Number(p);
+        if (hasK) return Number(k);
+        return null;
+    };
+
     const getAverageRapot = () => {
         if (!record?.rapot || record.rapot.length === 0) return 0;
         let total = 0;
         let count = 0;
         record.rapot.forEach((r: any) => {
-            ['s41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].forEach(k => {
-                if (r[k] !== '' && r[k] !== null && !isNaN(Number(r[k]))) {
-                    total += Number(r[k]);
-                    count++;
-                }
+            (['s41', 's42', 's51', 's52', 's61'] as const).forEach(k => {
+                const v = getRapotSemesterNumber(r, k);
+                if (v === null) return;
+                total += v;
+                count++;
             });
         });
         return count > 0 ? total / count : 0;
@@ -7287,7 +7520,7 @@ function AcademicView({
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-2xl font-black tracking-tighter uppercase">Data Akademik & Ijazah</h2>
-                    <p className="text-sm text-text-secondary">Nilai Rapot (Semester 7-11), Prestasi, dan Ijazah</p>
+                    <p className="text-sm text-text-secondary">Nilai Rapot (5 Semester), Prestasi, dan Ijazah</p>
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
                     <select
@@ -7365,43 +7598,49 @@ function AcademicView({
                                         <thead>
                                             <tr>
                                                 <th rowSpan={2} className="border border-border p-2 min-w-[150px] sticky left-0 bg-slate-50 z-[5]">Mata Pelajaran</th>
-                                                <th colSpan={4} className="border border-border p-2 text-center bg-blue-50/50">Kelas 4</th>
-                                                <th colSpan={4} className="border border-border p-2 text-center bg-emerald-50/50">Kelas 5</th>
-                                                <th colSpan={2} className="border border-border p-2 text-center bg-amber-50/50">Kelas 6</th>
+                                                <th colSpan={2} className="border border-border p-2 text-center bg-blue-50/50">Kelas 4</th>
+                                                <th colSpan={2} className="border border-border p-2 text-center bg-emerald-50/50">Kelas 5</th>
+                                                <th colSpan={1} className="border border-border p-2 text-center bg-amber-50/50">Kelas 6</th>
+                                                <th rowSpan={2} className="border border-border p-2 text-center bg-slate-50/50">Jumlah</th>
+                                                <th rowSpan={2} className="border border-border p-2 text-center bg-slate-50/50">Rata-rata</th>
                                                 <th rowSpan={2} className="border border-border p-2 w-16 no-print">Aksi</th>
                                             </tr>
                                             <tr>
                                                 {/* K4 */}
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 1 (P|K)</th>
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 2 (P|K)</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 2</th>
                                                 {/* K5 */}
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 1 (P|K)</th>
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 2 (P|K)</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 2</th>
                                                 {/* K6 */}
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 1 (P|K)</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {record.rapot.map((r: any, i: number) => (
-                                                <tr key={i} className="hover:bg-slate-50/50">
+                                            {record.rapot.map((r: any, i: number) => {
+                                                const nums = (['s41', 's42', 's51', 's52', 's61'] as const)
+                                                    .map(k => getRapotSemesterNumber(r, k))
+                                                    .filter((v: any) => v !== null) as number[];
+                                                const sum = nums.reduce((a, b) => a + b, 0);
+                                                const avg = nums.length > 0 ? (sum / nums.length) : 0;
+                                                return (
+                                                    <tr key={i} className="hover:bg-slate-50/50">
                                                     <td className="p-1 border border-border sticky left-0 bg-white group-hover:bg-slate-50/50 z-[5]">
                                                         <input type="text" className="w-full p-2 outline-none font-bold text-xs" value={r.subject} onChange={e => handleUpdateRapot(i, 'subject', e.target.value)} placeholder="Mapel..." />
                                                     </td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s41_p} onChange={(v: any) => handleUpdateRapot(i, 's41_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s41_k} onChange={(v: any) => handleUpdateRapot(i, 's41_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s42_p} onChange={(v: any) => handleUpdateRapot(i, 's42_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s42_k} onChange={(v: any) => handleUpdateRapot(i, 's42_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s51_p} onChange={(v: any) => handleUpdateRapot(i, 's51_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s51_k} onChange={(v: any) => handleUpdateRapot(i, 's51_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s52_p} onChange={(v: any) => handleUpdateRapot(i, 's52_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s52_k} onChange={(v: any) => handleUpdateRapot(i, 's52_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s61_p} onChange={(v: any) => handleUpdateRapot(i, 's61_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s61_k} onChange={(v: any) => handleUpdateRapot(i, 's61_k', v)} /></td>
+                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s41 ?? r.s41_p ?? r.s41_k} onChange={(v: any) => handleUpdateRapot(i, 's41', v)} /></td>
+                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s42 ?? r.s42_p ?? r.s42_k} onChange={(v: any) => handleUpdateRapot(i, 's42', v)} /></td>
+                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s51 ?? r.s51_p ?? r.s51_k} onChange={(v: any) => handleUpdateRapot(i, 's51', v)} /></td>
+                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s52 ?? r.s52_p ?? r.s52_k} onChange={(v: any) => handleUpdateRapot(i, 's52', v)} /></td>
+                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s61 ?? r.s61_p ?? r.s61_k} onChange={(v: any) => handleUpdateRapot(i, 's61', v)} /></td>
+                                                    <td className="p-2 border border-border text-center font-mono text-xs bg-slate-50/30">{nums.length > 0 ? sum : ''}</td>
+                                                    <td className="p-2 border border-border text-center font-mono text-xs bg-slate-50/30">{nums.length > 0 ? avg.toFixed(2) : ''}</td>
                                                     <td className="p-1 border border-border text-center no-print">
                                                         <button onClick={() => handleRemoveRapot(i)} className="text-red-400 hover:text-red-600 transition-all"><Trash2 size={14} /></button>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -8122,12 +8361,20 @@ function StudentDashboardView({
     classes: Class[],
     holidays: Holiday[]
 }) {
-    const displaySettings = settings?.studentDisplaySettings || {
+    const displaySettingsRaw = settings?.studentDisplaySettings || {
         showGrades: true,
         showAttendance: true,
         showPayments: true,
         showSavings: true,
         showClassCash: true
+    };
+    // Halaman siswa hanya menampilkan: Nilai, Presensi, Pembayaran
+    const displaySettings = {
+        showGrades: !!displaySettingsRaw.showGrades,
+        showAttendance: !!displaySettingsRaw.showAttendance,
+        showPayments: !!displaySettingsRaw.showPayments,
+        showSavings: false,
+        showClassCash: false
     };
 
     const student = students.find(s => s.id === studentId);
@@ -8140,6 +8387,7 @@ function StudentDashboardView({
     const [academicRecord, setAcademicRecord] = useState<any>(null);
     const [academicLoading, setAcademicLoading] = useState(false);
     const [activeRapotSem, setActiveRapotSem] = useState<'s41' | 's42' | 's51' | 's52' | 's61'>('s41');
+    const [showPrintBill, setShowPrintBill] = useState(false);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
@@ -8217,6 +8465,10 @@ function StudentDashboardView({
 
     const gemari = getCashRecap('gemari');
     const infaq = getCashRecap('infaq');
+    const gemariInfaqAdj = (student?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === monthStr);
+    const gemariInfaqCombinedAuto = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
+    const gemariInfaqCombined = (gemariInfaqAdj?.amount ?? gemariInfaqCombinedAuto) as number;
+    const gemariInfaqNote = (gemariInfaqAdj?.note || '').trim();
 
     const paymentsByItem: Record<string, number> = {};
     myPayments.forEach(p => { paymentsByItem[p.feeItemId] = (paymentsByItem[p.feeItemId] || 0) + (Number(p.amountPaid) || 0); });
@@ -8226,6 +8478,91 @@ function StudentDashboardView({
 
     return (
         <div className="p-6 space-y-8 overflow-y-auto h-full pb-20 max-w-4xl mx-auto">
+            {showPrintBill && (
+                <>
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+                        <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-border">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-black uppercase tracking-widest">Cetak Kartu Tagihan</h3>
+                                <button onClick={() => setShowPrintBill(false)} aria-label="Tutup cetak kartu tagihan" className="p-2 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-4">Klik cetak untuk menyimpan sebagai PDF atau mencetak langsung.</p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowPrintBill(false)} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200">Batal</button>
+                                <button onClick={() => { window.print(); setShowPrintBill(false); }} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-950 flex items-center justify-center gap-2">
+                                    <Printer size={16} /> Cetak
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bill-print-root print-container">
+                        <div className="print-header">
+                            <h1 className="text-2xl font-black uppercase tracking-tighter">KARTU TAGIHAN SISWA</h1>
+                            <p className="text-xs font-bold text-slate-500">Periode: {monthStr}</p>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="border border-black p-4 rounded">
+                                <div className="flex justify-between gap-6">
+                                    <div>
+                                        <div className="text-xs text-slate-500">Nama</div>
+                                        <div className="font-black">{student?.name || '-'}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs text-slate-500">Kelas</div>
+                                        <div className="font-black">{classes.find(c => c.id === student?.classId)?.name || '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border border-black p-4 rounded space-y-3">
+                                <div className="font-black uppercase tracking-wider text-sm border-b border-black pb-2">Rincian Tagihan</div>
+                                <div className="space-y-2">
+                                    {feeItems.map(i => {
+                                        const due = Number((i as any).amount) || 0;
+                                        const paid = Number(paymentsByItem[i.id]) || 0;
+                                        const kurang = Math.max(0, due - paid);
+                                        return (
+                                            <div key={i.id} className="flex justify-between text-xs">
+                                                <div className="font-bold">{i.name}</div>
+                                                <div className="font-mono">{formatCurrency(kurang)}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="pt-2 border-t border-black space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <div className="font-bold">Kekurangan Gemari &amp; Infaq</div>
+                                        <div className="font-mono">{formatCurrency(Number(gemariInfaqCombined) || 0)}</div>
+                                    </div>
+                                    {(extraBills || []).map(b => (
+                                        <div key={b.id} className="flex justify-between text-xs">
+                                            <div className="font-bold">{b.label}</div>
+                                            <div className="font-mono">{formatCurrency(Number(b.amount) || 0)}</div>
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-between text-xs font-black pt-2 border-t border-dashed border-black">
+                                        <div>TOTAL TAGIHAN</div>
+                                        <div className="font-mono">{formatCurrency(
+                                            feeItems.reduce((sum, i) => sum + Math.max(0, (Number((i as any).amount) || 0) - (Number(paymentsByItem[i.id]) || 0)), 0)
+                                            + (Number(gemariInfaqCombined) || 0)
+                                            + (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0)
+                                        )}</div>
+                                    </div>
+                                </div>
+
+                                {gemariInfaqNote && (
+                                    <div className="pt-3">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-1">Catatan</div>
+                                        <div className="text-xs">{gemariInfaqNote}</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
             <header className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-black tracking-tighter uppercase mb-1">Halo, {student?.name || 'Siswa'}</h1>
@@ -8490,7 +8827,12 @@ function StudentDashboardView({
                         <div className="p-4 bg-blue-50/40 rounded-2xl border border-blue-100 space-y-3">
                             <div className="flex justify-between items-center">
                                 <div className="text-[10px] font-black uppercase text-blue-700 tracking-widest">Rekap Pembayaran</div>
-                                <div className="text-sm font-black text-blue-700">{formatCurrency(myPayments.reduce((acc, p) => acc + (Number(p.amountPaid) || 0), 0))}</div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => setShowPrintBill(true)} className="no-print px-2.5 py-1.5 rounded-lg bg-slate-900 text-yellow-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 hover:bg-slate-950">
+                                        <Printer size={14} /> Cetak
+                                    </button>
+                                    <div className="text-sm font-black text-blue-700">{formatCurrency(myPayments.reduce((acc, p) => acc + (Number(p.amountPaid) || 0), 0))}</div>
+                                </div>
                             </div>
 
                             <div className="overflow-x-auto">
@@ -8545,31 +8887,29 @@ function StudentDashboardView({
                             )}
 
                             <div className="pt-2 border-t border-blue-100 space-y-2">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Gemari & Infaq ({monthStr})</div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    <div className="bg-white rounded-xl p-3 border border-blue-100">
-                                        <div className="text-xs font-black text-slate-700">Gemari</div>
-                                        <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari {gemari.bebasDays ? `(bebas ${gemari.bebasDays})` : ''}</div>
-                                        <div className="flex justify-between items-center mt-2">
-                                            <div className="text-[10px] text-slate-400">Dibayar</div>
-                                            <div className="text-xs font-black font-mono text-emerald-700">{formatCurrency(gemari.paid)}</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Tagihan Tambahan (Gemari &amp; Infaq) ({monthStr})</div>
+                                <div className="bg-white rounded-xl p-3 border border-blue-100 space-y-2">
+                                    <div className="flex justify-between items-start gap-4">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-black text-slate-700">Kekurangan Gemari &amp; Infaq</div>
+                                            <div className="text-[10px] text-slate-400">Gemari: target {gemari.targetDays} hari{gemari.bebasDays ? ` (bebas ${gemari.bebasDays})` : ''} • dibayar {formatCurrency(gemari.paid)}</div>
+                                            <div className="text-[10px] text-slate-400">Infaq: target {infaq.targetDays} Jumat{infaq.bebasDays ? ` (bebas ${infaq.bebasDays})` : ''} • dibayar {formatCurrency(infaq.paid)}</div>
                                         </div>
-                                        <div className="flex justify-between items-center">
+                                        <div className="text-right">
                                             <div className="text-[10px] text-slate-400">Kurang</div>
-                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(gemari.kurang)}</div>
+                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(Number(gemariInfaqCombined) || 0)}</div>
                                         </div>
                                     </div>
-                                    <div className="bg-white rounded-xl p-3 border border-blue-100">
-                                        <div className="text-xs font-black text-slate-700">Infaq Jumat</div>
-                                        <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat {infaq.bebasDays ? `(bebas ${infaq.bebasDays})` : ''}</div>
-                                        <div className="flex justify-between items-center mt-2">
-                                            <div className="text-[10px] text-slate-400">Dibayar</div>
-                                            <div className="text-xs font-black font-mono text-emerald-700">{formatCurrency(infaq.paid)}</div>
+
+                                    {gemariInfaqNote && (
+                                        <div className="text-[10px] font-bold text-slate-600 bg-slate-50 border border-border rounded-lg px-2.5 py-2">
+                                            {gemariInfaqNote}
                                         </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="text-[10px] text-slate-400">Kurang</div>
-                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(infaq.kurang)}</div>
-                                        </div>
+                                    )}
+
+                                    <div className="flex justify-between items-center pt-2 border-t border-border">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Tagihan Tambahan</div>
+                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency((Number(gemariInfaqCombined) || 0) + (Number(extraBillsTotal) || 0))}</div>
                                     </div>
                                 </div>
                             </div>
@@ -8772,8 +9112,6 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
                                 { key: 'showGrades', label: 'Tampilkan Nilai', icon: <Grid size={16} /> },
                                 { key: 'showAttendance', label: 'Tampilkan Presensi', icon: <CalendarCheck size={16} /> },
                                 { key: 'showPayments', label: 'Tampilkan Pembayaran', icon: <CreditCard size={16} /> },
-                                { key: 'showSavings', label: 'Tampilkan Tabungan', icon: <Wallet size={16} /> },
-                                { key: 'showClassCash', label: 'Tampilkan Kas Kelas', icon: <Coins size={16} /> },
                             ].map(item => (
                                 <div key={item.key} className="flex items-center justify-between p-3 border border-border rounded-xl bg-amber-50/20">
                                     <div className="flex items-center gap-2">

@@ -118,6 +118,22 @@
         display: none !important;
     }
 
+    body.bill-printing * {
+        visibility: hidden !important;
+    }
+
+    body.bill-printing .bill-print-root,
+    body.bill-printing .bill-print-root * {
+        visibility: visible !important;
+    }
+
+    body.bill-printing .bill-print-root {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+    }
+
     body {
         background-color: white !important;
         padding: 0 !important;
