@@ -4247,13 +4247,16 @@ function PaymentsView({
     const [savingGemariInfaqManual, setSavingGemariInfaqManual] = useState(false);
     const [showPrintBill, setShowPrintBill] = useState(false);
 
-    // Rekap Gemari & Infaq pada rekap pembayaran personal memakai periode Tahun Ajaran (Juli–Juni)
+    // Rekap Gemari & Infaq pada rekap pembayaran personal memakai periode Januari hingga bulan sekarang
     const GEMARI_INFAQ_ACADEMIC_START_MONTH = '2026-01';
-    const GEMARI_INFAQ_ACADEMIC_END_MONTH = '2026-06';
-    const GEMARI_INFAQ_PERIOD_KEY = `${GEMARI_INFAQ_ACADEMIC_START_MONTH}..${GEMARI_INFAQ_ACADEMIC_END_MONTH}`;
+    const getGemariInfaqEndMonth = () => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    };
+    const getGemariInfaqPeriodKey = () => `${GEMARI_INFAQ_ACADEMIC_START_MONTH}..${getGemariInfaqEndMonth()}`;
 
     const isMonthInGemariInfaqRange = (month: string) =>
-        month >= GEMARI_INFAQ_ACADEMIC_START_MONTH && month <= GEMARI_INFAQ_ACADEMIC_END_MONTH;
+        month >= GEMARI_INFAQ_ACADEMIC_START_MONTH && month <= getGemariInfaqEndMonth();
 
     const isDateInGemariInfaqRange = (dateStr: string) => {
         const month = String(dateStr || '').slice(0, 7);
@@ -4457,7 +4460,7 @@ function PaymentsView({
         const st = students.find(s => s.id === detailStudentId);
         setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
         setHideAdditionalBills(false);
-        const adj = (st?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === GEMARI_INFAQ_PERIOD_KEY);
+        const adj = (st?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === getGemariInfaqPeriodKey());
         setGemariInfaqManualAmount(adj?.amount ?? '');
         setGemariInfaqManualNote(adj?.note ?? '');
     }, [detailStudentId, students]);
@@ -4496,11 +4499,11 @@ function PaymentsView({
         setSavingGemariInfaqManual(true);
         try {
             const st = students.find(s => s.id === detailStudentId);
-            const prev = (st?.paymentGemariInfaqAdjustments || []).filter((a: any) => a.month !== GEMARI_INFAQ_PERIOD_KEY);
+            const prev = (st?.paymentGemariInfaqAdjustments || []).filter((a: any) => a.month !== getGemariInfaqPeriodKey());
 
             const amountVal = (gemariInfaqManualAmount === '' ? undefined : Number(gemariInfaqManualAmount));
             const noteVal = (gemariInfaqManualNote || '').trim();
-            const next = [...prev, { month: GEMARI_INFAQ_PERIOD_KEY, amount: amountVal, note: noteVal }];
+            const next = [...prev, { month: getGemariInfaqPeriodKey(), amount: amountVal, note: noteVal }];
 
             await updateDoc(doc(db, 'students', detailStudentId), { paymentGemariInfaqAdjustments: next });
             onRefresh();
@@ -5012,8 +5015,20 @@ function PaymentsView({
                                             const st = detailStudent;
                                             if (!st) return null;
 
-                                            const months = listMonthsBetweenInclusive(GEMARI_INFAQ_ACADEMIC_START_MONTH, GEMARI_INFAQ_ACADEMIC_END_MONTH);
-                                            const periodLabel = 'Januari 2026 - Juni 2026';
+                                             const months = listMonthsBetweenInclusive(GEMARI_INFAQ_ACADEMIC_START_MONTH, getGemariInfaqEndMonth());
+
+                                             const getPeriodLabel = () => {
+                                                 const startDate = new Date(GEMARI_INFAQ_ACADEMIC_START_MONTH);
+                                                 const endDate = new Date(getGemariInfaqEndMonth());
+                                                 const startMonth = startDate.toLocaleString('id-ID', { month: 'long' });
+                                                 const endMonth = endDate.toLocaleString('id-ID', { month: 'long' });
+                                                 const startYear = startDate.getFullYear();
+                                                 const endYear = endDate.getFullYear();
+                                                 return startYear === endYear 
+                                                     ? `${startMonth} - ${endMonth} ${startYear}`
+                                                     : `${startMonth} ${startYear} - ${endMonth} ${endYear}`;
+                                             };
+                                             const periodLabel = getPeriodLabel();
 
                                             const classId = String((st as any)?.classId || '');
                                             const calc = (type: 'gemari' | 'infaq') => {
