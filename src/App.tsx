@@ -4247,6 +4247,38 @@ function PaymentsView({
     const [savingGemariInfaqManual, setSavingGemariInfaqManual] = useState(false);
     const [showPrintBill, setShowPrintBill] = useState(false);
 
+    // Rekap Gemari & Infaq pada rekap pembayaran personal memakai periode Tahun Ajaran (Juli–Juni)
+    const GEMARI_INFAQ_ACADEMIC_START_MONTH = '2025-07';
+    const GEMARI_INFAQ_ACADEMIC_END_MONTH = '2026-06';
+    const GEMARI_INFAQ_PERIOD_KEY = `${GEMARI_INFAQ_ACADEMIC_START_MONTH}..${GEMARI_INFAQ_ACADEMIC_END_MONTH}`;
+
+    const isMonthInGemariInfaqRange = (month: string) =>
+        month >= GEMARI_INFAQ_ACADEMIC_START_MONTH && month <= GEMARI_INFAQ_ACADEMIC_END_MONTH;
+
+    const isDateInGemariInfaqRange = (dateStr: string) => {
+        const month = String(dateStr || '').slice(0, 7);
+        if (!month || month.length !== 7) return false;
+        return isMonthInGemariInfaqRange(month);
+    };
+
+    const listMonthsBetweenInclusive = (startMonth: string, endMonth: string) => {
+        const [sy, sm] = startMonth.split('-').map(Number);
+        const [ey, em] = endMonth.split('-').map(Number);
+        if (!sy || !sm || !ey || !em) return [] as string[];
+        const out: string[] = [];
+        let y = sy;
+        let m = sm;
+        while (y < ey || (y === ey && m <= em)) {
+            out.push(`${y}-${String(m).padStart(2, '0')}`);
+            m++;
+            if (m > 12) {
+                m = 1;
+                y++;
+            }
+        }
+        return out;
+    };
+
     const [newSchoolDeposit, setNewSchoolDeposit] = useState({
         classId: '',
         feeItemId: '',
@@ -4425,8 +4457,7 @@ function PaymentsView({
         const st = students.find(s => s.id === detailStudentId);
         setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
         setHideAdditionalBills(false);
-        const monthStr = getCurrentMonthStr();
-        const adj = (st?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === monthStr);
+        const adj = (st?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === GEMARI_INFAQ_PERIOD_KEY);
         setGemariInfaqManualAmount(adj?.amount ?? '');
         setGemariInfaqManualNote(adj?.note ?? '');
     }, [detailStudentId, students]);
@@ -4465,12 +4496,11 @@ function PaymentsView({
         setSavingGemariInfaqManual(true);
         try {
             const st = students.find(s => s.id === detailStudentId);
-            const monthStr = getCurrentMonthStr();
-            const prev = (st?.paymentGemariInfaqAdjustments || []).filter((a: any) => a.month !== monthStr);
+            const prev = (st?.paymentGemariInfaqAdjustments || []).filter((a: any) => a.month !== GEMARI_INFAQ_PERIOD_KEY);
 
             const amountVal = (gemariInfaqManualAmount === '' ? undefined : Number(gemariInfaqManualAmount));
             const noteVal = (gemariInfaqManualNote || '').trim();
-            const next = [...prev, { month: monthStr, amount: amountVal, note: noteVal }];
+            const next = [...prev, { month: GEMARI_INFAQ_PERIOD_KEY, amount: amountVal, note: noteVal }];
 
             await updateDoc(doc(db, 'students', detailStudentId), { paymentGemariInfaqAdjustments: next });
             onRefresh();
@@ -4982,21 +5012,23 @@ function PaymentsView({
                                             const st = detailStudent;
                                             if (!st) return null;
 
-                                            const monthStr = getCurrentMonthStr();
-                                            const [yy, mm] = monthStr.split('-').map(Number);
-                                            const monthLabel = new Date(yy, (mm || 1) - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+                                            const months = listMonthsBetweenInclusive(GEMARI_INFAQ_ACADEMIC_START_MONTH, GEMARI_INFAQ_ACADEMIC_END_MONTH);
+                                            const periodLabel = 'Juli 2025 - Juni 2026';
 
                                             const classId = String((st as any)?.classId || '');
                                             const calc = (type: 'gemari' | 'infaq') => {
                                                 const nominal = getCashNominal(type);
-                                                const targetDays = countTargetDays(type, monthStr);
+                                                const targetDays = months.reduce((acc, m) => acc + countTargetDays(type, m), 0);
                                                 const target = targetDays * nominal;
 
-                                                const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
-                                                const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+                                                const rangeTx = classCash
+                                                    .filter(t => t.type === type && String((t as any)?.classId || '') === classId)
+                                                    .filter(t => isDateInGemariInfaqRange(t.date || ''));
+
+                                                const bebasDates = new Set(rangeTx.filter(t => t.amount === 0).map(t => t.date));
                                                 const targetReal = Math.max(0, target - (bebasDates.size * nominal));
 
-                                                const paid = monthTx
+                                                const paid = rangeTx
                                                     .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
                                                     .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
                                                     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
@@ -5010,14 +5042,14 @@ function PaymentsView({
                                             const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
                                             const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
                                             const combined = (gemariInfaqManualAmount === '' ? autoCombined : (Number(gemariInfaqManualAmount) || 0));
-                                            const totalAdditional = combined + otherTotal;
+                                            const totalAdditional = (hideAdditionalBills ? otherTotal : (combined + otherTotal));
 
                                             return (
                                                 <div className="space-y-4">
                                                     <div className="flex items-end justify-between gap-4">
                                                         <div>
                                                             <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
-                                                            <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
+                                                            <p className="text-[10px] text-slate-400 italic pl-1">Rekap Gemari & Infaq Tahun Ajaran ({periodLabel})</p>
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <button
@@ -5028,21 +5060,21 @@ function PaymentsView({
                                                             >
                                                                 {hideAdditionalBills ? 'Show' : 'Hide'}
                                                             </button>
-                                                            <button onClick={addExtraBill} className="btn-small" disabled={hideAdditionalBills}>+ Lain-lain</button>
+                                                            <button onClick={addExtraBill} className="btn-small">+ Lain-lain</button>
                                                         </div>
                                                     </div>
 
-                                                    {hideAdditionalBills ? (
-                                                        <div className="p-4 bg-white rounded-2xl border border-border flex items-center justify-between">
-                                                            <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (disembunyikan)</div>
-                                                            <div className="text-right">
-                                                                <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                                <div className="text-[10px] text-slate-400">Klik Show untuk detail</div>
+                                                    <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
+                                                        {hideAdditionalBills ? (
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (Hide)</div>
+                                                                <div className="text-right">
+                                                                    <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                                    <div className="text-[10px] text-slate-400">Gemari &amp; Infaq tidak dihitung saat Hide</div>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
-                                                            {(() => {
+                                                        ) : (
+                                                            (() => {
                                                                 const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
                                                                 const manual = gemariInfaqManualAmount === '' ? null : (Number(gemariInfaqManualAmount) || 0);
                                                                 const combined = manual === null ? autoCombined : manual;
@@ -5067,7 +5099,7 @@ function PaymentsView({
                                                                             </div>
                                                                             <div className="text-right">
                                                                                 <div className="text-xs font-black text-red-500">{formatCurrency(combined)}</div>
-                                                                                <div className="text-[10px] text-slate-400">Setor: {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
+                                                                                <div className="text-[10px] text-slate-400">Setor (Juli 2025-Juni 2026): {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
                                                                             </div>
                                                                         </div>
 
@@ -5104,52 +5136,54 @@ function PaymentsView({
                                                                         </div>
                                                                     </>
                                                                 );
-                                                            })()}
+                                                            })()
+                                                        )}
 
-                                                            {(extraBills || []).length > 0 && (
-                                                                <div className="pt-2 border-t border-border space-y-2">
-                                                                    {(extraBills || []).map(b => (
-                                                                        <div key={b.id} className="flex gap-2 items-center">
-                                                                            <input
-                                                                                className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
-                                                                                value={b.label}
-                                                                                onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
-                                                                                placeholder="Nama tagihan lain-lain"
-                                                                            />
-                                                                            <input
-                                                                                type="number"
-                                                                                className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
-                                                                                value={Number(b.amount) || 0}
-                                                                                onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
-                                                                                min={0}
-                                                                            />
-                                                                            <button
-                                                                                onClick={() => removeExtraBill(b.id)}
-                                                                                className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
-                                                                                title="Hapus tagihan lain-lain"
-                                                                                aria-label="Hapus tagihan lain-lain"
-                                                                            >
-                                                                                <Trash2 size={16} />
-                                                                            </button>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
+                                                        <div className="pt-2 border-t border-border space-y-2">
+                                                            {(extraBills || []).length === 0 ? (
+                                                                <div className="text-[10px] text-slate-400 italic">Belum ada tagihan lain-lain.</div>
+                                                            ) : (
+                                                                (extraBills || []).map(b => (
+                                                                    <div key={b.id} className="flex gap-2 items-center">
+                                                                        <input
+                                                                            className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
+                                                                            value={b.label}
+                                                                            onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
+                                                                            placeholder="Nama tagihan lain-lain"
+                                                                        />
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
+                                                                            value={Number(b.amount) || 0}
+                                                                            onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
+                                                                            min={0}
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => removeExtraBill(b.id)}
+                                                                            className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
+                                                                            title="Hapus tagihan lain-lain"
+                                                                            aria-label="Hapus tagihan lain-lain"
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                ))
                                                             )}
-
-                                                            <div className="pt-3 border-t border-border flex items-center justify-between">
-                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
-                                                                <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                            </div>
-
-                                                            <button
-                                                                onClick={saveExtraBills}
-                                                                disabled={savingExtraBills}
-                                                                className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
-                                                            >
-                                                                {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
-                                                            </button>
                                                         </div>
-                                                    )}
+
+                                                        <div className="pt-3 border-t border-border flex items-center justify-between">
+                                                            <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
+                                                            <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={saveExtraBills}
+                                                            disabled={savingExtraBills}
+                                                            className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
+                                                        >
+                                                            {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             );
                                         })()}
