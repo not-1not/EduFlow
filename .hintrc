@@ -16,5 +16,11 @@
         "select-name": "off"
       }
     ]
-  }
+  },
+  "browserslist": [
+    "defaults",
+    "not ie 11",
+    "not firefox <= 148",
+    "not safari <= 26.3"
+  ]
 }
