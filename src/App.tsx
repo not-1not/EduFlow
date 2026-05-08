@@ -6396,7 +6396,10 @@ function MonthlyClassCashView({
             <table className="w-full border-collapse">
                 <thead>
                     <tr>
-                        <th className="text-left p-2 border border-border sticky left-0 bg-white z-10 min-w-[200px] text-xs">NAMA SISWA</th>
+                        <th className="text-left p-2 border border-border sticky left-0 bg-slate-100 z-10 min-w-[200px] text-xs font-black uppercase">Nama Siswa</th>
+                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Hari</th>
+                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Bayar (Bln)</th>
+                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap text-accent">Saldo (Kum)</th>
                         {days.map(d => {
                             const date = new Date(year, m - 1, d);
                             const holidayInfo = isHoliday(date);
@@ -6413,10 +6416,34 @@ function MonthlyClassCashView({
                     </tr>
                 </thead>
                 <tbody>
-                    {students.map(s => (
-                        <tr key={s.id} className="hover:bg-slate-50 transition-all group">
-                            <td className="p-2 border border-border sticky left-0 bg-white group-hover:bg-slate-50 z-10 font-bold text-[11px] truncate whitespace-nowrap">{getStudentName(s)}</td>
-                            {days.map(d => {
+                    {students.map(s => {
+                        const studentTransactions = transactions.filter(t => t.studentId === s.id && t.type === type);
+                        const monthDatePrefix = `${year}-${String(m).padStart(2, '0')}-`;
+                        
+                        let daysCount = 0;
+                        let monthTotal = 0;
+                        
+                        for (let d = 1; d <= daysInMonth; d++) {
+                            const amount = getRecordAmount(s.id, d);
+                            if (amount > 0) {
+                                daysCount++;
+                                monthTotal += amount;
+                            }
+                        }
+                        
+                        const otherMonthsTotal = studentTransactions
+                            .filter(t => !t.date.startsWith(monthDatePrefix))
+                            .reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
+                        
+                        const cumulativeTotal = monthTotal + otherMonthsTotal;
+
+                        return (
+                            <tr key={s.id} className="hover:bg-slate-50 transition-all group">
+                                <td className="p-2 border border-border sticky left-0 bg-white group-hover:bg-slate-50 z-10 font-bold text-[11px] truncate whitespace-nowrap">{getStudentName(s)}</td>
+                                <td className="p-1 border border-border text-center font-mono text-[10px] font-bold bg-slate-50/30">{daysCount}</td>
+                                <td className="p-1 border border-border text-right font-mono text-[10px] font-bold bg-slate-50/30">{monthTotal.toLocaleString('id-ID')}</td>
+                                <td className="p-1 border border-border text-right font-mono text-[10px] font-black text-accent bg-slate-50/30">{cumulativeTotal.toLocaleString('id-ID')}</td>
+                                {days.map(d => {
                                 const date = new Date(year, m - 1, d);
                                 const holidayInfo = isHoliday(date);
                                 const amount = getRecordAmount(s.id, d);
@@ -6437,10 +6464,11 @@ function MonthlyClassCashView({
                                 );
                             })}
                         </tr>
-                    ))}
+                        );
+                    })}
                     {students.length === 0 && (
                         <tr>
-                            <td colSpan={daysInMonth + 1} className="text-center py-20 opacity-30 italic">Pilih kelas untuk melihat grid bulanan</td>
+                            <td colSpan={daysInMonth + 4} className="text-center py-20 opacity-30 italic">Pilih kelas untuk melihat grid bulanan</td>
                         </tr>
                     )}
                 </tbody>
