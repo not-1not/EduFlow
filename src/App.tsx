@@ -6997,19 +6997,7 @@ const DEFAULT_MAPEL = [
     "Seni Budaya dan Prakarya",
     "Pendidikan Jasmani, Olahraga, dan Kesehatan",
     "Muatan Lokal"
-];const GradeInput = ({ value, onChange, placeholder = '' }: { value: any, onChange: (v: string) => void, placeholder?: string }) => (
-    <input
-        type="number"
-        min="0"
-        max="100"
-        step="0.01"
-        className={`w-full p-2 outline-none font-mono text-center text-xs bg-transparent ${Number(value) < 0 || Number(value) > 100 ? 'text-red-500 bg-red-50' : 'text-slate-900 focus:bg-slate-50 transition-colors'}`}
-        value={value ?? ''}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-    />
-);
-
+];
 
 function AcademicView({
     students,
