@@ -6486,7 +6486,7 @@ function LedgerClassCashView({
     const [showAddExpenseForm, setShowAddExpenseForm] = useState(false);
     const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
     const [expense, setExpense] = useState({ date: todayStr, amount: '', notes: '' });
-    const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '' });
+    const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '', notes: '' });
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
     const studentsForSelect = sortStudentsForSelect(students);
 
@@ -6537,22 +6537,23 @@ function LedgerClassCashView({
     };
 
     const handleAddIncome = async () => {
-        if (!income.studentId) return alert('Pilih siswa terlebih dahulu!');
+        if (!income.studentId && !income.notes) return alert('Pilih siswa atau masukkan keterangan pemasukan!');
         if (!income.amount || isNaN(Number(income.amount))) return alert('Nominal tidak valid!');
 
         const entry: ClassCashWriteEntry = {
             classId,
-            studentId: income.studentId,
+            studentId: income.studentId || undefined,
             type,
             transactionType: 'deposit',
             amount: Number(income.amount),
             date: income.date,
-            period_month: getPeriodMonth(income.date)
+            period_month: getPeriodMonth(income.date),
+            notes: income.notes || undefined
         };
 
         await persistClassCashEntries([entry]);
 
-        setIncome({ date: todayStr, studentId: '', amount: '' });
+        setIncome({ date: todayStr, studentId: '', amount: '', notes: '' });
         setShowAddIncomeForm(false);
         onRefresh();
     };
@@ -6608,23 +6609,33 @@ function LedgerClassCashView({
             )}
 
             {showAddIncomeForm && (
-                <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex gap-4 items-end">
+                <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex flex-wrap gap-4 items-end">
                     <div className="space-y-1">
                         <label className="text-[10px] font-bold text-emerald-800 uppercase">Tanggal</label>
                         <input type="date" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" value={income.date} onChange={e => setIncome({ ...income, date: e.target.value })} />
                     </div>
-                    <div className="space-y-1 flex-1">
-                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Siswa</label>
+                    <div className="space-y-1 min-w-[200px]">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Pilih Siswa (Opsional)</label>
                         <select
                             className="p-2 rounded border border-emerald-200 outline-none w-full text-sm bg-white"
                             value={income.studentId}
                             onChange={e => setIncome({ ...income, studentId: e.target.value })}
                         >
-                            <option value="">Pilih siswa...</option>
+                            <option value="">-- Bukan Siswa (Pemasukan Umum) --</option>
                             {studentsForSelect.map((s) => (
                                 <option key={s.id} value={s.id}>{getStudentName(s)}</option>
                             ))}
                         </select>
+                    </div>
+                    <div className="space-y-1 flex-1 min-w-[200px]">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Keterangan Pemasukan</label>
+                        <input
+                            type="text"
+                            className="p-2 rounded border border-emerald-200 outline-none w-full text-sm"
+                            placeholder={income.studentId ? "Catatan tambahan (opsional)" : "Contoh: Kas sisa acara, Donasi, dll"}
+                            value={income.notes}
+                            onChange={e => setIncome({ ...income, notes: e.target.value })}
+                        />
                     </div>
                     <div className="space-y-1">
                         <label className="text-[10px] font-bold text-emerald-800 uppercase">Nominal (Rp)</label>
