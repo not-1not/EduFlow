@@ -6997,7 +6997,19 @@ const DEFAULT_MAPEL = [
     "Seni Budaya dan Prakarya",
     "Pendidikan Jasmani, Olahraga, dan Kesehatan",
     "Muatan Lokal"
-];
+];const GradeInput = ({ value, onChange, placeholder = '' }: { value: any, onChange: (v: string) => void, placeholder?: string }) => (
+    <input
+        type="number"
+        min="0"
+        max="100"
+        step="0.01"
+        className={`w-full p-2 outline-none font-mono text-center text-xs bg-transparent ${Number(value) < 0 || Number(value) > 100 ? 'text-red-500 bg-red-50' : 'text-slate-900 focus:bg-slate-50 transition-colors'}`}
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+    />
+);
+
 
 function AcademicView({
     students,
@@ -7016,10 +7028,12 @@ function AcademicView({
 }) {
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-    const [record, setRecord] = useState<any>(null); // To store academic record
+    const [academicConfig, setAcademicConfig] = useState<{ id: string, subjects: { id: string, name: string }[] }>({ id: 'academic_config', subjects: [] });
+    const [record, setRecord] = useState<any>(null);
     const [weights, setWeights] = useState({ rapot: 50, tka: 50 });
+    const [showSubjectModal, setShowSubjectModal] = useState(false);
+    const [tempSubjects, setTempSubjects] = useState<{ id: string, name: string }[]>([]);
 
-    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
     const selectedClass = classes.find(c => c.id === selectedClassId);
     const filteredStudents = students.filter(s => {
         const studentClass = String((s as any)?.classId || '').trim();
@@ -7028,6 +7042,21 @@ function AcademicView({
         if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
         return false;
     });
+
+    const fetchConfig = async () => {
+        const snap = await getDoc(doc(db, 'settings', 'academic_config'));
+        if (snap.exists()) {
+            setAcademicConfig({ id: 'academic_config', subjects: snap.data().subjects || [] });
+        } else {
+            const init = [
+                'Pendidikan Agama & Budi Pekerti', 'PPKn', 'Bahasa Indonesia', 'Matematika', 
+                'Ilmu Pengetahuan Alam', 'Ilmu Pengetahuan Sosial', 'Seni Budaya & Prakarya', 'Pendidikan Jasmani'
+            ].map((m, i) => ({ id: `s${i}`, name: m }));
+            setAcademicConfig({ id: 'academic_config', subjects: init });
+        }
+    };
+
+    useEffect(() => { fetchConfig(); }, []);
 
     useEffect(() => {
         if (!classes.length) return;
@@ -7047,25 +7076,25 @@ function AcademicView({
         }
     }, [filteredStudents, selectedStudentId]);
 
-    const loadAcademicRecords = async () => {
-        const snap = await getDocs(collection(db, 'academicRecords'));
-        return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    const loadSingleRecord = async (sid: string) => {
+        const snap = await getDoc(doc(db, 'academicRecords', sid));
+        if (snap.exists()) return snap.data();
+        return null;
     };
 
     useEffect(() => {
         if (selectedStudentId) {
-            loadAcademicRecords().then(data => {
-                const rec = data.find((r: any) => r.studentId === selectedStudentId);
+            loadSingleRecord(selectedStudentId).then(rec => {
                 if (rec) {
                     setRecord({
                         ...rec,
                         tka: rec.tka ?? '',
-                        rapot: Array.isArray(rec.rapot) ? rec.rapot : [],
+                        grades: rec.grades ?? {},
                         prestasi: Array.isArray(rec.prestasi) ? rec.prestasi : [],
                         ijazah: Array.isArray(rec.ijazah) ? rec.ijazah : [],
                     });
                 } else {
-                    setRecord({ studentId: selectedStudentId, rapot: [], prestasi: [], ijazah: [], tka: '' });
+                    setRecord({ studentId: selectedStudentId, grades: {}, prestasi: [], ijazah: [], tka: '' });
                 }
             });
         } else {
@@ -7076,257 +7105,139 @@ function AcademicView({
     const validateData = () => {
         const errs: string[] = [];
         if (!record) return errs;
-
-        if ((record.rapot || []).some((r: any) =>
-            ['s41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
-                r[k] !== '' && r[k] !== null && r[k] !== undefined && (Number(r[k]) < 0 || Number(r[k]) > 100)
-            )
-        )) {
-            errs.push('Nilai rapot harus berada dalam rentang 0-100.');
-        }
+        Object.values(record.grades || {}).forEach((g: any) => {
+            ['s41', 's42', 's51', 's52', 's61'].forEach(k => {
+                if (g[k] !== '' && g[k] !== null && g[k] !== undefined && (Number(g[k]) < 0 || Number(g[k]) > 100)) {
+                    errs.push(`Nilai ${k.toUpperCase()} harus berada dalam rentang 0-100.`);
+                }
+            });
+        });
         if ((record.ijazah || []).some((r: any) =>
-            (r.grade_p !== '' && r.grade_p !== null && r.grade_p !== undefined && (Number(r.grade_p) < 0 || Number(r.grade_p) > 100)) ||
-            (r.grade_k !== '' && r.grade_k !== null && r.grade_k !== undefined && (Number(r.grade_k) < 0 || Number(r.grade_k) > 100))
+            (r.grade_p !== '' && r.grade_p !== null && (Number(r.grade_p) < 0 || Number(r.grade_p) > 100)) ||
+            (r.grade_k !== '' && r.grade_k !== null && (Number(r.grade_k) < 0 || Number(r.grade_k) > 100))
         )) {
             errs.push('Nilai ijazah harus berada dalam rentang 0-100.');
         }
-        if (record.tka !== '' && record.tka !== null && record.tka !== undefined && (Number(record.tka) < 0 || Number(record.tka) > 100)) {
+        if (record.tka !== '' && record.tka !== null && (Number(record.tka) < 0 || Number(record.tka) > 100)) {
             errs.push('Nilai TKA harus berada dalam rentang 0-100.');
         }
         if ((record.prestasi || []).some((p: any) => p.poin !== '' && p.poin !== null && Number(p.poin) < 0)) {
             errs.push('Poin prestasi tidak boleh kurang dari 0.');
         }
-        return errs;
+        return [...new Set(errs)];
     };
 
     const validationErrors = validateData();
 
     const handleSave = async () => {
-        if (validationErrors.length > 0) {
-            return alert('Terdapat kesalahan pada data yang diisi. Pastikan semua nilai berada dalam batas yang benar (misalnya 0-100).');
-        }
+        if (validationErrors.length > 0) return alert('Terdapat kesalahan pada data yang diisi.');
         await setDoc(doc(db, 'academicRecords', record.studentId), { ...record, studentId: record.studentId });
         alert('Data Akademik Berhasil Disimpan');
     };
 
-    const handleApplyTemplate = () => {
-        if (!record) return;
-        if (record.rapot && record.rapot.length > 0) {
-            if (!confirm('Mapel saat ini sudah ada. Terapkan template akan menambahkan mapel default di bawahnya. Lanjutkan?')) return;
-        }
-        const templates = DEFAULT_MAPEL.map(m => ({ subject: m, s41_p: '', s41_k: '', s42_p: '', s42_k: '', s51_p: '', s51_k: '', s52_p: '', s52_k: '', s61_p: '', s61_k: '' }));
-        setRecord({ ...record, rapot: [...(record.rapot || []), ...templates] });
+    const handleOpenSubjectModal = () => {
+        setTempSubjects([...academicConfig.subjects]);
+        setShowSubjectModal(true);
     };
 
-    const handleApplyIjazahTemplate = () => {
-        if (!record) return;
-        if (record.ijazah && record.ijazah.length > 0) {
-            if (!confirm('Mapel ijazah saat ini sudah ada. Tambahkan mapel default?')) return;
-        }
-        const currentLen = (record.ijazah || []).length;
-        const templates = DEFAULT_MAPEL.map((m, i) => ({ id: Date.now().toString() + i, no: currentLen + i + 1, subject: m, grade_p: '', grade_k: '' }));
-        setRecord({ ...record, ijazah: [...(record.ijazah || []), ...templates] });
+    const handleSaveSubjects = async () => {
+        const newConfig = { ...academicConfig, subjects: tempSubjects };
+        await setDoc(doc(db, 'settings', 'academic_config'), newConfig);
+        setAcademicConfig(newConfig);
+        setShowSubjectModal(false);
+        alert('Daftar Mapel Berhasil Diupdate!');
     };
 
     const handleExportCSV = async () => {
-        // Export Data Akademik Semua Siswa di Kelas Ini
-        const data = await loadAcademicRecords();
-
-        // Header format:
+        const snap = await getDocs(collection(db, 'academicRecords'));
+        const allRecords = snap.docs.map(d => d.data());
         let csv = 'ID Siswa,Nama Siswa,TKA,';
-        for (let i = 1; i <= 15; i++) {
-            csv += `Mapel${i},K4S1P_${i},K4S1K_${i},K4S2P_${i},K4S2K_${i},K5S1P_${i},K5S1K_${i},K5S2P_${i},K5S2K_${i},K6S1P_${i},K6S1K_${i},`;
-        }
-        csv += 'NumIjazah\n'; // Just an example structure
-
+        academicConfig.subjects.forEach(s => { csv += `"${s.name} S4.1","${s.name} S4.2","${s.name} S5.1","${s.name} S5.2","${s.name} S6.1",`; });
+        csv = csv.replace(/,$/, '\n');
         filteredStudents.forEach(stu => {
-            const rec = data.find((r: any) => r.studentId === stu.id) || { tka: '', rapot: [] };
+            const rec = allRecords.find((r: any) => r.studentId === stu.id) || { tka: '', grades: {} };
             const row = [stu.id, `"${stu.name}"`, rec.tka || ''];
-
-            for (let i = 0; i < 15; i++) {
-                if (rec.rapot && rec.rapot[i]) {
-                    const r = rec.rapot[i];
-                    row.push(
-                        `"${r.subject}"`,
-                        r.s41_p || '', r.s41_k || '',
-                        r.s42_p || '', r.s42_k || '',
-                        r.s51_p || '', r.s51_k || '',
-                        r.s52_p || '', r.s52_k || '',
-                        r.s61_p || '', r.s61_k || ''
-                    );
-                } else {
-                    row.push('', '', '', '', '', '', '', '', '', '', '');
-                }
-            }
+            academicConfig.subjects.forEach(s => {
+                const g = rec.grades?.[s.id] || {};
+                row.push(g.s41 || '', g.s42 || '', g.s51 || '', g.s52 || '', g.s61 || '');
+            });
             csv += row.join(',') + '\n';
         });
-
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `Template_Nilai_Akademik_${classes.find(c => c.id === selectedClassId)?.name}.csv`;
-        a.click();
+        a.href = url; a.download = `Data_Akademik_${selectedClass?.name || 'Class'}.csv`; a.click();
     };
 
     const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
+        const file = e.target.files?.[0]; if (!file) return;
         const reader = new FileReader();
         reader.onload = async (evt) => {
             const text = evt.target?.result as string;
-            const lines = text.split('\n');
-
-            const newRecords = [];
-            const existing = await loadAcademicRecords();
-
+            const lines = text.split('\n'); if (lines.length < 2) return;
+            const existing = await getDocs(collection(db, 'academicRecords'));
+            const existingMap = new Map(existing.docs.map(d => [d.id, d.data()]));
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
                 const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
                 if (cols.length < 3) continue;
-
-                const studentId = cols[0];
-                const tka = cols[2];
-                const rapot = [];
-
-                let colIdx = 3;
-                for (let m = 0; m < 15; m++) {
-                    if (cols[colIdx]) {
-                        rapot.push({
-                            subject: cols[colIdx],
-                            s41_p: cols[colIdx + 1] || '',
-                            s41_k: cols[colIdx + 2] || '',
-                            s42_p: cols[colIdx + 3] || '',
-                            s42_k: cols[colIdx + 4] || '',
-                            s51_p: cols[colIdx + 5] || '',
-                            s51_k: cols[colIdx + 6] || '',
-                            s52_p: cols[colIdx + 7] || '',
-                            s52_k: cols[colIdx + 8] || '',
-                            s61_p: cols[colIdx + 9] || '',
-                            s61_k: cols[colIdx + 10] || ''
-                        });
-                    }
-                    colIdx += 11;
-                }
-
-                const existingRec = existing.find((r: any) => r.studentId === studentId);
-                newRecords.push({
-                    ...(existingRec || { prestasi: [], ijazah: [] }),
-                    studentId,
-                    tka,
-                    rapot
+                const studentId = cols[0]; const tka = cols[2]; const grades: any = {};
+                let cIdx = 3;
+                academicConfig.subjects.forEach(s => {
+                    grades[s.id] = { s41: cols[cIdx] || '', s42: cols[cIdx + 1] || '', s51: cols[cIdx + 2] || '', s52: cols[cIdx + 3] || '', s61: cols[cIdx + 4] || '' };
+                    cIdx += 5;
                 });
+                const ex = existingMap.get(studentId) || { prestasi: [], ijazah: [] };
+                await setDoc(doc(db, 'academicRecords', studentId), { ...ex, studentId, tka, grades });
             }
-
-            // Save all records to Supabase
-            for (const rec of newRecords) {
-                await setDoc(doc(db, 'academicRecords', rec.studentId), { ...rec, studentId: rec.studentId });
-            }
-
             alert('Import berhasil!');
-            const selected = newRecords.find((r: any) => r.studentId === selectedStudentId);
-            if (selected) setRecord({ ...selected, tka: selected.tka ?? '' });
+            if (selectedStudentId) { loadSingleRecord(selectedStudentId).then(setRecord); }
         };
         reader.readAsText(file);
     };
 
-    const handleAddMapelRapot = () => {
-        setRecord({
-            ...record,
-            rapot: [...(record.rapot || []), { subject: '', s41_p: '', s41_k: '', s42_p: '', s42_k: '', s51_p: '', s51_k: '', s52_p: '', s52_k: '', s61_p: '', s61_k: '' }]
-        });
+    const handleUpdateGrade = (subjectId: string, field: string, val: any) => {
+        const newGrades = { ...record.grades };
+        newGrades[subjectId] = { ...(newGrades[subjectId] || {}), [field]: val };
+        setRecord({ ...record, grades: newGrades });
     };
 
-    const handleUpdateRapot = (idx: number, field: string, val: any) => {
-        const newRapot = [...record.rapot];
-        newRapot[idx] = { ...newRapot[idx], [field]: val };
-        setRecord({ ...record, rapot: newRapot });
-    };
-
-    const handleRemoveRapot = (idx: number) => {
-        const newRapot = record.rapot.filter((_: any, i: number) => i !== idx);
-        setRecord({ ...record, rapot: newRapot });
-    };
-
-    const handleAddPrestasi = () => {
-        setRecord({
-            ...record,
-            prestasi: [...(record.prestasi || []), { id: Date.now().toString(), name: '', level: 'Kabupaten', year: new Date().getFullYear().toString(), poin: '' }]
-        });
-    };
-
-    const handleUpdatePrestasi = (idx: number, field: string, val: any) => {
-        const newPrestasi = [...record.prestasi];
-        newPrestasi[idx] = { ...newPrestasi[idx], [field]: val };
-        setRecord({ ...record, prestasi: newPrestasi });
-    };
-
-    const handleRemovePrestasi = (idx: number) => {
-        const newPrestasi = record.prestasi.filter((_: any, i: number) => i !== idx);
-        setRecord({ ...record, prestasi: newPrestasi });
-    };
-
-    const handleAddIjazah = () => {
-        setRecord({
-            ...record,
-            ijazah: [...(record.ijazah || []), { id: Date.now().toString(), no: (record.ijazah || []).length + 1, subject: '', grade: '' }]
-        });
-    };
-
-    const handleUpdateIjazah = (idx: number, field: string, val: any) => {
-        const newIjazah = [...record.ijazah];
-        newIjazah[idx] = { ...newIjazah[idx], [field]: val };
-        setRecord({ ...record, ijazah: newIjazah });
-    };
-
-    const handleRemoveIjazah = (idx: number) => {
-        const newIjazah = record.ijazah.filter((_: any, i: number) => i !== idx);
-        setRecord({ ...record, ijazah: newIjazah });
-    };
-
-    const getAverageRapot = () => {
-        if (!record?.rapot || record.rapot.length === 0) return 0;
-        let total = 0;
-        let count = 0;
-        record.rapot.forEach((r: any) => {
-            ['s41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].forEach(k => {
-                if (r[k] !== '' && r[k] !== null && !isNaN(Number(r[k]))) {
-                    total += Number(r[k]);
-                    count++;
-                }
+    const handleAverageRapot = () => {
+        if (!record?.grades) return 0;
+        let total = 0; let count = 0;
+        Object.values(record.grades).forEach((g: any) => {
+            ['s41', 's42', 's51', 's52', 's61'].forEach(k => {
+                if (g[k] !== '' && g[k] !== null && !isNaN(Number(g[k]))) { total += Number(g[k]); count++; }
             });
         });
         return count > 0 ? total / count : 0;
     };
 
-    const ijazahTotal = (record?.ijazah || []).reduce((acc: number, ii: any) => {
-        let sum = acc;
-        if (ii.grade_p !== '' && ii.grade_p !== null && !isNaN(Number(ii.grade_p))) sum += Number(ii.grade_p);
-        if (ii.grade_k !== '' && ii.grade_k !== null && !isNaN(Number(ii.grade_k))) sum += Number(ii.grade_k);
-        return sum;
-    }, 0);
-
-    const ijazahCountFilled = (record?.ijazah || []).reduce((acc: number, ii: any) => {
-        let c = acc;
-        if (ii.grade_p !== '' && ii.grade_p !== null && !isNaN(Number(ii.grade_p))) c++;
-        if (ii.grade_k !== '' && ii.grade_k !== null && !isNaN(Number(ii.grade_k))) c++;
-        return c;
-    }, 0);
-
-    const ijazahAverage = ijazahCountFilled > 0 ? (ijazahTotal / ijazahCountFilled).toFixed(2) : 0;
-
-    const avgRapot = getAverageRapot();
-    const tkaVal = Number(record?.tka) || 0;
+    const avgRapot = handleAverageRapot();
     const prestasiSum = (record?.prestasi || []).reduce((acc: number, p: any) => acc + (Number(p.poin) || 0), 0);
-    const finalSmpScore = (avgRapot * (weights.rapot / 100)) + (tkaVal * (weights.tka / 100)) + prestasiSum;
+    const finalSmpScore = (avgRapot * (weights.rapot / 100)) + (Number(record?.tka || 0) * (weights.tka / 100)) + prestasiSum;
+
+    const handleAddPrestasi = () => setRecord({ ...record, prestasi: [...(record.prestasi || []), { id: Date.now().toString(), name: '', level: 'Kabupaten', year: new Date().getFullYear().toString(), poin: '' }] });
+    const handleUpdatePrestasi = (i: number, f: string, v: any) => { const n = [...record.prestasi]; n[i] = { ...n[i], [f]: v }; setRecord({ ...record, prestasi: n }); };
+    const handleRemovePrestasi = (i: number) => setRecord({ ...record, prestasi: record.prestasi.filter((_: any, idx: number) => idx !== i) });
+
+    const handleAddIjazah = () => setRecord({ ...record, ijazah: [...(record.ijazah || []), { id: Date.now().toString(), no: (record.ijazah || []).length + 1, subject: '', grade_p: '', grade_k: '' }] });
+    const handleUpdateIjazah = (i: number, f: string, v: any) => { const n = [...record.ijazah]; n[i] = { ...n[i], [f]: v }; setRecord({ ...record, ijazah: n }); };
+    const handleRemoveIjazah = (i: number) => setRecord({ ...record, ijazah: record.ijazah.filter((_: any, idx: number) => idx !== i) });
+    const handleApplyIjazahTemplate = () => {
+        const templates = academicConfig.subjects.map((s, i) => ({ id: Date.now().toString() + i, no: i + 1, subject: s.name, grade_p: '', grade_k: '' }));
+        setRecord({ ...record, ijazah: [...(record.ijazah || []), ...templates] });
+    };
+
+    const ijazahTotal = (record?.ijazah || []).reduce((acc: number, ii: any) => acc + (Number(ii.grade_p) || 0) + (Number(ii.grade_k) || 0), 0);
+    const ijazahAverage = (record?.ijazah || []).length > 0 ? (ijazahTotal / ((record?.ijazah || []).length * 2)).toFixed(2) : '0';
 
     return (
         <div className="p-6 space-y-6 overflow-y-auto h-full pb-20">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-2xl font-black tracking-tighter uppercase">Data Akademik & Ijazah</h2>
-                    <p className="text-sm text-text-secondary">Nilai Rapot (Semester 7-11), Prestasi, dan Ijazah</p>
+                    <p className="text-sm text-text-secondary">Nilai Rapot (Semester 1-5), Prestasi, dan Ijazah</p>
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
                     <select
@@ -7342,10 +7253,10 @@ function AcademicView({
                         onChange={e => setSelectedStudentId(e.target.value)}
                     >
                         <option value="">-- Pilih Siswa --</option>
-                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{getStudentName(s)}</option>)}
+                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name || 'Tanpa Nama'}</option>)}
                     </select>
 
-                    <button onClick={handleExportCSV} className="btn-small bg-slate-100 text-slate-700 hover:bg-slate-200" title="Download Template per Kelas">
+                    <button onClick={handleExportCSV} className="btn-small bg-slate-100 text-slate-700 hover:bg-slate-200">
                         <Download size={16} /> Data Excel
                     </button>
 
@@ -7365,14 +7276,11 @@ function AcademicView({
             </div>
 
             {validationErrors.length > 0 && (
-                <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl flex items-start gap-4">
-                    <AlertCircle className="flex-shrink-0 mt-1" size={20} />
-                    <div>
-                        <p className="font-bold mb-1">Terdapat Kesalahan Input (Rentang Nilai 0-100):</p>
-                        <ul className="list-disc pl-5 text-sm space-y-1">
-                            {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
-                        </ul>
-                    </div>
+                <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl">
+                    <p className="font-bold mb-1">Terdapat Kesalahan Input (0-100):</p>
+                    <ul className="list-disc pl-5 text-sm">
+                        {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+                    </ul>
                 </div>
             )}
 
@@ -7383,69 +7291,97 @@ function AcademicView({
             ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                     <div className="xl:col-span-2 space-y-6">
-                        {/* Nilai Rapot */}
                         <div className="card space-y-4">
                             <div className="flex justify-between items-center bg-blue-50/50 p-4 -mx-6 -mt-6 border-b border-blue-100 mb-4 flex-wrap gap-2">
-                                <h3 className="font-black text-blue-900 flex items-center gap-2"><BookOpen size={18} /> NILAI RAPOT (5 Semester)</h3>
-                                <div className="flex gap-2">
-                                    <button onClick={handleApplyTemplate} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1">
-                                        <CheckSquare size={14} /> Terapkan Template Mapel
-                                    </button>
-                                    <button onClick={handleAddMapelRapot} className="btn-small bg-blue-100 text-blue-700 hover:bg-blue-200 flex items-center gap-1">
-                                        <Plus size={14} /> Tambah Mapel
-                                    </button>
-                                </div>
+                                <h3 className="font-black text-blue-900 flex items-center gap-2"><BookOpen size={18} /> NILAI RAPOT (5 SEMESTER)</h3>
+                                <button onClick={handleOpenSubjectModal} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2">
+                                    <Edit size={14} /> Atur Mata Pelajaran
+                                </button>
                             </div>
-                            {(!record.rapot || record.rapot.length === 0) ? (
-                                <p className="text-sm text-slate-400 italic text-center py-4">Belum ada data nilai rapot.</p>
-                            ) : (
-                                <div className="table-container shadow-sm p-4 print:p-0">
-                                    <table className="w-full text-sm data-table">
-                                        <thead>
-                                            <tr>
-                                                <th rowSpan={2} className="border border-border p-2 min-w-[150px] sticky left-0 bg-slate-50 z-[5]">Mata Pelajaran</th>
-                                                <th colSpan={4} className="border border-border p-2 text-center bg-blue-50/50">Kelas 4</th>
-                                                <th colSpan={4} className="border border-border p-2 text-center bg-emerald-50/50">Kelas 5</th>
-                                                <th colSpan={2} className="border border-border p-2 text-center bg-amber-50/50">Kelas 6</th>
-                                                <th rowSpan={2} className="border border-border p-2 w-16 no-print">Aksi</th>
-                                            </tr>
-                                            <tr>
-                                                {/* K4 */}
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 1 (P|K)</th>
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 2 (P|K)</th>
-                                                {/* K5 */}
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 1 (P|K)</th>
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 2 (P|K)</th>
-                                                {/* K6 */}
-                                                <th colSpan={2} className="border border-border p-1 text-center text-[10px] font-black">SEM 1 (P|K)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {record.rapot.map((r: any, i: number) => (
-                                                <tr key={i} className="hover:bg-slate-50/50">
-                                                    <td className="p-1 border border-border sticky left-0 bg-white group-hover:bg-slate-50/50 z-[5]">
-                                                        <input type="text" className="w-full p-2 outline-none font-bold text-xs" value={r.subject} onChange={e => handleUpdateRapot(i, 'subject', e.target.value)} placeholder="Mapel..." />
-                                                    </td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s41_p} onChange={(v: any) => handleUpdateRapot(i, 's41_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s41_k} onChange={(v: any) => handleUpdateRapot(i, 's41_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s42_p} onChange={(v: any) => handleUpdateRapot(i, 's42_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s42_k} onChange={(v: any) => handleUpdateRapot(i, 's42_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s51_p} onChange={(v: any) => handleUpdateRapot(i, 's51_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s51_k} onChange={(v: any) => handleUpdateRapot(i, 's51_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s52_p} onChange={(v: any) => handleUpdateRapot(i, 's52_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s52_k} onChange={(v: any) => handleUpdateRapot(i, 's52_k', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s61_p} onChange={(v: any) => handleUpdateRapot(i, 's61_p', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s61_k} onChange={(v: any) => handleUpdateRapot(i, 's61_k', v)} /></td>
-                                                    <td className="p-1 border border-border text-center no-print">
-                                                        <button onClick={() => handleRemoveRapot(i)} className="text-red-400 hover:text-red-600 transition-all"><Trash2 size={14} /></button>
-                                                    </td>
+                            
+                            <div className="table-container shadow-sm p-4 overflow-x-auto">
+                                <table className="w-full text-sm border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50">
+                                            <th rowSpan={2} className="border border-border p-2 w-12 text-center text-[10px] font-black">NO</th>
+                                            <th rowSpan={2} className="border border-border p-2 text-left text-[10px] font-black sticky left-0 bg-slate-50 z-10 min-w-[180px]">MATA PELAJARAN</th>
+                                            <th colSpan={2} className="border border-border p-1 text-center bg-blue-50/30 text-[10px] font-black">KELAS 4</th>
+                                            <th colSpan={2} className="border border-border p-1 text-center bg-emerald-50/30 text-[10px] font-black">KELAS 5</th>
+                                            <th className="border border-border p-1 text-center bg-amber-50/30 text-[10px] font-black tracking-tight">KELAS 6</th>
+                                        </tr>
+                                        <tr className="bg-slate-50/50">
+                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
+                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 2</th>
+                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
+                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 2</th>
+                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {academicConfig.subjects.map((sub, idx) => {
+                                            const g = record.grades?.[sub.id] || { s41: '', s42: '', s51: '', s52: '', s61: '' };
+                                            return (
+                                                <tr key={sub.id} className="hover:bg-slate-50">
+                                                    <td className="p-2 border border-border text-center font-mono text-[10px] text-slate-400">{idx + 1}</td>
+                                                    <td className="p-2 border border-border font-bold text-xs sticky left-0 bg-white z-10">{sub.name}</td>
+                                                    <td className="p-0 border border-border"><GradeInput value={g.s41} onChange={(v: any) => handleUpdateGrade(sub.id, 's41', v)} /></td>
+                                                    <td className="p-0 border border-border"><GradeInput value={g.s42} onChange={(v: any) => handleUpdateGrade(sub.id, 's42', v)} /></td>
+                                                    <td className="p-0 border border-border"><GradeInput value={g.s51} onChange={(v: any) => handleUpdateGrade(sub.id, 's51', v)} /></td>
+                                                    <td className="p-0 border border-border"><GradeInput value={g.s52} onChange={(v: any) => handleUpdateGrade(sub.id, 's52', v)} /></td>
+                                                    <td className="p-0 border border-border"><GradeInput value={g.s61} onChange={(v: any) => handleUpdateGrade(sub.id, 's61', v)} /></td>
                                                 </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Modal Atur Mata Pelajaran (Berlaku Semua Siswa) */}
+                        <AnimatePresence>
+                            {showSubjectModal && (
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card w-full max-w-2xl max-h-[80vh] flex flex-col p-0 shadow-2xl">
+                                        <div className="p-6 border-b border-border flex justify-between items-center bg-slate-50">
+                                            <div>
+                                                <h3 className="text-lg font-black uppercase">Pengaturan Mata Pelajaran</h3>
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Berlaku untuk semua siswa (2 Kelas)</p>
+                                            </div>
+                                            <button onClick={() => setShowSubjectModal(false)} className="p-2 hover:bg-slate-200 rounded-lg"><X size={20} /></button>
+                                        </div>
+                                        <div className="p-6 overflow-y-auto space-y-3 flex-1">
+                                            {tempSubjects.map((s, i) => (
+                                                <div key={i} className="flex gap-2 group animate-in fade-in slide-in-from-top-1">
+                                                    <div className="flex items-center justify-center w-10 text-[10px] font-bold text-slate-400 font-mono bg-slate-50 rounded-lg border border-border">{i + 1}</div>
+                                                    <input 
+                                                        type="text" 
+                                                        className="flex-1 p-3 bg-white border border-border rounded-lg outline-none font-bold text-sm focus:border-accent shadow-sm" 
+                                                        value={s.name} 
+                                                        onChange={e => {
+                                                            const n = [...tempSubjects];
+                                                            n[i] = { ...n[i], name: e.target.value };
+                                                            setTempSubjects(n);
+                                                        }}
+                                                        placeholder="Ketik nama mata pelajaran..."
+                                                    />
+                                                    <button onClick={() => setTempSubjects(tempSubjects.filter((_, idx) => idx !== i))} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={18} /></button>
+                                                </div>
                                             ))}
-                                        </tbody>
-                                    </table>
+                                            <button 
+                                                onClick={() => setTempSubjects([...tempSubjects, { id: `s${Date.now()}`, name: '' }])} 
+                                                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-accent hover:text-accent transition-all flex items-center justify-center gap-2 font-bold text-xs"
+                                            >
+                                                <Plus size={16} /> Tambah Mapel Baru
+                                            </button>
+                                        </div>
+                                        <div className="p-6 border-t border-border bg-slate-50 flex justify-end gap-3 rounded-b-2xl">
+                                            <button onClick={() => setShowSubjectModal(false)} className="px-6 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-white transition-all">Batal</button>
+                                            <button onClick={handleSaveSubjects} className="btn-primary px-8 py-3 rounded-xl shadow-lg shadow-blue-500/20">Simpan Perubahan</button>
+                                        </div>
+                                    </motion.div>
                                 </div>
                             )}
-                        </div>
+                        </AnimatePresence>
 
                         {/* Pencapaian / Prestasi */}
                         <div className="card space-y-4">
