@@ -504,6 +504,51 @@ export function KASIndividualRecap({
 
     const selectedStudent = students.find(s => s.id === selectedStudentId);
 
+    // New state for manual pemasukan (gemari / infaq)
+    const [newTxType, setNewTxType] = useState<'gemari' | 'infaq'>('gemari');
+    const [newTxAmount, setNewTxAmount] = useState<number>(0);
+    const [newTxDate, setNewTxDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+    const [newTxStudentId, setNewTxStudentId] = useState<string>(selectedStudentId);
+    const [newTxNotes, setNewTxNotes] = useState<string>('');
+
+    useEffect(() => {
+        setNewTxStudentId(selectedStudentId);
+    }, [selectedStudentId]);
+
+    const handleAddTransaction = async () => {
+        if (!newTxStudentId) {
+            alert('Pilih siswa terlebih dahulu');
+            return;
+        }
+        if (!newTxAmount || newTxAmount <= 0) {
+            alert('Masukkan nominal yang valid');
+            return;
+        }
+
+        const id = `${newTxStudentId}_tx_${Date.now()}`;
+        try {
+            await setDoc(doc(db, 'classCash', id), {
+                id,
+                studentId: newTxStudentId,
+                classId: students.find(s => s.id === newTxStudentId)?.classId || '',
+                type: newTxType,
+                amount: newTxAmount,
+                date: newTxDate,
+                notes: newTxNotes,
+                createdAt: new Date().toISOString(),
+            });
+            alert('Transaksi berhasil ditambahkan');
+            setNewTxAmount(0);
+            setNewTxNotes('');
+            setNewTxDate(new Date().toISOString().slice(0, 10));
+            // refresh data
+            window.location.reload();
+        } catch (error) {
+            console.error('Gagal menambahkan transaksi:', error);
+            alert('Gagal menambahkan transaksi. Silakan coba lagi.');
+        }
+    };
+
     const filteredSummaries = monthlySummaries
         .filter(s => s.studentId === selectedStudentId)
         .filter(s => !filterMonth || s.month === filterMonth)
@@ -563,6 +608,89 @@ export function KASIndividualRecap({
                             <option value="lunas">Lunas</option>
                             <option value="belum_lunas">Belum Lunas</option>
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            <div className="card p-4">
+                <h3 className="font-black uppercase tracking-widest text-sm mb-3">Input Pemasukan</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Jenis</label>
+                        <select
+                            className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none"
+                            value={newTxType}
+                            onChange={e => setNewTxType(e.target.value as any)}
+                        >
+                            <option value="gemari">Gemari</option>
+                            <option value="infaq">Infaq</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nama Siswa</label>
+                        <select
+                            className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none"
+                            value={newTxStudentId}
+                            onChange={e => setNewTxStudentId(e.target.value)}
+                        >
+                            <option value="">-- Pilih Siswa --</option>
+                            {students.map(s => (
+                                <option key={s.id} value={s.id}>{s.name} - {s.attendanceNumber}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nominal (Rp)</label>
+                        <input
+                            type="number"
+                            min="0"
+                            className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-mono outline-none"
+                            value={newTxAmount}
+                            onChange={e => setNewTxAmount(parseInt(e.target.value || '0'))}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Tanggal</label>
+                        <input
+                            type="date"
+                            className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-mono outline-none"
+                            value={newTxDate}
+                            onChange={e => setNewTxDate(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Catatan (opsional)</label>
+                        <input
+                            type="text"
+                            className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm outline-none"
+                            value={newTxNotes}
+                            onChange={e => setNewTxNotes(e.target.value)}
+                            placeholder="Keterangan transaksi"
+                        />
+                    </div>
+
+                    <div className="sm:col-span-2 flex justify-end gap-2">
+                        <button
+                            onClick={() => {
+                                setNewTxAmount(0);
+                                setNewTxNotes('');
+                                setNewTxDate(new Date().toISOString().slice(0, 10));
+                            }}
+                            className="btn-small bg-slate-500 text-white hover:bg-slate-600"
+                        >
+                            Reset
+                        </button>
+                        <button
+                            onClick={handleAddTransaction}
+                            className="btn-primary px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+                        >
+                            <Plus size={14} />
+                            Tambah Pemasukan
+                        </button>
                     </div>
                 </div>
             </div>
