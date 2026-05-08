@@ -7017,10 +7017,13 @@ function AcademicView({
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedStudentId, setSelectedStudentId] = useState<string>('');
     const [academicConfig, setAcademicConfig] = useState<{ id: string, subjects: { id: string, name: string }[] }>({ id: 'academic_config', subjects: [] });
+    const [ijazahConfig, setIjazahConfig] = useState<{ id: string, subjects: { id: string, name: string }[] }>({ id: 'ijazah_config', subjects: [] });
     const [record, setRecord] = useState<any>(null);
     const [weights, setWeights] = useState({ rapot: 50, tka: 50 });
     const [showSubjectModal, setShowSubjectModal] = useState(false);
+    const [showIjazahModal, setShowIjazahModal] = useState(false);
     const [tempSubjects, setTempSubjects] = useState<{ id: string, name: string }[]>([]);
+    const [tempIjazahSubjects, setTempIjazahSubjects] = useState<{ id: string, name: string }[]>([]);
 
     const selectedClass = classes.find(c => c.id === selectedClassId);
     const filteredStudents = students.filter(s => {
@@ -7041,6 +7044,17 @@ function AcademicView({
                 'Ilmu Pengetahuan Alam', 'Ilmu Pengetahuan Sosial', 'Seni Budaya & Prakarya', 'Pendidikan Jasmani'
             ].map((m, i) => ({ id: `s${i}`, name: m }));
             setAcademicConfig({ id: 'academic_config', subjects: init });
+        }
+
+        const ijazahSnap = await getDoc(doc(db, 'settings', 'ijazah_config'));
+        if (ijazahSnap.exists()) {
+            setIjazahConfig({ id: 'ijazah_config', subjects: ijazahSnap.data().subjects || [] });
+        } else {
+            const initIjazah = [
+                'Pendidikan Agama & Budi Pekerti', 'PPKn', 'Bahasa Indonesia', 'Matematika',
+                'IPA', 'IPS', 'SBdP', 'PJOK', 'Bahasa Jawa', 'Bahasa Inggris'
+            ].map((m, i) => ({ id: `ij${i}`, name: m }));
+            setIjazahConfig({ id: 'ijazah_config', subjects: initIjazah });
         }
     };
 
@@ -7136,6 +7150,19 @@ function AcademicView({
         alert('Daftar Mapel Berhasil Diupdate!');
     };
 
+    const handleOpenIjazahModal = () => {
+        setTempIjazahSubjects([...ijazahConfig.subjects]);
+        setShowIjazahModal(true);
+    };
+
+    const handleSaveIjazahSubjects = async () => {
+        const newConfig = { ...ijazahConfig, subjects: tempIjazahSubjects };
+        await setDoc(doc(db, 'settings', 'ijazah_config'), newConfig);
+        setIjazahConfig(newConfig);
+        setShowIjazahModal(false);
+        alert('Daftar Mapel Ijazah Berhasil Diupdate!');
+    };
+
     const handleExportCSV = async () => {
         const snap = await getDocs(collection(db, 'academicRecords'));
         const allRecords = snap.docs.map(d => d.data());
@@ -7213,7 +7240,7 @@ function AcademicView({
     const handleUpdateIjazah = (i: number, f: string, v: any) => { const n = [...record.ijazah]; n[i] = { ...n[i], [f]: v }; setRecord({ ...record, ijazah: n }); };
     const handleRemoveIjazah = (i: number) => setRecord({ ...record, ijazah: record.ijazah.filter((_: any, idx: number) => idx !== i) });
     const handleApplyIjazahTemplate = () => {
-        const templates = academicConfig.subjects.map((s, i) => ({ id: Date.now().toString() + i, no: i + 1, subject: s.name, grade_p: '', grade_k: '' }));
+        const templates = ijazahConfig.subjects.map((s, i) => ({ id: Date.now().toString() + i, no: i + 1, subject: s.name, grade_p: '', grade_k: '' }));
         setRecord({ ...record, ijazah: [...(record.ijazah || []), ...templates] });
     };
 
@@ -7370,6 +7397,51 @@ function AcademicView({
                                 </div>
                             )}
                         </AnimatePresence>
+                        
+                        <AnimatePresence>
+                            {showIjazahModal && (
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card w-full max-w-2xl max-h-[80vh] flex flex-col p-0 shadow-2xl">
+                                        <div className="p-6 border-b border-border flex justify-between items-center bg-slate-50">
+                                            <div>
+                                                <h3 className="text-lg font-black uppercase text-amber-900">Pengaturan Mapel Ijazah</h3>
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Berlaku global untuk semua siswa</p>
+                                            </div>
+                                            <button onClick={() => setShowIjazahModal(false)} className="p-2 hover:bg-slate-200 rounded-lg"><X size={20} /></button>
+                                        </div>
+                                        <div className="p-6 overflow-y-auto space-y-3 flex-1 text-amber-900">
+                                            {tempIjazahSubjects.map((s, i) => (
+                                                <div key={i} className="flex gap-2 group animate-in fade-in slide-in-from-top-1">
+                                                    <div className="flex items-center justify-center w-10 text-[10px] font-bold text-slate-400 font-mono bg-slate-50 rounded-lg border border-border">{i + 1}</div>
+                                                    <input 
+                                                        type="text" 
+                                                        className="flex-1 p-3 bg-white border border-border rounded-lg outline-none font-bold text-sm focus:border-amber-500 shadow-sm" 
+                                                        value={s.name} 
+                                                        onChange={e => {
+                                                            const n = [...tempIjazahSubjects];
+                                                            n[i] = { ...n[i], name: e.target.value };
+                                                            setTempIjazahSubjects(n);
+                                                        }}
+                                                        placeholder="Ketik nama mata pelajaran ijazah..."
+                                                    />
+                                                    <button onClick={() => setTempIjazahSubjects(tempIjazahSubjects.filter((_, idx) => idx !== i))} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={18} /></button>
+                                                </div>
+                                            ))}
+                                            <button 
+                                                onClick={() => setTempIjazahSubjects([...tempIjazahSubjects, { id: `ij${Date.now()}`, name: '' }])} 
+                                                className="w-full py-3 border-2 border-dashed border-amber-200 rounded-xl text-amber-400 hover:border-amber-500 hover:text-amber-500 transition-all flex items-center justify-center gap-2 font-bold text-xs"
+                                            >
+                                                <Plus size={16} /> Tambah Mapel Ijazah Baru
+                                            </button>
+                                        </div>
+                                        <div className="p-6 border-t border-border bg-slate-50 flex justify-end gap-3 rounded-b-2xl">
+                                            <button onClick={() => setShowIjazahModal(false)} className="px-6 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-white transition-all">Batal</button>
+                                            <button onClick={handleSaveIjazahSubjects} className="px-8 py-3 bg-amber-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20 hover:bg-amber-700 transition-all">Simpan Mapel Ijazah</button>
+                                        </div>
+                                    </motion.div>
+                                </div>
+                            )}
+                        </AnimatePresence>
 
                         {/* Pencapaian / Prestasi */}
                         <div className="card space-y-4">
@@ -7413,6 +7485,9 @@ function AcademicView({
                                     <p className="text-[10px] text-amber-700 mt-1 uppercase tracking-widest font-bold">Total: <span className="font-black">{ijazahTotal}</span> | Rata-rata: <span className="font-black">{ijazahAverage}</span></p>
                                 </div>
                                 <div className="flex gap-2">
+                                    <button onClick={handleOpenIjazahModal} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2 font-bold">
+                                        <Edit size={14} /> Atur Mapel Ijazah
+                                    </button>
                                     <button onClick={handleApplyIjazahTemplate} className="btn-small bg-orange-100 text-orange-700 hover:bg-orange-200 flex items-center gap-1">
                                         <CheckSquare size={14} /> Terapkan Template Mapel
                                     </button>
