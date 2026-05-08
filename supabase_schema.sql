@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS settings (
     "headmasterNip" TEXT,
     "themeColor" TEXT,
     features JSONB,
-    "studentDisplaySettings" JSONB
+    "studentDisplaySettings" JSONB,
+    subjects JSONB
 );
 
 -- 3. Students Table

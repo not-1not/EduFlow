@@ -7091,12 +7091,12 @@ function AcademicView({
                     setRecord({
                         ...rec,
                         tka: rec.tka ?? '',
-                        grades: rec.grades ?? {},
+                        rapot: rec.rapot ?? {},
                         prestasi: Array.isArray(rec.prestasi) ? rec.prestasi : [],
                         ijazah: Array.isArray(rec.ijazah) ? rec.ijazah : [],
                     });
                 } else {
-                    setRecord({ studentId: selectedStudentId, grades: {}, prestasi: [], ijazah: [], tka: '' });
+                    setRecord({ studentId: selectedStudentId, rapot: {}, prestasi: [], ijazah: [], tka: '' });
                 }
             });
         } else {
@@ -7107,7 +7107,7 @@ function AcademicView({
     const validateData = () => {
         const errs: string[] = [];
         if (!record) return errs;
-        Object.values(record.grades || {}).forEach((g: any) => {
+        Object.values(record.rapot || {}).forEach((g: any) => {
             ['s41', 's42', 's51', 's52', 's61'].forEach(k => {
                 if (g[k] !== '' && g[k] !== null && g[k] !== undefined && (Number(g[k]) < 0 || Number(g[k]) > 100)) {
                     errs.push(`Nilai ${k.toUpperCase()} harus berada dalam rentang 0-100.`);
@@ -7170,10 +7170,10 @@ function AcademicView({
         academicConfig.subjects.forEach(s => { csv += `"${s.name} S4.1","${s.name} S4.2","${s.name} S5.1","${s.name} S5.2","${s.name} S6.1",`; });
         csv = csv.replace(/,$/, '\n');
         filteredStudents.forEach(stu => {
-            const rec = allRecords.find((r: any) => r.studentId === stu.id) || { tka: '', grades: {} };
+            const rec = allRecords.find((r: any) => r.studentId === stu.id) || { tka: '', rapot: {} };
             const row = [stu.id, `"${stu.name}"`, rec.tka || ''];
             academicConfig.subjects.forEach(s => {
-                const g = rec.grades?.[s.id] || {};
+                const g = rec.rapot?.[s.id] || {};
                 row.push(g.s41 || '', g.s42 || '', g.s51 || '', g.s52 || '', g.s61 || '');
             });
             csv += row.join(',') + '\n';
@@ -7196,14 +7196,14 @@ function AcademicView({
                 if (!lines[i].trim()) continue;
                 const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
                 if (cols.length < 3) continue;
-                const studentId = cols[0]; const tka = cols[2]; const grades: any = {};
+                const studentId = cols[0]; const tka = cols[2]; const rapot: any = {};
                 let cIdx = 3;
                 academicConfig.subjects.forEach(s => {
-                    grades[s.id] = { s41: cols[cIdx] || '', s42: cols[cIdx + 1] || '', s51: cols[cIdx + 2] || '', s52: cols[cIdx + 3] || '', s61: cols[cIdx + 4] || '' };
+                    rapot[s.id] = { s41: cols[cIdx] || '', s42: cols[cIdx + 1] || '', s51: cols[cIdx + 2] || '', s52: cols[cIdx + 3] || '', s61: cols[cIdx + 4] || '' };
                     cIdx += 5;
                 });
                 const ex = existingMap.get(studentId) || { prestasi: [], ijazah: [] };
-                await setDoc(doc(db, 'academicRecords', studentId), { ...ex, studentId, tka, grades });
+                await setDoc(doc(db, 'academicRecords', studentId), { ...ex, studentId, tka, rapot });
             }
             alert('Import berhasil!');
             if (selectedStudentId) { loadSingleRecord(selectedStudentId).then(setRecord); }
@@ -7212,15 +7212,15 @@ function AcademicView({
     };
 
     const handleUpdateGrade = (subjectId: string, field: string, val: any) => {
-        const newGrades = { ...record.grades };
-        newGrades[subjectId] = { ...(newGrades[subjectId] || {}), [field]: val };
-        setRecord({ ...record, grades: newGrades });
+        const newRapot = { ...record.rapot };
+        newRapot[subjectId] = { ...(newRapot[subjectId] || {}), [field]: val };
+        setRecord({ ...record, rapot: newRapot });
     };
 
     const handleAverageRapot = () => {
-        if (!record?.grades) return 0;
+        if (!record?.rapot) return 0;
         let total = 0; let count = 0;
-        Object.values(record.grades).forEach((g: any) => {
+        Object.values(record.rapot).forEach((g: any) => {
             ['s41', 's42', 's51', 's52', 's61'].forEach(k => {
                 if (g[k] !== '' && g[k] !== null && !isNaN(Number(g[k]))) { total += Number(g[k]); count++; }
             });
@@ -7334,7 +7334,7 @@ function AcademicView({
                                     </thead>
                                     <tbody>
                                         {academicConfig.subjects.map((sub, idx) => {
-                                            const g = record.grades?.[sub.id] || { s41: '', s42: '', s51: '', s52: '', s61: '' };
+                                            const g = record.rapot?.[sub.id] || { s41: '', s42: '', s51: '', s52: '', s61: '' };
                                             return (
                                                 <tr key={sub.id} className="hover:bg-slate-50">
                                                     <td className="p-2 border border-border text-center font-mono text-[10px] text-slate-400">{idx + 1}</td>
@@ -8179,6 +8179,8 @@ function StudentDashboardView({
     const [academicLoading, setAcademicLoading] = useState(false);
     const [activeRapotSem, setActiveRapotSem] = useState<'s41' | 's42' | 's51' | 's52' | 's61'>('s41');
 
+    const [academicConfig, setAcademicConfig] = useState<{ subjects: { id: string, name: string }[] }>({ subjects: [] });
+
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     };
@@ -8189,6 +8191,11 @@ function StudentDashboardView({
         (async () => {
             try {
                 setAcademicLoading(true);
+                const configSnap = await getDoc(doc(db, 'settings', 'academic_config'));
+                if (!cancelled && configSnap.exists()) {
+                    setAcademicConfig({ subjects: configSnap.data().subjects || [] });
+                }
+
                 const snap = await getDoc(doc(db, 'academicRecords', String(studentId)));
                 if (cancelled) return;
                 if (snap.exists()) {
@@ -8196,15 +8203,16 @@ function StudentDashboardView({
                     setAcademicRecord({
                         ...d,
                         tka: d?.tka ?? '',
-                        rapot: Array.isArray(d?.rapot) ? d.rapot : [],
+                        rapot: d?.rapot ?? {},
                         prestasi: Array.isArray(d?.prestasi) ? d.prestasi : [],
                         ijazah: Array.isArray(d?.ijazah) ? d.ijazah : []
                     });
                 } else {
-                    setAcademicRecord({ studentId: String(studentId), rapot: [], prestasi: [], ijazah: [], tka: '' });
+                    setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: [], tka: '' });
                 }
-            } catch {
-                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: [], prestasi: [], ijazah: [], tka: '' });
+            } catch (error) {
+                console.error("Student academic fetch error:", error);
+                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: [], tka: '' });
             } finally {
                 if (!cancelled) setAcademicLoading(false);
             }
@@ -8385,45 +8393,37 @@ function StudentDashboardView({
                             <div className="text-2xl font-black text-purple-700">{academicRecord?.tka ?? '-'}</div>
                         </div>
                         <div className="p-3 bg-slate-50 rounded-xl border border-border md:col-span-2">
-                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Rapot per Semester</div>
-                            <div className="flex gap-2 flex-wrap mb-3">
-                                {([
-                                    { k: 's41', label: 'Sem 4.1' },
-                                    { k: 's42', label: 'Sem 4.2' },
-                                    { k: 's51', label: 'Sem 5.1' },
-                                    { k: 's52', label: 'Sem 5.2' },
-                                    { k: 's61', label: 'Sem 6.1' }
-                                ] as const).map(s => (
-                                    <button
-                                        key={s.k}
-                                        onClick={() => setActiveRapotSem(s.k)}
-                                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${activeRapotSem === s.k ? 'bg-slate-900 text-yellow-400 border-slate-900' : 'bg-white text-slate-500 border-border hover:border-accent hover:text-accent'}`}
-                                    >
-                                        {s.label}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-xs">
+                            <div className="overflow-x-auto shadow-sm rounded-xl border border-border">
+                                <table className="w-full text-xs border-collapse">
                                     <thead>
-                                        <tr className="text-[10px] uppercase tracking-widest text-slate-400">
-                                            <th className="text-left py-2 pr-3">Mapel</th>
-                                            <th className="text-center py-2 px-2">P</th>
-                                            <th className="text-center py-2 px-2">K</th>
+                                        <tr className="bg-slate-100/50">
+                                            <th rowSpan={2} className="border-b border-r border-border p-2 text-left text-[9px] font-black uppercase tracking-widest text-slate-500">Mata Pelajaran</th>
+                                            <th colSpan={2} className="border-b border-r border-border p-1 text-center bg-blue-50/50 text-[9px] font-black text-blue-700">Kelas 4</th>
+                                            <th colSpan={2} className="border-b border-r border-border p-1 text-center bg-emerald-50/50 text-[9px] font-black text-emerald-700">Kelas 5</th>
+                                            <th className="border-b border-border p-1 text-center bg-amber-50/50 text-[9px] font-black text-amber-700">Kelas 6</th>
+                                        </tr>
+                                        <tr className="bg-slate-50/50">
+                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S1</th>
+                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S2</th>
+                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S1</th>
+                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S2</th>
+                                            <th className="border-b border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S1</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {(academicRecord?.rapot || []).length === 0 ? (
-                                            <tr><td colSpan={3} className="py-6 text-center text-slate-400 italic">Belum ada data rapot.</td></tr>
+                                        {academicConfig.subjects.length === 0 ? (
+                                            <tr><td colSpan={6} className="py-8 text-center text-slate-400 italic font-medium">Data mata pelajaran belum dikonfigurasi admin.</td></tr>
                                         ) : (
-                                            (academicRecord?.rapot || []).map((r: any, idx: number) => {
-                                                const pKey = `${activeRapotSem}_p`;
-                                                const kKey = `${activeRapotSem}_k`;
+                                            academicConfig.subjects.map((sub, idx) => {
+                                                const g = academicRecord?.rapot?.[sub.id] || {};
                                                 return (
-                                                    <tr key={idx} className="border-t border-border/60">
-                                                        <td className="py-2 pr-3 font-bold whitespace-nowrap">{r.subject || '-'}</td>
-                                                        <td className="py-2 px-2 text-center font-mono">{r[pKey] ?? ''}</td>
-                                                        <td className="py-2 px-2 text-center font-mono">{r[kKey] ?? ''}</td>
+                                                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
+                                                        <td className="p-2 border-b border-r border-border font-bold text-slate-700">{sub.name}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s41 || '-'}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s42 || '-'}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s51 || '-'}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s52 || '-'}</td>
+                                                        <td className="p-2 border-b border-border text-center font-mono font-black text-amber-600">{g.s61 || '-'}</td>
                                                     </tr>
                                                 );
                                             })
