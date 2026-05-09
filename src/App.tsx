@@ -7043,7 +7043,9 @@ function AcademicView({
                 'Pendidikan Agama & Budi Pekerti', 'PPKn', 'Bahasa Indonesia', 'Matematika', 
                 'Ilmu Pengetahuan Alam', 'Ilmu Pengetahuan Sosial', 'Seni Budaya & Prakarya', 'Pendidikan Jasmani'
             ].map((m, i) => ({ id: `s${i}`, name: m }));
-            setAcademicConfig({ id: 'academic_config', subjects: init });
+            const defaultConfig = { id: 'academic_config', subjects: init };
+            await setDoc(doc(db, 'settings', 'academic_config'), defaultConfig);
+            setAcademicConfig(defaultConfig);
         }
 
         const ijazahSnap = await getDoc(doc(db, 'settings', 'ijazah_config'));
@@ -7054,7 +7056,9 @@ function AcademicView({
                 'Pendidikan Agama & Budi Pekerti', 'PPKn', 'Bahasa Indonesia', 'Matematika',
                 'IPA', 'IPS', 'SBdP', 'PJOK', 'Bahasa Jawa', 'Bahasa Inggris'
             ].map((m, i) => ({ id: `ij${i}`, name: m }));
-            setIjazahConfig({ id: 'ijazah_config', subjects: initIjazah });
+            const defaultConfig = { id: 'ijazah_config', subjects: initIjazah };
+            await setDoc(doc(db, 'settings', 'ijazah_config'), defaultConfig);
+            setIjazahConfig(defaultConfig);
         }
     };
 
@@ -7093,10 +7097,14 @@ function AcademicView({
                         tka: rec.tka ?? '',
                         rapot: rec.rapot ?? {},
                         prestasi: Array.isArray(rec.prestasi) ? rec.prestasi : [],
-                        ijazah: Array.isArray(rec.ijazah) ? rec.ijazah : [],
+                        ijazah: Array.isArray(rec.ijazah) ? rec.ijazah.reduce((acc: any, curr: any, idx: number) => {
+                            const id = curr.id || `old_${idx}`;
+                            acc[id] = curr;
+                            return acc;
+                        }, {}) : (rec.ijazah || {}),
                     });
                 } else {
-                    setRecord({ studentId: selectedStudentId, rapot: {}, prestasi: [], ijazah: [], tka: '' });
+                    setRecord({ studentId: selectedStudentId, rapot: {}, prestasi: [], ijazah: {}, tka: '' });
                 }
             });
         } else {
@@ -7114,7 +7122,7 @@ function AcademicView({
                 }
             });
         });
-        if ((record.ijazah || []).some((r: any) =>
+        if (Object.values(record.ijazah || {}).some((r: any) =>
             (r.grade_p !== '' && r.grade_p !== null && (Number(r.grade_p) < 0 || Number(r.grade_p) > 100)) ||
             (r.grade_k !== '' && r.grade_k !== null && (Number(r.grade_k) < 0 || Number(r.grade_k) > 100))
         )) {
@@ -7167,21 +7175,49 @@ function AcademicView({
         const snap = await getDocs(collection(db, 'academicRecords'));
         const allRecords = snap.docs.map(d => d.data());
         let csv = 'ID Siswa,Nama Siswa,TKA,';
-        academicConfig.subjects.forEach(s => { csv += `"${s.name} S4.1","${s.name} S4.2","${s.name} S5.1","${s.name} S5.2","${s.name} S6.1",`; });
+        
+        // Academic Headers
+        academicConfig.subjects.forEach(s => { 
+            csv += `"${s.name} S4.1","${s.name} S4.2","${s.name} S5.1","${s.name} S5.2","${s.name} S6.1",`; 
+        });
+
+        // Ijazah Headers
+        ijazahConfig.subjects.forEach(s => {
+            csv += `"${s.name} (P)","${s.name} (K)",`;
+        });
+
         csv = csv.replace(/,$/, '\n');
+
         filteredStudents.forEach(stu => {
-            const rec = allRecords.find((r: any) => r.studentId === stu.id) || { tka: '', rapot: {} };
+            const rec = allRecords.find((r: any) => r.studentId === stu.id) || { tka: '', rapot: {}, ijazah: {} };
             const row = [stu.id, `"${stu.name}"`, rec.tka || ''];
+            
+            // Academic Data
             academicConfig.subjects.forEach(s => {
-                const g = rec.rapot?.[s.id] || {};
+                const g = (rec as any).rapot?.[s.id] || {};
                 row.push(g.s41 || '', g.s42 || '', g.s51 || '', g.s52 || '', g.s61 || '');
             });
+
+            // Ijazah Data
+            ijazahConfig.subjects.forEach(s => {
+                // Determine if record.ijazah is stored as map or array
+                let iz = { grade_p: '', grade_k: '' };
+                if (rec.ijazah && !Array.isArray(rec.ijazah)) {
+                    iz = rec.ijazah[s.id] || iz;
+                } else if (Array.isArray(rec.ijazah)) {
+                    const match = rec.ijazah.find((i: any) => i.id === s.id);
+                    if (match) iz = match;
+                }
+                row.push(iz.grade_p || '', iz.grade_k || '');
+            });
+
             csv += row.join(',') + '\n';
         });
+        
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `Data_Akademik_${selectedClass?.name || 'Class'}.csv`; a.click();
+        a.href = url; a.download = `Data_Akademik_Ijazah_${selectedClass?.name || 'Class'}.csv`; a.click();
     };
 
     const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -7192,20 +7228,44 @@ function AcademicView({
             const lines = text.split('\n'); if (lines.length < 2) return;
             const existing = await getDocs(collection(db, 'academicRecords'));
             const existingMap = new Map(existing.docs.map(d => [d.id, d.data()]));
+            
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
                 const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
                 if (cols.length < 3) continue;
-                const studentId = cols[0]; const tka = cols[2]; const rapot: any = {};
+                
+                const studentId = cols[0]; 
+                const tka = cols[2]; 
+                const rapot: any = {};
+                const ijazah: any = {};
+                
                 let cIdx = 3;
+                // Parse Academic
                 academicConfig.subjects.forEach(s => {
-                    rapot[s.id] = { s41: cols[cIdx] || '', s42: cols[cIdx + 1] || '', s51: cols[cIdx + 2] || '', s52: cols[cIdx + 3] || '', s61: cols[cIdx + 4] || '' };
+                    rapot[s.id] = { 
+                        s41: cols[cIdx] || '', 
+                        s42: cols[cIdx + 1] || '', 
+                        s51: cols[cIdx + 2] || '', 
+                        s52: cols[cIdx + 3] || '', 
+                        s61: cols[cIdx + 4] || '' 
+                    };
                     cIdx += 5;
                 });
-                const ex = existingMap.get(studentId) || { prestasi: [], ijazah: [] };
-                await setDoc(doc(db, 'academicRecords', studentId), { ...ex, studentId, tka, rapot });
+
+                // Parse Ijazah
+                ijazahConfig.subjects.forEach(s => {
+                    ijazah[s.id] = {
+                        id: s.id,
+                        grade_p: cols[cIdx] || '',
+                        grade_k: cols[cIdx + 1] || ''
+                    };
+                    cIdx += 2;
+                });
+
+                const ex = existingMap.get(studentId) || { prestasi: [] };
+                await setDoc(doc(db, 'academicRecords', studentId), { ...ex, studentId, tka, rapot, ijazah });
             }
-            alert('Import berhasil!');
+            alert('Import Data Akademik & Ijazah Berhasil!');
             if (selectedStudentId) { loadSingleRecord(selectedStudentId).then(setRecord); }
         };
         reader.readAsText(file);
@@ -7237,15 +7297,15 @@ function AcademicView({
     const handleRemovePrestasi = (i: number) => setRecord({ ...record, prestasi: record.prestasi.filter((_: any, idx: number) => idx !== i) });
 
     const handleAddIjazah = () => setRecord({ ...record, ijazah: [...(record.ijazah || []), { id: Date.now().toString(), no: (record.ijazah || []).length + 1, subject: '', grade_p: '', grade_k: '' }] });
-    const handleUpdateIjazah = (i: number, f: string, v: any) => { const n = [...record.ijazah]; n[i] = { ...n[i], [f]: v }; setRecord({ ...record, ijazah: n }); };
-    const handleRemoveIjazah = (i: number) => setRecord({ ...record, ijazah: record.ijazah.filter((_: any, idx: number) => idx !== i) });
-    const handleApplyIjazahTemplate = () => {
-        const templates = ijazahConfig.subjects.map((s, i) => ({ id: Date.now().toString() + i, no: i + 1, subject: s.name, grade_p: '', grade_k: '' }));
-        setRecord({ ...record, ijazah: [...(record.ijazah || []), ...templates] });
+    const handleUpdateIjazah = (subjectId: string, field: string, val: any) => {
+        const newIjazah = { ...record.ijazah };
+        newIjazah[subjectId] = { ...(newIjazah[subjectId] || {}), [field]: val };
+        setRecord({ ...record, ijazah: newIjazah });
     };
 
-    const ijazahTotal = (record?.ijazah || []).reduce((acc: number, ii: any) => acc + (Number(ii.grade_p) || 0) + (Number(ii.grade_k) || 0), 0);
-    const ijazahAverage = (record?.ijazah || []).length > 0 ? (ijazahTotal / ((record?.ijazah || []).length * 2)).toFixed(2) : '0';
+    const ijazahTotal = Object.values(record?.ijazah || {}).reduce((acc: number, ii: any) => acc + (Number(ii.grade_p) || 0) + (Number(ii.grade_k) || 0), 0);
+    const ijazahItemCount = ijazahConfig.subjects.length || 1;
+    const ijazahAverage = (ijazahTotal / (ijazahItemCount * 2)).toFixed(2);
 
     return (
         <div className="p-6 space-y-6 overflow-y-auto h-full pb-20">
@@ -7488,52 +7548,44 @@ function AcademicView({
                                     <button onClick={handleOpenIjazahModal} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2 font-bold">
                                         <Edit size={14} /> Atur Mapel Ijazah
                                     </button>
-                                    <button onClick={handleApplyIjazahTemplate} className="btn-small bg-orange-100 text-orange-700 hover:bg-orange-200 flex items-center gap-1">
-                                        <CheckSquare size={14} /> Terapkan Template Mapel
-                                    </button>
-                                    <button onClick={handleAddIjazah} className="btn-small bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1">
-                                        <Plus size={14} /> Tambah Mapel
-                                    </button>
                                 </div>
                             </div>
-                            {(!record.ijazah || record.ijazah.length === 0) ? (
-                                <p className="text-sm text-slate-400 italic text-center py-4">Belum ada data nilai ijazah.</p>
-                            ) : (
-                                <div className="table-container shadow-sm p-4 print:p-0">
-                                    <table className="w-full text-sm data-table">
-                                        <thead>
-                                            <tr>
-                                                <th className="border border-border p-2 w-16 text-center text-xs">NO</th>
-                                                <th className="border border-border p-2 text-xs">MATA PELAJARAN</th>
-                                                <th className="border border-border p-2 w-24 text-center text-blue-600 text-[10px] font-black">PENGETAHUAN</th>
-                                                <th className="border border-border p-2 w-24 text-center text-emerald-600 text-[10px] font-black">KETERAMPILAN</th>
-                                                <th className="border border-border p-2 w-16 text-center no-print">AKSI</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {record.ijazah.map((iz: any, i: number) => (
-                                                <tr key={iz.id} className="hover:bg-slate-50/50">
-                                                    <td className="p-1 border border-border text-center">
-                                                        <input type="number" className="w-8 p-1 text-center outline-none bg-transparent font-mono text-xs" value={iz.no} onChange={e => handleUpdateIjazah(i, 'no', Number(e.target.value))} />
-                                                    </td>
-                                                    <td className="p-1 border border-border">
-                                                        <input type="text" className="w-full p-2 outline-none font-bold bg-transparent text-sm" value={iz.subject} onChange={e => handleUpdateIjazah(i, 'subject', e.target.value)} placeholder="Mapel Ijazah..." />
-                                                    </td>
-                                                    <td className="p-1 border border-border">
-                                                        <GradeInput value={iz.grade_p} onChange={(v: any) => handleUpdateIjazah(i, 'grade_p', v)} />
-                                                    </td>
-                                                    <td className="p-1 border border-border">
-                                                        <GradeInput value={iz.grade_k} onChange={(v: any) => handleUpdateIjazah(i, 'grade_k', v)} />
-                                                    </td>
-                                                    <td className="p-1 border border-border text-center no-print">
-                                                        <button onClick={() => handleRemoveIjazah(i)} className="text-red-400 hover:text-red-600 p-1 transition-all"><Trash2 size={14} /></button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
+                            <div className="table-container shadow-sm p-4 print:p-0">
+                                <table className="w-full text-sm data-table">
+                                    <thead>
+                                        <tr>
+                                            <th className="border border-border p-2 w-16 text-center text-xs">NO</th>
+                                            <th className="border border-border p-2 text-xs">MATA PELAJARAN</th>
+                                            <th className="border border-border p-2 w-24 text-center text-blue-600 text-[10px] font-black uppercase">Pengetahuan</th>
+                                            <th className="border border-border p-2 w-24 text-center text-emerald-600 text-[10px] font-black uppercase">Keterampilan</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {ijazahConfig.subjects.length === 0 ? (
+                                            <tr><td colSpan={4} className="py-8 text-center text-slate-400 italic font-medium">Data mata pelajaran ijazah belum dikonfigurasi.</td></tr>
+                                        ) : (
+                                            ijazahConfig.subjects.map((sub, idx) => {
+                                                const iz = record.ijazah?.[sub.id] || { grade_p: '', grade_k: '' };
+                                                return (
+                                                    <tr key={sub.id} className="hover:bg-slate-50/50">
+                                                        <td className="p-2 border border-border text-center font-mono text-xs text-slate-400">{idx + 1}</td>
+                                                        <td className="p-4 border-b border-border">
+                                                            <div className="font-bold text-sm text-slate-700">{sub.name || `Mapel ${idx + 1}`}</div>
+                                                            <div className="text-[9px] text-slate-400 font-mono uppercase tracking-tighter">ID: {sub.id}</div>
+                                                        </td>
+                                                        <td className="p-1 border border-border">
+                                                            <GradeInput value={iz.grade_p} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_p', v)} />
+                                                        </td>
+                                                        <td className="p-1 border border-border">
+                                                            <GradeInput value={iz.grade_k} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_k', v)} />
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 
@@ -8180,6 +8232,7 @@ function StudentDashboardView({
     const [activeRapotSem, setActiveRapotSem] = useState<'s41' | 's42' | 's51' | 's52' | 's61'>('s41');
 
     const [academicConfig, setAcademicConfig] = useState<{ subjects: { id: string, name: string }[] }>({ subjects: [] });
+    const [ijazahConfig, setIjazahConfig] = useState<{ subjects: { id: string, name: string }[] }>({ subjects: [] });
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
@@ -8195,24 +8248,45 @@ function StudentDashboardView({
                 if (!cancelled && configSnap.exists()) {
                     setAcademicConfig({ subjects: configSnap.data().subjects || [] });
                 }
+                const ijazahSnap = await getDoc(doc(db, 'settings', 'ijazah_config'));
+                if (!cancelled) {
+                    if (ijazahSnap.exists()) {
+                        setIjazahConfig({ subjects: ijazahSnap.data().subjects || [] });
+                    } else {
+                        const initIjazah = [
+                            'Pendidikan Agama & Budi Pekerti', 'PPKn', 'Bahasa Indonesia', 'Matematika',
+                            'IPA', 'IPS', 'SBdP', 'PJOK', 'Bahasa Jawa', 'Bahasa Inggris'
+                        ].map((m, i) => ({ id: `ij${i}`, name: m }));
+                        setIjazahConfig({ subjects: initIjazah });
+                    }
+                }
 
                 const snap = await getDoc(doc(db, 'academicRecords', String(studentId)));
                 if (cancelled) return;
                 if (snap.exists()) {
                     const d = snap.data();
+                    const rawIjazah = d?.ijazah || {};
+                    const ijazahMap = Array.isArray(rawIjazah) 
+                        ? rawIjazah.reduce((acc: any, curr: any, idx: number) => {
+                            const id = curr.id || `ij${idx}`;
+                            acc[id] = curr;
+                            return acc;
+                        }, {})
+                        : rawIjazah;
+
                     setAcademicRecord({
                         ...d,
                         tka: d?.tka ?? '',
                         rapot: d?.rapot ?? {},
                         prestasi: Array.isArray(d?.prestasi) ? d.prestasi : [],
-                        ijazah: Array.isArray(d?.ijazah) ? d.ijazah : []
+                        ijazah: ijazahMap
                     });
                 } else {
-                    setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: [], tka: '' });
+                    setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: {}, tka: '' });
                 }
             } catch (error) {
                 console.error("Student academic fetch error:", error);
-                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: [], tka: '' });
+                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: {}, tka: '' });
             } finally {
                 if (!cancelled) setAcademicLoading(false);
             }
@@ -8438,24 +8512,26 @@ function StudentDashboardView({
                         <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-100 space-y-2">
                             <div className="flex items-center justify-between">
                                 <div className="text-[10px] font-black uppercase text-amber-700 tracking-widest">Nilai Ijazah</div>
-                                <div className="text-[10px] text-amber-700 font-bold">{(academicRecord?.ijazah || []).length} mapel</div>
+                                <div className="text-[10px] text-amber-700 font-bold">{ijazahConfig.subjects.length} mapel</div>
                             </div>
-                            {(academicRecord?.ijazah || []).length === 0 ? (
-                                <div className="text-xs text-slate-400 italic text-center py-3">Belum ada data ijazah.</div>
+                            {ijazahConfig.subjects.length === 0 ? (
+                                <div className="text-xs text-slate-400 italic text-center py-3">Belum ada konfigurasi mapel ijazah.</div>
                             ) : (
                                 <div className="space-y-2">
-                                    {(academicRecord?.ijazah || []).slice(0, 8).map((iz: any, i: number) => (
-                                        <div key={i} className="flex justify-between items-center bg-white rounded-xl p-3 border border-amber-100">
-                                            <div className="text-xs font-bold truncate">{iz.subject || '-'}</div>
-                                            <div className="font-mono text-xs text-right">
-                                                <span className="font-black text-amber-800">{iz.grade_p ?? ''}</span>
-                                                <span className="text-amber-400 mx-1">/</span>
-                                                <span className="font-black text-amber-800">{iz.grade_k ?? ''}</span>
+                                    {ijazahConfig.subjects.slice(0, 10).map((sub, i) => {
+                                        const iz = academicRecord?.ijazah?.[sub.id] || { grade_p: '', grade_k: '' };
+                                        return (
+                                            <div key={sub.id} className="flex justify-between items-center bg-white rounded-xl p-3 border border-amber-100 shadow-sm">
+                                                <div className="text-xs font-bold text-slate-700 truncate pr-2">{sub.name}</div>
+                                                <div className="flex gap-1 shrink-0">
+                                                    <span className="w-10 text-center font-mono text-xs font-black text-blue-700 bg-blue-50 py-1 rounded border border-blue-100">{iz.grade_p || '-'}</span>
+                                                    <span className="w-10 text-center font-mono text-xs font-black text-emerald-700 bg-emerald-50 py-1 rounded border border-emerald-100">{iz.grade_k || '-'}</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                    {(academicRecord?.ijazah || []).length > 8 && (
-                                        <div className="text-[10px] text-amber-700 text-center italic">+{(academicRecord?.ijazah || []).length - 8} mapel lainnya</div>
+                                        );
+                                    })}
+                                    {ijazahConfig.subjects.length > 10 && (
+                                        <div className="text-[10px] text-amber-700 text-center italic font-bold uppercase tracking-widest pt-1">+{ijazahConfig.subjects.length - 10} mapel lainnya</div>
                                     )}
                                 </div>
                             )}
