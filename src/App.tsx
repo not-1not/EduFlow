@@ -6305,6 +6305,7 @@ function MonthlyClassCashView({
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
     const [edits, setEdits] = useState<{ [key: string]: number }>({});
+    const [headerMenu, setHeaderMenu] = useState<{ day: number, x: number, y: number } | null>(null);
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     const getNominal = () => type === 'gemari' ? 500 : 1000;
@@ -6349,26 +6350,27 @@ function MonthlyClassCashView({
         setEdits(prev => ({ ...prev, [getCellKey(studentId, d)]: next }));
     };
 
-    const handleFillDate = (d: number) => {
+    const handleFillDate = (d: number, value?: number) => {
         const date = new Date(year, m - 1, d);
         if (isHoliday(date).holiday) return;
 
-        const nominal = getNominal();
+        const val = value !== undefined ? value : getNominal();
         const newEdits = { ...edits };
         students.forEach(s => {
-            newEdits[getCellKey(s.id, d)] = nominal;
+            newEdits[getCellKey(s.id, d)] = val;
         });
         setEdits(newEdits);
+        setHeaderMenu(null);
     };
 
-    const handleFillAllDates = () => {
-        const nominal = getNominal();
+    const handleFillAllDates = (value?: number) => {
+        const val = value !== undefined ? value : getNominal();
         const newEdits = { ...edits };
         days.forEach(d => {
             const date = new Date(year, m - 1, d);
             if (!isHoliday(date).holiday) {
                 students.forEach(s => {
-                    newEdits[getCellKey(s.id, d)] = nominal;
+                    newEdits[getCellKey(s.id, d)] = val;
                 });
             }
         });
@@ -6419,13 +6421,31 @@ function MonthlyClassCashView({
                     </div>
                 </div>
             )}
-            <div className="p-3 bg-slate-50 border-b border-border flex justify-end gap-2 no-print">
+            <div className="p-3 bg-slate-50 border-b border-border flex justify-end gap-2 no-print items-center">
+                <span className="text-[10px] font-black uppercase text-slate-400 mr-2">Aksi Masal se-Bulan:</span>
                 <button 
-                    onClick={handleFillAllDates}
-                    className="btn-small bg-accent/10 text-accent hover:bg-accent hover:text-white border border-accent/20 transition-all flex items-center gap-2"
+                    onClick={() => handleFillAllDates(getNominal())}
+                    className="btn-small bg-success/10 text-success hover:bg-success hover:text-white border border-success/20 transition-all flex items-center gap-2"
+                    title="Isi SEMUA tanggal sekolah sebagai SETOR"
                 >
                     <CheckSquare size={14} />
-                    Isi Seluruh Tanggal
+                    S (Normal)
+                </button>
+                <button 
+                    onClick={() => handleFillAllDates(0)}
+                    className="btn-small bg-yellow-50 text-yellow-700 hover:bg-yellow-500 hover:text-white border border-yellow-200 transition-all flex items-center gap-2"
+                    title="Isi SEMUA tanggal sekolah sebagai BEBAS BAYAR"
+                >
+                    <AlertCircle size={14} />
+                    B (Bebas)
+                </button>
+                <button 
+                    onClick={() => handleFillAllDates(-1)}
+                    className="btn-small bg-red-50 text-red-600 hover:bg-red-500 hover:text-white border border-red-200 transition-all flex items-center gap-2"
+                    title="HAPUS SEMUA data bulan ini"
+                >
+                    <Trash2 size={14} />
+                    Hapus
                 </button>
             </div>
             <table className="w-full border-collapse">
@@ -6441,9 +6461,13 @@ function MonthlyClassCashView({
                             return (
                                 <th
                                     key={d}
-                                    className={`p-1 border border-border font-mono text-[10px] min-w-[36px] transition-colors ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : 'cursor-pointer hover:bg-accent hover:text-white bg-slate-50'}`}
-                                    title={holidayInfo.holiday ? holidayInfo.name : `Klik untuk isi seluruh siswa tanggal ${d}`}
-                                    onClick={() => !holidayInfo.holiday && handleFillDate(d)}
+                                    className={`p-1 border border-border font-mono text-[10px] min-w-[36px] transition-colors relative ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : 'cursor-pointer hover:bg-accent hover:text-white bg-slate-50'}`}
+                                    title={holidayInfo.holiday ? holidayInfo.name : `Klik untuk opsi masal tanggal ${d}`}
+                                    onClick={(e) => {
+                                        if (holidayInfo.holiday) return;
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        setHeaderMenu({ day: d, x: rect.left, y: rect.bottom });
+                                    }}
                                 >
                                     {d}
                                 </th>
@@ -6513,8 +6537,49 @@ function MonthlyClassCashView({
                 <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-success text-success flex items-center justify-center">S</div> Setor Normal</div>
                 <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-yellow-500 text-yellow-600 flex items-center justify-center">B</div> Bebas Setor (Rp 0)</div>
                 <div className="flex items-center gap-2"><div className="w-4 h-4 text-slate-300 flex items-center justify-center">-</div> Kosong / Hapus</div>
-                <div className="flex items-center gap-2 ml-auto italic opacity-50">Klik sel tabel untuk mengedit data secara beruntun.</div>
+                <div className="flex items-center gap-2 ml-auto italic opacity-50">Klik sel tabel untuk mengedit, klik TANGGAL di header untuk opsi masal hari itu.</div>
             </div>
+
+            {/* Floating Header Menu */}
+            <AnimatePresence>
+                {headerMenu && (
+                    <>
+                        <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(null)}></div>
+                        <motion.div 
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            style={{ position: 'fixed', left: headerMenu.x, top: headerMenu.y, zIndex: 50 }}
+                            className="bg-white shadow-2xl border border-slate-200 rounded-xl overflow-hidden min-w-[140px]"
+                        >
+                            <div className="p-2 bg-slate-900 text-yellow-400 text-[10px] font-black uppercase text-center">Tgl {headerMenu.day}</div>
+                            <button 
+                                onClick={() => handleFillDate(headerMenu.day, getNominal())}
+                                className="w-full text-left p-3 hover:bg-success hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
+                            >
+                                <div className="w-5 h-5 bg-success/10 rounded flex items-center justify-center text-success">S</div>
+                                Setor Normal
+                            </button>
+                            <button 
+                                onClick={() => handleFillDate(headerMenu.day, 0)}
+                                className="w-full text-left p-3 hover:bg-yellow-500 hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
+                            >
+                                <div className="w-5 h-5 bg-yellow-50 rounded flex items-center justify-center text-yellow-600">B</div>
+                                Bebas Bayar
+                            </button>
+                            <button 
+                                onClick={() => handleFillDate(headerMenu.day, -1)}
+                                className="w-full text-left p-3 hover:bg-red-500 hover:text-white text-xs font-bold transition-all flex items-center gap-2"
+                            >
+                                <div className="w-5 h-5 bg-red-50 rounded flex items-center justify-center text-red-500">
+                                    <Trash2 size={12} />
+                                </div>
+                                Hapus / Reset
+                            </button>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
