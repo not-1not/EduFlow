@@ -6655,27 +6655,50 @@ function LedgerClassCashView({
     // Running balance calculation must be independent of current sorting/view
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    let currentRB = 0;
-    const ledgerDataMap = allSortedTx.map(tx => {
-        const isWithdrawal = tx.transactionType === 'withdrawal';
-        const debit = isWithdrawal ? 0 : tx.amount;
-        const credit = isWithdrawal ? tx.amount : 0;
-        currentRB += debit - credit;
-
-        let desc = tx.notes || (isWithdrawal ? 'Pengeluaran/Penarikan' : 'Setoran Siswa');
-        if (tx.studentId) {
-            const stu = students.find(s => s.id === tx.studentId);
-            if (stu) desc = `Setoran: ${getStudentName(stu)}`;
-        }
-
-        return { ...tx, debit, credit, balance: currentRB, desc };
-    });
-
     const prevTx = allSortedTx.filter(t => t.date < month + '-01');
     const prevBalance = prevTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
 
-    const monthItems = ledgerDataMap.filter(l => l.date.startsWith(month));
-    const displayItems = sortedData(monthItems);
+    const monthTx = allSortedTx.filter(t => t.date.startsWith(month));
+    const monthWithdrawals = monthTx.filter(t => t.transactionType === 'withdrawal');
+    const monthDeposits = monthTx.filter(t => t.transactionType !== 'withdrawal');
+
+    let displayItems: any[] = [];
+    
+    // Consolidate Deposits
+    if (monthDeposits.length > 0) {
+        const totalAmount = monthDeposits.reduce((acc, t) => acc + t.amount, 0);
+        const totalHari = monthDeposits.filter(t => t.amount > 0).length;
+        // Gunakan tanggal terakhir pendaftaran atau akhir bulan
+        const lastDate = monthDeposits.reduce((max, t) => t.date > max ? t.date : max, month + '-01');
+        
+        displayItems.push({
+            id: 'agg-deposit-' + month,
+            date: lastDate,
+            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${month} (${totalHari} Hari Bayar)`,
+            debit: totalAmount,
+            credit: 0
+        });
+    }
+
+    // Add Withdrawals individually
+    monthWithdrawals.forEach(tw => {
+        displayItems.push({
+            ...tw,
+            debit: 0,
+            credit: tw.amount,
+            desc: tw.notes || 'Pengeluaran/Penarikan'
+        });
+    });
+
+    // Sort by date then by ID to keep it stable
+    displayItems.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+    // Calculate running balance for the display items
+    let running = prevBalance;
+    const finalDisplayItems = displayItems.map(item => {
+        running += item.debit - item.credit;
+        return { ...item, balance: running };
+    });
 
     const handleAddExpense = async () => {
         if (!expense.amount || isNaN(Number(expense.amount))) return alert('Nominal tidak valid!');
@@ -6825,9 +6848,9 @@ function LedgerClassCashView({
                             <td colSpan={4} className="text-right font-bold text-[10px] uppercase text-slate-500 py-3">Saldo Pindahan Bulan Lalu</td>
                             <td className="text-right font-black text-sm bg-slate-100 py-3">{formatCurrency(prevBalance)}</td>
                         </tr>
-                        {displayItems.length === 0 ? (
+                        {finalDisplayItems.length === 0 ? (
                             <tr><td colSpan={5} className="text-center py-20 text-slate-400 italic">Tidak ada mutasi kas di bulan ini</td></tr>
-                        ) : displayItems.map((l: any, i: number) => (
+                        ) : finalDisplayItems.map((l: any, i: number) => (
                             <tr key={l.id} className="hover:bg-slate-50">
                                 <td className="font-mono text-xs text-slate-500">{l.date}</td>
                                 <td className="font-bold text-sm">{l.desc}</td>
