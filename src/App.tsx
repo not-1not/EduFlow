@@ -6652,6 +6652,7 @@ function LedgerClassCashView({
     const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
     const [expense, setExpense] = useState({ date: todayStr, amount: '', notes: '' });
     const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '', notes: '' });
+    const [editingItem, setEditingItem] = useState<any>(null);
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
     const studentsForSelect = sortStudentsForSelect(students);
 
@@ -6659,26 +6660,28 @@ function LedgerClassCashView({
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Grouping for Global View
-    const depositsGroups: { [key: string]: ClassCashTransaction[] } = {};
-    const individualWithdrawals: ClassCashTransaction[] = [];
+    const studentIuranGroups: { [key: string]: ClassCashTransaction[] } = {};
+    const individualItems: ClassCashTransaction[] = [];
     
     allSortedTx.forEach(t => {
-        if (t.transactionType === 'withdrawal') {
-            individualWithdrawals.push(t);
+        const isStudentIuran = t.transactionType === 'deposit' && t.studentId;
+        if (!isStudentIuran) {
+            individualItems.push(t);
         } else {
             const mKey = t.date.substring(0, 7); // YYYY-MM
-            if (!depositsGroups[mKey]) depositsGroups[mKey] = [];
-            depositsGroups[mKey].push(t);
+            if (!studentIuranGroups[mKey]) studentIuranGroups[mKey] = [];
+            studentIuranGroups[mKey].push(t);
         }
     });
 
     let displayItems: any[] = [];
     
-    // Process Month Groups
-    Object.keys(depositsGroups).sort().forEach(mKey => {
-        const group = depositsGroups[mKey];
+    // Process Month Groups (Student Iuran)
+    Object.keys(studentIuranGroups).sort().forEach(mKey => {
+        const group = studentIuranGroups[mKey];
         const totalAmount = group.reduce((acc, t) => acc + t.amount, 0);
-        const totalHari = group.filter(t => t.amount > 0).length;
+        const actualCount = group.filter(t => t.amount > 0).length;
+        const bebasCount = group.filter(t => t.amount === 0).length;
         
         // Calculate Target Hari (Kewajiban) for this specific month
         const [year, m] = mKey.split('-').map(Number);
@@ -6696,26 +6699,29 @@ function LedgerClassCashView({
             
             if (!isHoliday) schoolDaysCount++;
         }
-        const targetHari = schoolDaysCount * students.length;
+        // REDUCED Target: only students who MUST pay (excluding those marked BEBAS for specific days)
+        const possibleTargetTotal = schoolDaysCount * students.length;
+        const targetHari = Math.max(0, possibleTargetTotal - bebasCount);
 
         const lastDate = group.reduce((max, t) => t.date > max ? t.date : max, mKey + '-01');
         
         displayItems.push({
-            id: 'agg-deposit-' + mKey,
+            id: 'agg-iuran-' + mKey,
             date: lastDate,
-            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${mKey} (${totalHari} / ${targetHari} Hari Bayar)`,
+            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${mKey} (${actualCount} / ${targetHari} Hari Bayar)`,
             debit: totalAmount,
-            credit: 0
+            credit: 0,
+            isAggregated: true
         });
     });
 
-    // Add Withdrawals individually
-    individualWithdrawals.forEach(tw => {
+    // Add Individual Items (Withdrawals & Manual Incomes)
+    individualItems.forEach(tw => {
         displayItems.push({
             ...tw,
-            debit: 0,
-            credit: tw.amount,
-            desc: tw.notes || 'Pengeluaran/Penarikan'
+            debit: tw.transactionType === 'deposit' ? tw.amount : 0,
+            credit: tw.transactionType === 'withdrawal' ? tw.amount : 0,
+            desc: tw.notes || (tw.transactionType === 'deposit' ? 'Pemasukan Umum' : 'Pengeluaran/Penarikan')
         });
     });
 
@@ -6769,6 +6775,39 @@ function LedgerClassCashView({
 
         setIncome({ date: todayStr, studentId: '', amount: '', notes: '' });
         setShowAddIncomeForm(false);
+        onRefresh();
+    };
+
+    const handleDelete = async (item: any) => {
+        if (!confirm('Hapus transaksi ini?')) return;
+        const entry: ClassCashWriteEntry = {
+            classId,
+            studentId: item.studentId,
+            type,
+            transactionType: item.transactionType,
+            amount: -1, // Triggers delete in persistClassCashEntries
+            date: item.date,
+            period_month: getPeriodMonth(item.date),
+            notes: item.notes
+        };
+        await persistClassCashEntries([entry]);
+        onRefresh();
+    };
+
+    const handleUpdateItem = async () => {
+        if (!editingItem) return;
+        const entry: ClassCashWriteEntry = {
+            classId,
+            studentId: editingItem.studentId,
+            type,
+            transactionType: editingItem.transactionType,
+            amount: Number(editingItem.amount || editingItem.debit || editingItem.credit),
+            date: editingItem.date,
+            period_month: getPeriodMonth(editingItem.date),
+            notes: editingItem.notes
+        };
+        await persistClassCashEntries([entry]);
+        setEditingItem(null);
         onRefresh();
     };
 
@@ -6870,6 +6909,7 @@ function LedgerClassCashView({
                             <SortableTH label="DEBIT (MASUK)" sortKey="debit" currentSort={currentSort} onSort={onSort} />
                             <SortableTH label="KREDIT (KELUAR)" sortKey="credit" currentSort={currentSort} onSort={onSort} />
                             <th className="text-right w-32 bg-slate-50">SALDO AKHIR</th>
+                            <th className="no-print">AKSI</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -6883,11 +6923,86 @@ function LedgerClassCashView({
                                 <td className="text-right text-success font-mono font-bold">{l.debit > 0 ? formatCurrency(l.debit) : '-'}</td>
                                 <td className="text-right text-red-500 font-mono font-bold">{l.credit > 0 ? formatCurrency(l.credit) : '-'}</td>
                                 <td className="text-right font-black font-mono bg-slate-50 text-accent">{formatCurrency(l.balance)}</td>
+                                <td className="no-print">
+                                    {!l.isAggregated && (
+                                        <div className="flex gap-1 justify-center">
+                                            <button 
+                                                onClick={() => setEditingItem({
+                                                    ...l, 
+                                                    amount: l.transactionType === 'deposit' ? l.debit : l.credit
+                                                })} 
+                                                className="p-1 hover:bg-blue-50 text-blue-500 rounded transition-all" 
+                                                title="Edit Transaksi"
+                                            >
+                                                <Edit size={12} />
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDelete(l)} 
+                                                className="p-1 hover:bg-red-50 text-red-400 rounded transition-all" 
+                                                title="Hapus Transaksi"
+                                            >
+                                                <Trash2 size={12} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
+
+            {/* Editing Modal */}
+            <AnimatePresence>
+                {editingItem && (
+                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border space-y-6"
+                        >
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-xl font-bold uppercase tracking-tighter">Edit Transaksi</h3>
+                                <button onClick={() => setEditingItem(null)}><X size={20} /></button>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Tanggal</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full p-3 bg-slate-50 border border-border rounded-xl outline-none focus:border-accent" 
+                                        value={editingItem.date} 
+                                        onChange={e => setEditingItem({ ...editingItem, date: e.target.value })} 
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Nominal</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full p-3 bg-slate-50 border border-border rounded-xl outline-none focus:border-accent font-bold text-lg" 
+                                        value={editingItem.amount} 
+                                        onChange={e => setEditingItem({ ...editingItem, amount: e.target.value })} 
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan</label>
+                                    <textarea 
+                                        className="w-full p-3 bg-slate-50 border border-border rounded-xl outline-none focus:border-accent text-sm min-h-[100px]" 
+                                        value={editingItem.notes || ''} 
+                                        onChange={e => setEditingItem({ ...editingItem, notes: e.target.value })} 
+                                        placeholder="Keterangan transaksi..."
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={() => setEditingItem(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 uppercase text-xs">Batal</button>
+                                <button onClick={handleUpdateItem} className="flex-2 py-3 bg-slate-900 text-yellow-400 rounded-xl font-bold hover:bg-slate-800 uppercase text-xs shadow-lg">Simpan Perubahan</button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
