@@ -5768,6 +5768,7 @@ function ClassCashView({
                             classId={selectedClassId}
                             type={activeTab}
                             month={selectedMonth}
+                            holidays={holidays}
                             onRefresh={onRefresh}
                             formatCurrency={formatCurrency}
                             onOpenPrint={onOpenPrint}
@@ -6623,6 +6624,7 @@ function LedgerClassCashView({
     classId,
     type,
     month,
+    holidays,
     onRefresh,
     formatCurrency,
     onOpenPrint,
@@ -6636,6 +6638,7 @@ function LedgerClassCashView({
     classId: string,
     type: 'gemari' | 'infaq',
     month: string,
+    holidays: Holiday[],
     onRefresh: () => void,
     formatCurrency: (n: number) => string,
     onOpenPrint: () => void,
@@ -6655,33 +6658,59 @@ function LedgerClassCashView({
     // Running balance calculation must be independent of current sorting/view
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const prevTx = allSortedTx.filter(t => t.date < month + '-01');
-    const prevBalance = prevTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
-
-    const monthTx = allSortedTx.filter(t => t.date.startsWith(month));
-    const monthWithdrawals = monthTx.filter(t => t.transactionType === 'withdrawal');
-    const monthDeposits = monthTx.filter(t => t.transactionType !== 'withdrawal');
+    // Grouping for Global View
+    const depositsGroups: { [key: string]: ClassCashTransaction[] } = {};
+    const individualWithdrawals: ClassCashTransaction[] = [];
+    
+    allSortedTx.forEach(t => {
+        if (t.transactionType === 'withdrawal') {
+            individualWithdrawals.push(t);
+        } else {
+            const mKey = t.date.substring(0, 7); // YYYY-MM
+            if (!depositsGroups[mKey]) depositsGroups[mKey] = [];
+            depositsGroups[mKey].push(t);
+        }
+    });
 
     let displayItems: any[] = [];
     
-    // Consolidate Deposits
-    if (monthDeposits.length > 0) {
-        const totalAmount = monthDeposits.reduce((acc, t) => acc + t.amount, 0);
-        const totalHari = monthDeposits.filter(t => t.amount > 0).length;
-        // Gunakan tanggal terakhir pendaftaran atau akhir bulan
-        const lastDate = monthDeposits.reduce((max, t) => t.date > max ? t.date : max, month + '-01');
+    // Process Month Groups
+    Object.keys(depositsGroups).sort().forEach(mKey => {
+        const group = depositsGroups[mKey];
+        const totalAmount = group.reduce((acc, t) => acc + t.amount, 0);
+        const totalHari = group.filter(t => t.amount > 0).length;
+        
+        // Calculate Target Hari (Kewajiban) for this specific month
+        const [year, m] = mKey.split('-').map(Number);
+        const daysInMonth = new Date(year, m, 0).getDate();
+        let schoolDaysCount = 0;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const date = new Date(year, m - 1, d);
+            const day = date.getDay();
+            const dateStr = date.toISOString().split('T')[0];
+            
+            let isHoliday = false;
+            if (day === 0) isHoliday = true; 
+            if (type === 'infaq' && day !== 5) isHoliday = true; 
+            if (holidays.find((h: Holiday) => h.date === dateStr)) isHoliday = true; 
+            
+            if (!isHoliday) schoolDaysCount++;
+        }
+        const targetHari = schoolDaysCount * students.length;
+
+        const lastDate = group.reduce((max, t) => t.date > max ? t.date : max, mKey + '-01');
         
         displayItems.push({
-            id: 'agg-deposit-' + month,
+            id: 'agg-deposit-' + mKey,
             date: lastDate,
-            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${month} (${totalHari} Hari Bayar)`,
+            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${mKey} (${totalHari} / ${targetHari} Hari Bayar)`,
             debit: totalAmount,
             credit: 0
         });
-    }
+    });
 
     // Add Withdrawals individually
-    monthWithdrawals.forEach(tw => {
+    individualWithdrawals.forEach(tw => {
         displayItems.push({
             ...tw,
             debit: 0,
@@ -6694,7 +6723,7 @@ function LedgerClassCashView({
     displayItems.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
     // Calculate running balance for the display items
-    let running = prevBalance;
+    let running = 0;
     const finalDisplayItems = displayItems.map(item => {
         running += item.debit - item.credit;
         return { ...item, balance: running };
@@ -6844,12 +6873,9 @@ function LedgerClassCashView({
                         </tr>
                     </thead>
                     <tbody>
-                        <tr className="bg-slate-50/50">
-                            <td colSpan={4} className="text-right font-bold text-[10px] uppercase text-slate-500 py-3">Saldo Pindahan Bulan Lalu</td>
-                            <td className="text-right font-black text-sm bg-slate-100 py-3">{formatCurrency(prevBalance)}</td>
-                        </tr>
+                        {/* Saldo Pindahan removed since we show all history */}
                         {finalDisplayItems.length === 0 ? (
-                            <tr><td colSpan={5} className="text-center py-20 text-slate-400 italic">Tidak ada mutasi kas di bulan ini</td></tr>
+                            <tr><td colSpan={5} className="text-center py-20 text-slate-400 italic">Belum ada riwayat mutasi kas</td></tr>
                         ) : finalDisplayItems.map((l: any, i: number) => (
                             <tr key={l.id} className="hover:bg-slate-50">
                                 <td className="font-mono text-xs text-slate-500">{l.date}</td>
