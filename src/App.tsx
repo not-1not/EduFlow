@@ -7342,6 +7342,9 @@ function AcademicView({
     const [weights, setWeights] = useState({ rapot: 50, tka: 50 });
     const [showSubjectModal, setShowSubjectModal] = useState(false);
     const [showIjazahModal, setShowIjazahModal] = useState(false);
+    const [showTkaMassModal, setShowTkaMassModal] = useState(false);
+    const [massTkaData, setMassTkaData] = useState<Record<string, string>>({});
+    const [massTkaRecords, setMassTkaRecords] = useState<Record<string, any>>({});
     const [tempSubjects, setTempSubjects] = useState<{ id: string, name: string }[]>([]);
     const [tempIjazahSubjects, setTempIjazahSubjects] = useState<{ id: string, name: string }[]>([]);
 
@@ -7627,6 +7630,80 @@ function AcademicView({
     const ijazahItemCount = ijazahConfig.subjects.length || 1;
     const ijazahAverage = (ijazahTotal / (ijazahItemCount * 2)).toFixed(2);
 
+    const handleOpenMassTkaModal = async () => {
+        const snap = await getDocs(collection(db, 'academicRecords'));
+        const existing = snap.docs.reduce((acc, docu) => {
+            acc[docu.id] = docu.data();
+            return acc;
+        }, {} as Record<string, any>);
+        
+        const initialData: Record<string, string> = {};
+        filteredStudents.forEach(stu => {
+            initialData[stu.id] = existing[stu.id]?.tka || '';
+        });
+        
+        setMassTkaRecords(existing);
+        setMassTkaData(initialData);
+        setShowTkaMassModal(true);
+    };
+
+    const handleSaveMassTka = async () => {
+        if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
+        const studentIds = filteredStudents.map(s => s.id);
+        
+        for (const sid of studentIds) {
+            const ex = massTkaRecords[sid] || { prestasi: [], rapot: {}, ijazah: {} };
+            const updatedTka = massTkaData[sid] || '';
+            const tNum = Number(updatedTka);
+            if (updatedTka !== '' && (isNaN(tNum) || tNum < 0 || tNum > 100)) {
+                return alert(`Nilai TKA untuk ${students.find(s=>s.id===sid)?.name} tidak valid (harus 0-100).`);
+            }
+            await setDoc(doc(db, 'academicRecords', sid), { ...ex, studentId: sid, tka: updatedTka });
+        }
+        alert('Data TKA Kelas Berhasil Disimpan!');
+        if (selectedStudentId) {
+            loadSingleRecord(selectedStudentId).then(setRecord);
+        }
+        setShowTkaMassModal(false);
+    };
+
+    const handleDownloadTkaTemplate = () => {
+        let csv = 'ID Siswa,Nama Siswa,TKA\n';
+        sortStudentsForSelect(filteredStudents).forEach(s => {
+            csv += `${s.id},"${s.name}",${massTkaData[s.id] || ''}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `Template_TKA_Kelas_${selectedClass?.name || ''}.csv`;
+        a.click();
+    };
+
+    const handleImportTkaCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const text = evt.target?.result as string;
+            const lines = text.split('\n');
+            const newData = { ...massTkaData };
+            for(let i=1; i<lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const cols = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
+                if (cols.length >= 3) {
+                    const sid = cols[0];
+                    const tkaValue = cols[2];
+                    if (filteredStudents.some(s => s.id === sid)) {
+                        newData[sid] = tkaValue;
+                    }
+                }
+            }
+            setMassTkaData(newData);
+            alert('Nilai TKA berhasil di-import dari Excel!');
+        };
+        reader.readAsText(file);
+    };
+
     return (
         <div className="p-6 space-y-6 overflow-y-auto h-full pb-20">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -7651,6 +7728,10 @@ function AcademicView({
                         {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name || 'Tanpa Nama'}</option>)}
                     </select>
 
+                    <button onClick={handleOpenMassTkaModal} className="btn-small bg-purple-100 text-purple-700 hover:bg-purple-200">
+                        <Users size={16} /> Edit TKA Kelas
+                    </button>
+                    
                     <button onClick={handleExportCSV} className="btn-small bg-slate-100 text-slate-700 hover:bg-slate-200">
                         <Download size={16} /> Data Excel
                     </button>
@@ -7712,22 +7793,56 @@ function AcademicView({
                                             <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
-                                        {academicConfig.subjects.map((sub, idx) => {
-                                            const g = record.rapot?.[sub.id] || { s41: '', s42: '', s51: '', s52: '', s61: '' };
+                                        {(() => {
+                                            const getColTot = (k: 's41'|'s42'|'s51'|'s52'|'s61') => {
+                                                let s = 0, c = 0;
+                                                academicConfig.subjects.forEach(sub => {
+                                                    const v = Number(record.rapot?.[sub.id]?.[k]);
+                                                    if (!isNaN(v) && v > 0) { s += v; c++; }
+                                                });
+                                                return { sum: s, avg: c > 0 ? (s/c).toFixed(1) : '-' };
+                                            };
+                                            const t41 = getColTot('s41'); const t42 = getColTot('s42'); const t51 = getColTot('s51'); const t52 = getColTot('s52'); const t61 = getColTot('s61');
+                                            
                                             return (
-                                                <tr key={sub.id} className="hover:bg-slate-50">
-                                                    <td className="p-2 border border-border text-center font-mono text-[10px] text-slate-400">{idx + 1}</td>
-                                                    <td className="p-2 border border-border font-bold text-xs sticky left-0 bg-white z-10">{sub.name}</td>
-                                                    <td className="p-0 border border-border"><GradeInput value={g.s41} onChange={(v: any) => handleUpdateGrade(sub.id, 's41', v)} /></td>
-                                                    <td className="p-0 border border-border"><GradeInput value={g.s42} onChange={(v: any) => handleUpdateGrade(sub.id, 's42', v)} /></td>
-                                                    <td className="p-0 border border-border"><GradeInput value={g.s51} onChange={(v: any) => handleUpdateGrade(sub.id, 's51', v)} /></td>
-                                                    <td className="p-0 border border-border"><GradeInput value={g.s52} onChange={(v: any) => handleUpdateGrade(sub.id, 's52', v)} /></td>
-                                                    <td className="p-0 border border-border"><GradeInput value={g.s61} onChange={(v: any) => handleUpdateGrade(sub.id, 's61', v)} /></td>
-                                                </tr>
+                                                <>
+                                                    {academicConfig.subjects.map((sub, idx) => {
+                                                        const g = record.rapot?.[sub.id] || { s41: '', s42: '', s51: '', s52: '', s61: '' };
+                                                        return (
+                                                            <tr key={sub.id} className="hover:bg-slate-50 border-b border-border">
+                                                                <td className="p-2 border-r border-border text-center font-mono text-[10px] text-slate-400">{idx + 1}</td>
+                                                                <td className="p-2 border-r border-border font-bold text-xs sticky left-0 bg-white z-10">{sub.name}</td>
+                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s41} onChange={(v: any) => handleUpdateGrade(sub.id, 's41', v)} /></td>
+                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s42} onChange={(v: any) => handleUpdateGrade(sub.id, 's42', v)} /></td>
+                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s51} onChange={(v: any) => handleUpdateGrade(sub.id, 's51', v)} /></td>
+                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s52} onChange={(v: any) => handleUpdateGrade(sub.id, 's52', v)} /></td>
+                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s61} onChange={(v: any) => handleUpdateGrade(sub.id, 's61', v)} /></td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    {academicConfig.subjects.length > 0 && (
+                                                        <>
+                                                            <tr className="bg-slate-50/80 hover:bg-slate-50 transition-colors border-y-2 border-slate-200">
+                                                                <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Jumlah Total</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-600">{t41.sum || '-'}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-600">{t42.sum || '-'}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-600">{t51.sum || '-'}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-600">{t52.sum || '-'}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-amber-600">{t61.sum || '-'}</td>
+                                                            </tr>
+                                                            <tr className="bg-slate-100/50 hover:bg-slate-100 transition-colors border-b border-border">
+                                                                <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Rata-Rata Kelas</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-800">{t41.avg}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-800">{t42.avg}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-800">{t51.avg}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-800">{t52.avg}</td>
+                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-amber-800">{t61.avg}</td>
+                                                            </tr>
+                                                        </>
+                                                    )}
+                                                </>
                                             );
-                                        })}
-                                    </tbody>
+                                        })()}
                                 </table>
                             </div>
                         </div>
@@ -7883,30 +7998,137 @@ function AcademicView({
                                     <tbody>
                                         {ijazahConfig.subjects.length === 0 ? (
                                             <tr><td colSpan={4} className="py-8 text-center text-slate-400 italic font-medium">Data mata pelajaran ijazah belum dikonfigurasi.</td></tr>
-                                        ) : (
-                                            ijazahConfig.subjects.map((sub, idx) => {
-                                                const iz = record.ijazah?.[sub.id] || { grade_p: '', grade_k: '' };
-                                                return (
-                                                    <tr key={sub.id} className="hover:bg-slate-50/50">
-                                                        <td className="p-2 border border-border text-center font-mono text-xs text-slate-400">{idx + 1}</td>
-                                                        <td className="p-4 border-b border-border">
-                                                            <div className="font-bold text-sm text-slate-700">{sub.name || `Mapel ${idx + 1}`}</div>
-                                                            <div className="text-[9px] text-slate-400 font-mono uppercase tracking-tighter">ID: {sub.id}</div>
-                                                        </td>
-                                                        <td className="p-1 border border-border">
-                                                            <GradeInput value={iz.grade_p} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_p', v)} />
-                                                        </td>
-                                                        <td className="p-1 border border-border">
-                                                            <GradeInput value={iz.grade_k} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_k', v)} />
-                                                        </td>
+                                        ) : (() => {
+                                            let sP = 0, cP = 0, sK = 0, cK = 0;
+                                            ijazahConfig.subjects.forEach(sub => {
+                                                const iz = record.ijazah?.[sub.id];
+                                                const vP = Number(iz?.grade_p);
+                                                const vK = Number(iz?.grade_k);
+                                                if (!isNaN(vP) && vP > 0) { sP += vP; cP++; }
+                                                if (!isNaN(vK) && vK > 0) { sK += vK; cK++; }
+                                            });
+                                            const avgP = cP > 0 ? (sP / cP).toFixed(1) : '-';
+                                            const avgK = cK > 0 ? (sK / cK).toFixed(1) : '-';
+
+                                            return (
+                                                <>
+                                                    {ijazahConfig.subjects.map((sub, idx) => {
+                                                        const iz = record.ijazah?.[sub.id] || { grade_p: '', grade_k: '' };
+                                                        return (
+                                                            <tr key={sub.id} className="hover:bg-slate-50/50 border-b border-border">
+                                                                <td className="p-2 border-r border-border text-center font-mono text-xs text-slate-400">{idx + 1}</td>
+                                                                <td className="p-4 border-r border-border">
+                                                                    <div className="font-bold text-sm text-slate-700">{sub.name || `Mapel ${idx + 1}`}</div>
+                                                                    <div className="text-[9px] text-slate-400 font-mono uppercase tracking-tighter">ID: {sub.id}</div>
+                                                                </td>
+                                                                <td className="p-1 border-r border-border">
+                                                                    <GradeInput value={iz.grade_p} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_p', v)} />
+                                                                </td>
+                                                                <td className="p-1 border-border">
+                                                                    <GradeInput value={iz.grade_k} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_k', v)} />
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    <tr className="bg-slate-50/80 hover:bg-slate-50 transition-colors border-y-2 border-slate-200">
+                                                        <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Jumlah Penilaian</td>
+                                                        <td className="p-2 border-r border-border text-center font-mono font-black text-blue-600">{sP || '-'}</td>
+                                                        <td className="p-2 border-border text-center font-mono font-black text-emerald-600">{sK || '-'}</td>
                                                     </tr>
-                                                );
-                                            })
-                                        )}
+                                                    <tr className="bg-slate-100/50 hover:bg-slate-100 transition-colors border-b border-border">
+                                                        <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Rata-Rata</td>
+                                                        <td className="p-2 border-r border-border text-center font-mono font-black text-blue-800">{avgP}</td>
+                                                        <td className="p-2 border-border text-center font-mono font-black text-emerald-800">{avgK}</td>
+                                                    </tr>
+                                                </>
+                                            );
+                                        })()}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
+
+                        {/* TKA Mass Edit Modal */}
+                        <AnimatePresence>
+                            {showTkaMassModal && (
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card w-full max-w-3xl max-h-[85vh] flex flex-col p-0 shadow-2xl overflow-hidden">
+                                        <div className="p-6 border-b border-border flex justify-between items-center bg-slate-50">
+                                            <div>
+                                                <h3 className="text-lg font-black uppercase text-purple-900 flex items-center gap-2">
+                                                    <Users size={20} /> Input Massal TKA Kelas {selectedClass?.name || ''}
+                                                </h3>
+                                                <p className="text-[10px] font-bold text-slate-500 mt-1">Input nilai Tes Kemampuan Akademik (TKA) secara serentak</p>
+                                            </div>
+                                            <button onClick={() => setShowTkaMassModal(false)} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500"><X size={20} /></button>
+                                        </div>
+                                        
+                                        <div className="px-6 mx-auto w-full py-3 bg-purple-50/50 border-b border-border flex flex-wrap gap-2 justify-between items-center">
+                                            <button onClick={handleDownloadTkaTemplate} className="btn-small bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-2">
+                                                <Download size={14} /> Template Excel
+                                            </button>
+                                            <label className="btn-small bg-slate-800 text-white hover:bg-slate-900 cursor-pointer flex items-center gap-2 shadow-sm">
+                                                <Upload size={14} /> Import TKA
+                                                <input type="file" accept=".csv" className="hidden" onChange={handleImportTkaCSV} />
+                                            </label>
+                                        </div>
+
+                                        <div className="overflow-y-auto flex-1 bg-white">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-slate-50 sticky top-0 shadow-sm z-10">
+                                                    <tr>
+                                                        <th className="py-3 px-4 text-left text-xs font-black text-slate-500 w-16">NO</th>
+                                                        <th className="py-3 px-4 text-left text-xs font-black text-slate-500">NAMA SISWA</th>
+                                                        <th className="py-3 px-4 text-right text-xs font-black text-slate-500 w-32">NILAI TKA</th>
+                                                        <th className="py-3 px-4 text-center text-xs font-black text-slate-500 w-16"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {sortStudentsForSelect(filteredStudents).map((stu, i) => (
+                                                        <tr key={stu.id} className="hover:bg-slate-50 transition-colors">
+                                                            <td className="py-3 px-4 font-mono text-xs text-slate-400">{i + 1}</td>
+                                                            <td className="py-3 px-4 font-bold text-slate-700 text-sm">{stu.name || 'Siswa'}</td>
+                                                            <td className="py-2 px-4">
+                                                                <input
+                                                                    type="number"
+                                                                    min="0" max="100" step="0.1"
+                                                                    className={`w-full p-2 border ${Number(massTkaData[stu.id] || 0) < 0 || Number(massTkaData[stu.id] || 0) > 100 ? 'border-red-400 bg-red-50 text-red-700' : 'border-border bg-white'} rounded-lg text-right font-black text-purple-700 outline-none focus:border-purple-500`}
+                                                                    placeholder="0-100"
+                                                                    value={massTkaData[stu.id] ?? ''}
+                                                                    onChange={(e) => setMassTkaData({ ...massTkaData, [stu.id]: e.target.value })}
+                                                                />
+                                                            </td>
+                                                            <td className="py-2 px-4 text-center">
+                                                                <button
+                                                                    onClick={() => setMassTkaData({ ...massTkaData, [stu.id]: '' })}
+                                                                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                                    title="Hapus Nilai TKA"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            {filteredStudents.length === 0 && (
+                                                <div className="py-12 text-center text-slate-500 font-bold italic">Tidak ada siswa di kelas ini.</div>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="p-6 border-t border-border bg-slate-50 flex items-center justify-between mt-auto">
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{filteredStudents.length} Siswa tertampil</p>
+                                            <div className="flex gap-3">
+                                                <button onClick={() => setShowTkaMassModal(false)} className="px-6 py-2 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors">Batal</button>
+                                                <button onClick={handleSaveMassTka} className="btn-primary px-8 py-3 rounded-xl shadow-lg shadow-purple-500/30 flex items-center gap-2">
+                                                    <Save size={16} /> Simpan Data Kelas
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                </div>
+                            )}
+                        </AnimatePresence>
                     </div>
 
                     <div className="xl:col-span-1 space-y-6">
