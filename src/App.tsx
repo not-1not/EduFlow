@@ -6349,6 +6349,32 @@ function MonthlyClassCashView({
         setEdits(prev => ({ ...prev, [getCellKey(studentId, d)]: next }));
     };
 
+    const handleFillDate = (d: number) => {
+        const date = new Date(year, m - 1, d);
+        if (isHoliday(date).holiday) return;
+
+        const nominal = getNominal();
+        const newEdits = { ...edits };
+        students.forEach(s => {
+            newEdits[getCellKey(s.id, d)] = nominal;
+        });
+        setEdits(newEdits);
+    };
+
+    const handleFillAllDates = () => {
+        const nominal = getNominal();
+        const newEdits = { ...edits };
+        days.forEach(d => {
+            const date = new Date(year, m - 1, d);
+            if (!isHoliday(date).holiday) {
+                students.forEach(s => {
+                    newEdits[getCellKey(s.id, d)] = nominal;
+                });
+            }
+        });
+        setEdits(newEdits);
+    };
+
     const handleSaveAll = async () => {
         const keys = Object.keys(edits);
         if (keys.length === 0) return alert('Tidak ada perubahan untuk disimpan.');
@@ -6393,6 +6419,15 @@ function MonthlyClassCashView({
                     </div>
                 </div>
             )}
+            <div className="p-3 bg-slate-50 border-b border-border flex justify-end gap-2 no-print">
+                <button 
+                    onClick={handleFillAllDates}
+                    className="btn-small bg-accent/10 text-accent hover:bg-accent hover:text-white border border-accent/20 transition-all flex items-center gap-2"
+                >
+                    <CheckSquare size={14} />
+                    Isi Seluruh Tanggal
+                </button>
+            </div>
             <table className="w-full border-collapse">
                 <thead>
                     <tr>
@@ -6406,8 +6441,9 @@ function MonthlyClassCashView({
                             return (
                                 <th
                                     key={d}
-                                    className={`p-1 border border-border font-mono text-[10px] min-w-[36px] ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : ''}`}
-                                    title={holidayInfo.name}
+                                    className={`p-1 border border-border font-mono text-[10px] min-w-[36px] transition-colors ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : 'cursor-pointer hover:bg-accent hover:text-white bg-slate-50'}`}
+                                    title={holidayInfo.holiday ? holidayInfo.name : `Klik untuk isi seluruh siswa tanggal ${d}`}
+                                    onClick={() => !holidayInfo.holiday && handleFillDate(d)}
                                 >
                                     {d}
                                 </th>
