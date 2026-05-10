@@ -6307,6 +6307,27 @@ function MonthlyClassCashView({
 
     const [edits, setEdits] = useState<{ [key: string]: number }>({});
     const [headerMenu, setHeaderMenu] = useState<{ day: number, x: number, y: number } | null>(null);
+
+    // Grand Totals Calculation
+    const grandTotals = students.reduce((acc, s) => {
+        const studentTransactions = transactions.filter(t => t.studentId === s.id && t.type === type);
+        const monthDatePrefix = `${year}-${String(m).padStart(2, '0')}-`;
+        
+        let monthTotal = 0;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const amount = getRecordAmount(s.id, d);
+            if (amount > 0) monthTotal += amount;
+        }
+        
+        const otherMonthsTotal = studentTransactions
+            .filter(t => !t.date.startsWith(monthDatePrefix))
+            .reduce((total, t) => total + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
+        
+        acc.month += monthTotal;
+        acc.cumulative += (monthTotal + otherMonthsTotal);
+        return acc;
+    }, { month: 0, cumulative: 0 });
+
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     const getNominal = () => type === 'gemari' ? 500 : 1000;
@@ -6529,6 +6550,15 @@ function MonthlyClassCashView({
                         </tr>
                         );
                     })}
+                    {students.length > 0 && (
+                        <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 no-print">
+                            <td className="p-2 border border-border sticky left-0 bg-slate-100 z-10 text-[10px] text-slate-500 uppercase">TOTAL KESELURUHAN</td>
+                            <td className="p-1 border border-border bg-slate-50/30"></td>
+                            <td className="p-1 border border-border text-right font-mono text-[11px] font-black text-blue-900 bg-blue-50/50">{grandTotals.month.toLocaleString('id-ID')}</td>
+                            <td className="p-1 border border-border text-right font-mono text-[11px] font-black text-blue-900 bg-blue-50/50">{grandTotals.cumulative.toLocaleString('id-ID')}</td>
+                            {days.map(d => <td key={d} className="p-0 border border-border bg-slate-50/10"></td>)}
+                        </tr>
+                    )}
                     {students.length === 0 && (
                         <tr>
                             <td colSpan={daysInMonth + 4} className="text-center py-20 opacity-30 italic">Pilih kelas untuk melihat grid bulanan</td>
