@@ -6656,57 +6656,58 @@ function LedgerClassCashView({
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
     const studentsForSelect = sortStudentsForSelect(students);
 
-    // Running balance calculation must be independent of current sorting/view
+    // Running balance calculation across all available history
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const prevTx = allSortedTx.filter(t => t.date < month + '-01');
-    const prevBalance = prevTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
-
-    const monthTx = allSortedTx.filter(t => t.date.startsWith(month));
-    const studentIuranMonth = monthTx.filter(t => t.transactionType === 'deposit' && t.studentId);
-    const individualItemsMonth = monthTx.filter(t => t.transactionType === 'withdrawal' || (t.transactionType === 'deposit' && !t.studentId));
+    const studentIuranGroups: { [key: string]: ClassCashTransaction[] } = {};
+    const individualItems: ClassCashTransaction[] = [];
+    
+    allSortedTx.forEach(t => {
+        const isStudentIuran = t.transactionType === 'deposit' && t.studentId;
+        if (!isStudentIuran) {
+            individualItems.push(t);
+        } else {
+            const mKey = t.date.substring(0, 7); // YYYY-MM
+            if (!studentIuranGroups[mKey]) studentIuranGroups[mKey] = [];
+            studentIuranGroups[mKey].push(t);
+        }
+    });
 
     let displayItems: any[] = [];
     
-    // Aggregated Student Iuran for the month
-    if (studentIuranMonth.length > 0) {
-        const totalAmount = studentIuranMonth.reduce((acc, t) => acc + t.amount, 0);
-        const actualCount = studentIuranMonth.filter(t => t.amount > 0).length;
-        const bebasCount = studentIuranMonth.filter(t => t.amount === 0).length;
+    // Aggregated Student Iuran (Consolidated per month)
+    Object.keys(studentIuranGroups).sort().forEach(mKey => {
+        const group = studentIuranGroups[mKey];
+        const totalAmount = group.reduce((acc, t) => acc + t.amount, 0);
+        const actualCount = group.filter(t => t.amount > 0).length;
+        const bebasCount = group.filter(t => t.amount === 0).length;
         
-        // Calculate Target Hari (Kewajiban) for THIS month
-        const [yearArr, mArr] = month.split('-').map(Number);
-        const daysInMonth = new Date(yearArr, mArr, 0).getDate();
-        let schoolDaysCount = 0;
-        for (let dArr = 1; dArr <= daysInMonth; dArr++) {
-            const dateArr = new Date(yearArr, mArr - 1, dArr);
-            const dayArr = dateArr.getDay();
-            const dateStrArr = dateArr.toISOString().split('T')[0];
-            
-            let isHolidayArr = false;
-            if (dayArr === 0) isHolidayArr = true; 
-            if (type === 'infaq' && dayArr !== 5) isHolidayArr = true; 
-            if (holidays.find((h: Holiday) => h.date === dateStrArr)) isHolidayArr = true; 
-            
-            if (!isHolidayArr) schoolDaysCount++;
+        // Calculate Target Hari (Kewajiban) for each month group
+        const [yearG, mG] = mKey.split('-').map(Number);
+        const daysInMonthG = new Date(yearG, mG, 0).getDate();
+        let targetCountG = 0;
+        for (let d = 1; d <= daysInMonthG; d++) {
+            const dateObj = new Date(yearG, mG - 1, d);
+            const day = dateObj.getDay();
+            const dateStr = dateObj.toISOString().split('T')[0];
+            let isHoliday = day === 0 || (type === 'infaq' && day !== 5) || holidays.find(h => h.date === dateStr);
+            if (!isHoliday) targetCountG++;
         }
-        const possibleTargetTotal = schoolDaysCount * students.length;
-        const targetHari = Math.max(0, possibleTargetTotal - bebasCount);
-
-        const lastDate = studentIuranMonth.reduce((max, t) => t.date > max ? t.date : max, month + '-01');
+        const targetHari = Math.max(0, (targetCountG * students.length) - bebasCount);
+        const lastDate = group.reduce((max, t) => t.date > max ? t.date : max, mKey + '-01');
         
         displayItems.push({
-            id: 'agg-iuran-' + month,
+            id: 'agg-iuran-' + mKey,
             date: lastDate,
-            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${month} (${actualCount} / ${targetHari} Hari Bayar)`,
+            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${mKey} (${actualCount} / ${targetHari} Hari Bayar)`,
             debit: totalAmount,
             credit: 0,
             isAggregated: true
         });
-    }
+    });
 
-    // Add Individual Items for the month
-    individualItemsMonth.forEach(tw => {
+    // Individual manually entered Items
+    individualItems.forEach(tw => {
         displayItems.push({
             ...tw,
             debit: tw.transactionType === 'deposit' ? tw.amount : 0,
@@ -6715,11 +6716,11 @@ function LedgerClassCashView({
         });
     });
 
-    // Sort by date then by ID
+    // Sort all by date chronologically
     displayItems.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
-    // Calculate running balance starting from prevBalance
-    let running = prevBalance;
+    // Calculate Global Running Balance
+    let running = 0;
     const finalDisplayItems = displayItems.map(item => {
         running += item.debit - item.credit;
         return { ...item, balance: running };
@@ -6903,13 +6904,9 @@ function LedgerClassCashView({
                         </tr>
                     </thead>
                     <tbody>
-                        <tr className="bg-slate-50/50">
-                            <td colSpan={4} className="text-right font-bold text-[10px] uppercase text-slate-500 py-3">Saldo Pindahan Bulan Lalu</td>
-                            <td className="text-right font-black text-sm bg-slate-100 py-3">{formatCurrency(prevBalance)}</td>
-                            <td className="no-print bg-slate-50/50"></td>
-                        </tr>
+                        {/* Global history: no Saldo Pindahan needed */}
                         {finalDisplayItems.length === 0 ? (
-                            <tr><td colSpan={5} className="text-center py-20 text-slate-400 italic">Belum ada riwayat mutasi kas</td></tr>
+                            <tr><td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada riwayat mutasi kas</td></tr>
                         ) : finalDisplayItems.map((l: any, i: number) => (
                             <tr key={l.id} className="hover:bg-slate-50">
                                 <td className="font-mono text-xs text-slate-500">{l.date}</td>
