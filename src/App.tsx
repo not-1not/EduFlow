@@ -146,6 +146,7 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
 
     const rows = deduped.map((entry) => ({
         ...entry,
+        transactionType: entry.transactionType || 'deposit',
         period_month: getPeriodMonth(entry.date),
         id: buildClassCashKey(entry)
     }));
@@ -6391,9 +6392,10 @@ function MonthlyClassCashView({
             return {
                 classId,
                 studentId,
-                amount: edits[k],
+                amount: Number(edits[k]),
                 date: dateStr,
                 type,
+                transactionType: 'deposit',
                 notes: `Mass Edit Bulanan - ${type}`
             };
         }).filter(Boolean) as ClassCashWriteEntry[];
@@ -6402,9 +6404,10 @@ function MonthlyClassCashView({
             await persistClassCashEntries(entries);
             setEdits({});
             onRefresh();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Gagal menyimpan mass edit bulanan kas/infaq:', error);
-            alert('Gagal menyimpan mass edit bulanan. Silakan coba lagi.');
+            const msg = error?.message || error?.details || 'Terjadi kesalahan sistem';
+            alert(`Gagal menyimpan mass edit bulanan: ${msg}`);
         }
     };
 
