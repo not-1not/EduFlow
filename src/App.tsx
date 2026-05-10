@@ -66,6 +66,7 @@ import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, wher
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings, ChatMessage } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
+import html2canvas from 'html2canvas';
 
 const sortStudentsForSelect = (students: Student[]) => {
     return [...students].sort((a, b) => {
@@ -8209,6 +8210,78 @@ function UsersManagementView({ students, classes }: { students: Student[]; class
     const filteredUsers = users.filter(u => roleFilter === 'all' || u.role === roleFilter);
     const studentsForSelect = sortStudentsForSelect(students);
 
+    const renderCardHtml = (u: UserAccount) => `
+        <div id="card-render-target" style="background:#f8fafc;border-radius:24px;padding:32px;width:400px;position:relative;overflow:hidden;font-family:sans-serif;">
+            <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6366f1,#8b5cf6);"></div>
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:32px;">
+                <div style="width:56px;height:56px;border-radius:16px;background:#1e293b;display:flex;align-items:center;justify-content:center;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </div>
+                <div>
+                    <div style="font-weight:900;font-size:20px;color:#0f172a;">EduFlow Access</div>
+                    <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:0.2em;text-transform:uppercase;">Credentials Card</div>
+                </div>
+            </div>
+            <div style="background:white;padding:24px;border-radius:16px;margin-bottom:16px;border:1px solid #e2e8f0;">
+                <div style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:16px;">Informasi Pengguna</div>
+                <div style="margin-bottom:16px;">
+                    <div style="font-size:10px;color:#64748b;margin-bottom:4px;font-weight:700;">NAMA LENGKAP</div>
+                    <div style="font-weight:900;font-size:20px;color:#0f172a;">${u.displayName}</div>
+                </div>
+                <div style="display:flex;gap:32px;">
+                    <div>
+                        <div style="font-size:10px;color:#64748b;margin-bottom:4px;font-weight:700;">PERAN</div>
+                        <div style="font-weight:900;color:#0f172a;text-transform:uppercase;">${u.role}</div>
+                    </div>
+                    ${u.role === 'student' ? '<div><div style="font-size:10px;color:#64748b;margin-bottom:4px;font-weight:700;">STATUS</div><div style="font-weight:700;color:#16a34a;font-style:italic;">Terverifikasi</div></div>' : ''}
+                </div>
+            </div>
+            <div style="background:#1e293b;padding:24px;border-radius:16px;margin-bottom:16px;">
+                <div style="font-size:9px;font-weight:900;color:#facc1566;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:16px;">Login Kredensial</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                    <div>
+                        <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px;">Username</div>
+                        <div style="font-family:monospace;font-weight:900;font-size:18px;color:white;letter-spacing:0.05em;">${u.username || '-'}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px;">Password</div>
+                        <div style="font-family:monospace;font-weight:900;font-size:18px;color:white;background:rgba(255,255,255,0.1);padding:2px 8px;border-radius:6px;">${u.password || '-'}</div>
+                    </div>
+                </div>
+            </div>
+            <div style="text-align:center;">
+                <div style="font-size:9px;color:#94a3b8;font-weight:700;font-style:italic;">Simpan kartu ini dengan baik. Jangan berikan akses akun Anda kepada siapapun.</div>
+            </div>
+        </div>`;
+
+    const downloadCardJpg = async (u: UserAccount) => {
+        const tmp = document.createElement('div');
+        tmp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;z-index:-1;';
+        tmp.innerHTML = renderCardHtml(u);
+        document.body.appendChild(tmp);
+        const cardEl = tmp.querySelector('#card-render-target') as HTMLElement;
+        try {
+            const canvas = await html2canvas(cardEl, { scale: 2, useCORS: true, backgroundColor: null });
+            const a = document.createElement('a');
+            a.download = `KartuAkses_${u.displayName || u.username}.jpg`;
+            a.href = canvas.toDataURL('image/jpeg', 0.95);
+            a.click();
+        } finally {
+            document.body.removeChild(tmp);
+        }
+    };
+
+    const [downloadingAll, setDownloadingAll] = useState(false);
+    const downloadAllCardsJpg = async () => {
+        if (filteredUsers.length === 0) return;
+        setDownloadingAll(true);
+        for (const u of filteredUsers) {
+            await downloadCardJpg(u);
+            await new Promise(r => setTimeout(r, 300));
+        }
+        setDownloadingAll(false);
+    };
+
     const slugifyUsername = (v: string) =>
         String(v || '')
             .toLowerCase()
@@ -8393,6 +8466,18 @@ function UsersManagementView({ students, classes }: { students: Student[]; class
                         className="btn-secondary flex items-center gap-2 justify-center flex-1 md:flex-initial"
                     >
                         <Download size={18} /> CSV
+                    </button>
+                    <button
+                        onClick={downloadAllCardsJpg}
+                        disabled={downloadingAll || filteredUsers.length === 0}
+                        className="btn-secondary flex items-center gap-2 justify-center flex-1 md:flex-initial disabled:opacity-60"
+                        title="Download Semua Kartu Akses sebagai JPG"
+                    >
+                        {downloadingAll ? (
+                            <><span className="animate-spin border-2 border-emerald-500 border-t-transparent w-4 h-4 rounded-full inline-block" /> Memproses...</>
+                        ) : (
+                            <><Download size={18} /> Semua JPG</>
+                        )}
                     </button>
                     <button
                         onClick={() => { setShowAdd(true); setEditingUser(null); setFormData({ email: '', displayName: '', role: 'student', studentId: '', username: '', password: '' }); }}
@@ -8621,6 +8706,9 @@ function UsersManagementView({ students, classes }: { students: Student[]; class
 
                             <div className="mt-8 flex gap-3 no-print">
                                 <button onClick={() => setShowPrintAccount(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all">Tutup</button>
+                                <button onClick={() => downloadCardJpg(showPrintAccount)} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
+                                    <Download size={14} /> Download JPG
+                                </button>
                                 <button onClick={() => window.print()} className="flex-1 py-4 bg-accent text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-accent/30 hover:bg-accent-dark transition-all">Print Kartu</button>
                             </div>
                         </motion.div>
