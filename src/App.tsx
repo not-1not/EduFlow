@@ -6398,7 +6398,7 @@ function MonthlyClassCashView({
                 date: dateStr,
                 type,
                 transactionType: 'deposit',
-                notes: `Mass Edit Bulanan - ${type}`
+                notes: `Iuran ${type.toUpperCase()}`
             };
         }).filter(Boolean) as ClassCashWriteEntry[];
 
@@ -6668,7 +6668,8 @@ function LedgerClassCashView({
     const individualItems: ClassCashTransaction[] = [];
     
     allSortedTx.forEach(t => {
-        const isStudentIuran = t.transactionType === 'deposit' && t.studentId;
+        // More robust check: if it has studentId, it's an iuran (even if transactionType is missing or not 'deposit')
+        const isStudentIuran = !!t.studentId;
         if (!isStudentIuran) {
             individualItems.push(t);
         } else {
@@ -6715,11 +6716,23 @@ function LedgerClassCashView({
 
     // Individual manually entered Items
     individualItems.forEach(tw => {
+        const amt = Number(tw.amount || 0);
+        
+        // Hide zero or invalid amounts
+        if (!amt || isNaN(amt) || amt <= 0) {
+            // Expenses (withdrawals) with 0 are also hidden, but if amt > 0 it should be shown
+            if (tw.transactionType !== 'withdrawal') return;
+            if (amt === 0) return;
+        }
+
+        // Hide legacy rows that might have leaked out of aggregation
+        if (tw.notes?.includes('Mass Edit Bulanan')) return;
+        
         displayItems.push({
             ...tw,
-            debit: tw.transactionType === 'deposit' ? tw.amount : 0,
-            credit: tw.transactionType === 'withdrawal' ? tw.amount : 0,
-            desc: tw.notes || (tw.transactionType === 'deposit' ? 'Pemasukan Umum' : 'Pengeluaran/Penarikan')
+            debit: tw.transactionType === 'withdrawal' ? 0 : amt,
+            credit: tw.transactionType === 'withdrawal' ? amt : 0,
+            desc: tw.notes || (tw.transactionType === 'withdrawal' ? 'Pengeluaran/Penarikan' : 'Pemasukan Umum')
         });
     });
 

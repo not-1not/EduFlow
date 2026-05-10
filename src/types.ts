@@ -4,7 +4,6 @@
  */
 
 export interface Student {
-<<<<<<< Updated upstream
     id: string;
     name: string;
     email: string;
@@ -45,57 +44,14 @@ export interface Student {
         label: string;
         amount: number;
     }>;
+    paymentGemariInfaqAdjustments?: Array<{
+        month: string; // YYYY-MM (or range like YYYY-MM..YYYY-MM)
+        amount?: number; // Combined gemari + infaq manual adjustment
+        gemariOverride?: number;
+        infaqOverride?: number;
+        note?: string;
+    }>;
 }
-=======
-     id: string;
-     name: string;
-     email: string;
-     classId: string;
-     attendance: number; // percentage
-     gradeValue?: number; // average grade
-     nisn?: string;
-     nis?: string;
-     gender?: 'L' | 'P';
-     phone?: string;
-     address?: string;
-     dusun?: string;
-     desa?: string;
-     kecamatan?: string;
-     birthPlace?: string;
-     birthDate?: string;
-     nik?: string;
-     nkk?: string;
-     religion?: string;
-     weightSem1?: number;
-     weightSem2?: number;
-     heightSem1?: number;
-     heightSem2?: number;
-     fatherName?: string;
-     fatherBirthYear?: string;
-     fatherNik?: string;
-     motherName?: string;
-     motherBirthYear?: string;
-     motherNik?: string;
-     guardianName?: string;
-     guardianBirthYear?: string;
-     guardianNik?: string;
-     distanceToSchool?: number;
-     attendanceNumber?: number;
-     notes?: string;
-     paymentExtraBills?: Array<{
-         id: string;
-         label: string;
-         amount: number;
-     }>;
-      paymentGemariInfaqAdjustments?: Array<{
-          month: string; // YYYY-MM (or range like YYYY-MM..YYYY-MM)
-          amount?: number; // Combined gemari + infaq manual adjustment
-          gemariOverride?: number;
-          infaqOverride?: number;
-          note?: string;
-      }>;
- }
->>>>>>> Stashed changes
 
 export interface Subject {
     id: string;
