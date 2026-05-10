@@ -6659,64 +6659,54 @@ function LedgerClassCashView({
     // Running balance calculation must be independent of current sorting/view
     const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Grouping for Global View
-    const studentIuranGroups: { [key: string]: ClassCashTransaction[] } = {};
-    const individualItems: ClassCashTransaction[] = [];
-    
-    allSortedTx.forEach(t => {
-        const isStudentIuran = t.transactionType === 'deposit' && t.studentId;
-        if (!isStudentIuran) {
-            individualItems.push(t);
-        } else {
-            const mKey = t.date.substring(0, 7); // YYYY-MM
-            if (!studentIuranGroups[mKey]) studentIuranGroups[mKey] = [];
-            studentIuranGroups[mKey].push(t);
-        }
-    });
+    const prevTx = allSortedTx.filter(t => t.date < month + '-01');
+    const prevBalance = prevTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
+
+    const monthTx = allSortedTx.filter(t => t.date.startsWith(month));
+    const studentIuranMonth = monthTx.filter(t => t.transactionType === 'deposit' && t.studentId);
+    const individualItemsMonth = monthTx.filter(t => t.transactionType === 'withdrawal' || (t.transactionType === 'deposit' && !t.studentId));
 
     let displayItems: any[] = [];
     
-    // Process Month Groups (Student Iuran)
-    Object.keys(studentIuranGroups).sort().forEach(mKey => {
-        const group = studentIuranGroups[mKey];
-        const totalAmount = group.reduce((acc, t) => acc + t.amount, 0);
-        const actualCount = group.filter(t => t.amount > 0).length;
-        const bebasCount = group.filter(t => t.amount === 0).length;
+    // Aggregated Student Iuran for the month
+    if (studentIuranMonth.length > 0) {
+        const totalAmount = studentIuranMonth.reduce((acc, t) => acc + t.amount, 0);
+        const actualCount = studentIuranMonth.filter(t => t.amount > 0).length;
+        const bebasCount = studentIuranMonth.filter(t => t.amount === 0).length;
         
-        // Calculate Target Hari (Kewajiban) for this specific month
-        const [year, m] = mKey.split('-').map(Number);
-        const daysInMonth = new Date(year, m, 0).getDate();
+        // Calculate Target Hari (Kewajiban) for THIS month
+        const [yearArr, mArr] = month.split('-').map(Number);
+        const daysInMonth = new Date(yearArr, mArr, 0).getDate();
         let schoolDaysCount = 0;
-        for (let d = 1; d <= daysInMonth; d++) {
-            const date = new Date(year, m - 1, d);
-            const day = date.getDay();
-            const dateStr = date.toISOString().split('T')[0];
+        for (let dArr = 1; dArr <= daysInMonth; dArr++) {
+            const dateArr = new Date(yearArr, mArr - 1, dArr);
+            const dayArr = dateArr.getDay();
+            const dateStrArr = dateArr.toISOString().split('T')[0];
             
-            let isHoliday = false;
-            if (day === 0) isHoliday = true; 
-            if (type === 'infaq' && day !== 5) isHoliday = true; 
-            if (holidays.find((h: Holiday) => h.date === dateStr)) isHoliday = true; 
+            let isHolidayArr = false;
+            if (dayArr === 0) isHolidayArr = true; 
+            if (type === 'infaq' && dayArr !== 5) isHolidayArr = true; 
+            if (holidays.find((h: Holiday) => h.date === dateStrArr)) isHolidayArr = true; 
             
-            if (!isHoliday) schoolDaysCount++;
+            if (!isHolidayArr) schoolDaysCount++;
         }
-        // REDUCED Target: only students who MUST pay (excluding those marked BEBAS for specific days)
         const possibleTargetTotal = schoolDaysCount * students.length;
         const targetHari = Math.max(0, possibleTargetTotal - bebasCount);
 
-        const lastDate = group.reduce((max, t) => t.date > max ? t.date : max, mKey + '-01');
+        const lastDate = studentIuranMonth.reduce((max, t) => t.date > max ? t.date : max, month + '-01');
         
         displayItems.push({
-            id: 'agg-iuran-' + mKey,
+            id: 'agg-iuran-' + month,
             date: lastDate,
-            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${mKey} (${actualCount} / ${targetHari} Hari Bayar)`,
+            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${month} (${actualCount} / ${targetHari} Hari Bayar)`,
             debit: totalAmount,
             credit: 0,
             isAggregated: true
         });
-    });
+    }
 
-    // Add Individual Items (Withdrawals & Manual Incomes)
-    individualItems.forEach(tw => {
+    // Add Individual Items for the month
+    individualItemsMonth.forEach(tw => {
         displayItems.push({
             ...tw,
             debit: tw.transactionType === 'deposit' ? tw.amount : 0,
@@ -6725,11 +6715,11 @@ function LedgerClassCashView({
         });
     });
 
-    // Sort by date then by ID to keep it stable
+    // Sort by date then by ID
     displayItems.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
-    // Calculate running balance for the display items
-    let running = 0;
+    // Calculate running balance starting from prevBalance
+    let running = prevBalance;
     const finalDisplayItems = displayItems.map(item => {
         running += item.debit - item.credit;
         return { ...item, balance: running };
@@ -6913,7 +6903,11 @@ function LedgerClassCashView({
                         </tr>
                     </thead>
                     <tbody>
-                        {/* Saldo Pindahan removed since we show all history */}
+                        <tr className="bg-slate-50/50">
+                            <td colSpan={4} className="text-right font-bold text-[10px] uppercase text-slate-500 py-3">Saldo Pindahan Bulan Lalu</td>
+                            <td className="text-right font-black text-sm bg-slate-100 py-3">{formatCurrency(prevBalance)}</td>
+                            <td className="no-print bg-slate-50/50"></td>
+                        </tr>
                         {finalDisplayItems.length === 0 ? (
                             <tr><td colSpan={5} className="text-center py-20 text-slate-400 italic">Belum ada riwayat mutasi kas</td></tr>
                         ) : finalDisplayItems.map((l: any, i: number) => (
