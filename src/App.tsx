@@ -6654,6 +6654,11 @@ function LedgerClassCashView({
     const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '', notes: '' });
     const [editingItem, setEditingItem] = useState<any>(null);
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const getMonthNameIndo = (mKey: string) => {
+        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        const [y, m] = mKey.split('-').map(Number);
+        return `${months[m - 1]} ${y}`;
+    };
     const studentsForSelect = sortStudentsForSelect(students);
 
     // Running balance calculation across all available history
@@ -6694,12 +6699,14 @@ function LedgerClassCashView({
             if (!isHoliday) targetCountG++;
         }
         const targetHari = Math.max(0, (targetCountG * students.length) - bebasCount);
+        if (totalAmount <= 0) return;
+
         const lastDate = group.reduce((max, t) => t.date > max ? t.date : max, mKey + '-01');
         
         displayItems.push({
             id: 'agg-iuran-' + mKey,
             date: lastDate,
-            desc: `REKAP SETORAN: Iuran ${type.toUpperCase()} - ${mKey} (${actualCount} / ${targetHari} Hari Bayar)`,
+            desc: `REKAP ${getMonthNameIndo(mKey).toUpperCase()} (${targetCountG} HARI)`,
             debit: totalAmount,
             credit: 0,
             isAggregated: true
