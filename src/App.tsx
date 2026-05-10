@@ -6308,26 +6308,6 @@ function MonthlyClassCashView({
     const [edits, setEdits] = useState<{ [key: string]: number }>({});
     const [headerMenu, setHeaderMenu] = useState<{ day: number, x: number, y: number } | null>(null);
 
-    // Grand Totals Calculation
-    const grandTotals = students.reduce((acc, s) => {
-        const studentTransactions = transactions.filter(t => t.studentId === s.id && t.type === type);
-        const monthDatePrefix = `${year}-${String(m).padStart(2, '0')}-`;
-        
-        let monthTotal = 0;
-        for (let d = 1; d <= daysInMonth; d++) {
-            const amount = getRecordAmount(s.id, d);
-            if (amount > 0) monthTotal += amount;
-        }
-        
-        const otherMonthsTotal = studentTransactions
-            .filter(t => !t.date.startsWith(monthDatePrefix))
-            .reduce((total, t) => total + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
-        
-        acc.month += monthTotal;
-        acc.cumulative += (monthTotal + otherMonthsTotal);
-        return acc;
-    }, { month: 0, cumulative: 0 });
-
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     const getNominal = () => type === 'gemari' ? 500 : 1000;
@@ -6433,6 +6413,26 @@ function MonthlyClassCashView({
     };
 
     const hasEdits = Object.keys(edits).length > 0;
+
+    // Grand Totals Calculation (Moved here to avoid initialization error)
+    const grandTotals = students.reduce((acc, s) => {
+        const studentTransactions = transactions.filter(t => t.studentId === s.id && t.type === type);
+        const monthDatePrefix = `${year}-${String(m).padStart(2, '0')}-`;
+        
+        let monthTotal = 0;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const amount = getRecordAmount(s.id, d);
+            if (amount > 0) monthTotal += amount;
+        }
+        
+        const otherMonthsTotal = studentTransactions
+            .filter(t => !t.date.startsWith(monthDatePrefix))
+            .reduce((total, t) => total + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
+        
+        acc.month += monthTotal;
+        acc.cumulative += (monthTotal + otherMonthsTotal);
+        return acc;
+    }, { month: 0, cumulative: 0 });
 
     return (
         <div className="card !p-0 overflow-x-auto min-w-full relative">
