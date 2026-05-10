@@ -8740,35 +8740,8 @@ function StudentDashboardView({
                     </motion.div>
                 )}
 
-                {(displaySettings.showSavings || displaySettings.showClassCash) && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="card md:col-span-2 lg:col-span-3 space-y-4">
-                        <div className="flex items-center gap-2 text-amber-600 mb-2">
-                            <Wallet size={18} />
-                            <h3 className="font-black text-sm uppercase tracking-tight">Informasi Keuangan Siswa</h3>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {displaySettings.showSavings && (
-                                <div className="p-4 bg-amber-50/30 rounded-2xl border border-amber-100 flex justify-between items-center">
-                                    <div>
-                                        <div className="text-[10px] font-black uppercase text-amber-500 tracking-widest">Saldo Tabungan</div>
-                                        <div className="text-2xl font-black text-amber-700">{formatCurrency(mySavings.reduce((acc, s) => s.type === 'deposit' ? acc + s.amount : acc - s.amount, 0))}</div>
-                                    </div>
-                                    <PiggyBank size={32} className="text-amber-300 opacity-50" />
-                                </div>
-                            )}
-                            {displaySettings.showClassCash && (
-                                <div className="p-4 bg-indigo-50/30 rounded-2xl border border-indigo-100 flex justify-between items-center">
-                                    <div>
-                                        <div className="text-[10px] font-black uppercase text-indigo-500 tracking-widest">Kontribusi Kas (Gemari)</div>
-                                        <div className="text-2xl font-black text-indigo-700">{formatCurrency(myClassCash.reduce((acc, c) => acc + c.amount, 0))}</div>
-                                    </div>
-                                    <Coins size={32} className="text-indigo-300 opacity-50" />
-                                </div>
-                            )}
-                        </div>
-                    </motion.div>
-                )}
             </div>
+
 
             {/* Akademik (Rapot/TKA/Ijazah/Prestasi) */}
             {displaySettings.showGrades && (
@@ -8807,21 +8780,50 @@ function StudentDashboardView({
                                     <tbody>
                                         {academicConfig.subjects.length === 0 ? (
                                             <tr><td colSpan={6} className="py-8 text-center text-slate-400 italic font-medium">Data mata pelajaran belum dikonfigurasi admin.</td></tr>
-                                        ) : (
-                                            academicConfig.subjects.map((sub, idx) => {
-                                                const g = academicRecord?.rapot?.[sub.id] || {};
-                                                return (
-                                                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="p-2 border-b border-r border-border font-bold text-slate-700">{sub.name}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s41 || '-'}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s42 || '-'}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s51 || '-'}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s52 || '-'}</td>
-                                                        <td className="p-2 border-b border-border text-center font-mono font-black text-amber-600">{g.s61 || '-'}</td>
+                                        ) : (() => {
+                                            const getColTot = (k: 's41'|'s42'|'s51'|'s52'|'s61') => {
+                                                let s = 0, c = 0;
+                                                academicConfig.subjects.forEach(sub => {
+                                                    const v = Number(academicRecord?.rapot?.[sub.id]?.[k]);
+                                                    if (!isNaN(v) && v > 0) { s += v; c++; }
+                                                });
+                                                return { sum: s, avg: c > 0 ? (s/c).toFixed(1) : '-' };
+                                            };
+                                            const t41 = getColTot('s41'); const t42 = getColTot('s42'); const t51 = getColTot('s51'); const t52 = getColTot('s52'); const t61 = getColTot('s61');
+                                            return (
+                                                <>
+                                                    {academicConfig.subjects.map((sub) => {
+                                                        const g = academicRecord?.rapot?.[sub.id] || {};
+                                                        return (
+                                                            <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
+                                                                <td className="p-2 border-b border-r border-border font-bold text-slate-700">{sub.name}</td>
+                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s41 || '-'}</td>
+                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s42 || '-'}</td>
+                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s51 || '-'}</td>
+                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s52 || '-'}</td>
+                                                                <td className="p-2 border-b border-border text-center font-mono font-black text-amber-600">{g.s61 || '-'}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    <tr className="bg-slate-50/80 hover:bg-slate-50 transition-colors border-t-2 border-slate-200">
+                                                        <td className="p-2 border-b border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Jumlah</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{t41.sum || '-'}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{t42.sum || '-'}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{t51.sum || '-'}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{t52.sum || '-'}</td>
+                                                        <td className="p-2 border-b border-border text-center font-mono font-black text-amber-600">{t61.sum || '-'}</td>
                                                     </tr>
-                                                );
-                                            })
-                                        )}
+                                                    <tr className="bg-slate-100/50 hover:bg-slate-100 transition-colors border-t border-slate-200">
+                                                        <td className="p-2 border-b border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Rata-Rata</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-800">{t41.avg}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-800">{t42.avg}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-800">{t51.avg}</td>
+                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-800">{t52.avg}</td>
+                                                        <td className="p-2 border-b border-border text-center font-mono font-black text-amber-800">{t61.avg}</td>
+                                                    </tr>
+                                                </>
+                                            );
+                                        })()}
                                     </tbody>
                                 </table>
                             </div>
@@ -8891,7 +8893,7 @@ function StudentDashboardView({
                 <div className="card space-y-4">
                     <div className="flex items-center gap-2 text-emerald-700">
                         <Wallet size={18} />
-                        <h3 className="font-black text-sm uppercase tracking-tight">Keuangan Siswa</h3>
+                        <h3 className="font-black text-sm uppercase tracking-tight">Rekap Keuangan</h3>
                     </div>
 
                     {displaySettings.showSavings && (
