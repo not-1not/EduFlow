@@ -148,24 +148,34 @@ CREATE TABLE IF NOT EXISTS "savingsTransactions" (
     notes TEXT
 );
 
--- 12. Class Cash Transactions Table
-CREATE TABLE IF NOT EXISTS "classCashTransactions" (
-    id TEXT PRIMARY KEY,
-    "classId" TEXT,
-    "studentId" TEXT,
-    type TEXT,
-    "transactionType" TEXT,
-    amount NUMERIC,
-    date TEXT,
-    "period_month" TEXT,
-    notes TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_classcash_class_month
-ON "classCashTransactions" ("classId", "period_month");
-
-CREATE INDEX IF NOT EXISTS idx_classcash_student_month
-ON "classCashTransactions" ("studentId", "period_month");
+-- 12. Class Cash Transactions Tables (Partitioned per month)
+DO $$
+DECLARE
+    y INT;
+    m INT;
+    t_name TEXT;
+BEGIN
+    FOR y IN 2024..2030 LOOP
+        FOR m IN 1..12 LOOP
+            t_name := 'classCashTransactions_' || y || '_' || LPAD(m::TEXT, 2, '0');
+            EXECUTE format('
+                CREATE TABLE IF NOT EXISTS %I (
+                    id TEXT PRIMARY KEY,
+                    "classId" TEXT,
+                    "studentId" TEXT,
+                    type TEXT,
+                    "transactionType" TEXT,
+                    amount NUMERIC,
+                    date TEXT,
+                    "period_month" TEXT,
+                    notes TEXT
+                );
+                CREATE INDEX IF NOT EXISTS %I ON %I ("classId", "period_month");
+                CREATE INDEX IF NOT EXISTS %I ON %I ("studentId", "period_month");
+            ', t_name, 'idx_' || t_name || '_class_month', t_name, 'idx_' || t_name || '_student_month', t_name);
+        END LOOP;
+    END LOOP;
+END $$;
 
 -- 13. School Deposits Table
 CREATE TABLE IF NOT EXISTS "schoolDeposits" (

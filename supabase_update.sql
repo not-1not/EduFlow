@@ -138,34 +138,37 @@ CREATE TABLE IF NOT EXISTS "savingsTransactions" (
     notes TEXT
 );
 
-CREATE TABLE IF NOT EXISTS "classCashTransactions" (
-    id TEXT PRIMARY KEY,
-    "classId" TEXT,
-    "studentId" TEXT,
-    type TEXT,
-    "transactionType" TEXT,
-    amount NUMERIC,
-    date TEXT,
-    "period_month" TEXT,
-    notes TEXT
-);
-
+-- 12. Class Cash Transactions Tables (Partitioned per month)
 DO $$
+DECLARE
+    y INT;
+    m INT;
+    t_name TEXT;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='classCashTransactions' AND column_name='period_month') THEN
-        ALTER TABLE "classCashTransactions" ADD COLUMN "period_month" TEXT;
-    END IF;
+    FOR y IN 2024..2030 LOOP
+        FOR m IN 1..12 LOOP
+            t_name := '"classCashTransactions_' || y || '_' || LPAD(m::TEXT, 2, '0') || '"';
+            EXECUTE format('
+                CREATE TABLE IF NOT EXISTS %s (
+                    id TEXT PRIMARY KEY,
+                    "classId" TEXT,
+                    "studentId" TEXT,
+                    type TEXT,
+                    "transactionType" TEXT,
+                    amount NUMERIC,
+                    date TEXT,
+                    "period_month" TEXT,
+                    notes TEXT
+                );
+            ', t_name);
+            
+            -- We can't easily dynamically add columns with IF NOT EXISTS using format securely without more checks, 
+            -- but since we are creating them fresh, they will have period_month.
+            -- Existing generic "classCashTransactions" handling is omitted to avoid conflict.
+        END LOOP;
+    END LOOP;
 END $$;
 
-UPDATE "classCashTransactions"
-SET "period_month" = substring(date from 1 for 7)
-WHERE "period_month" IS NULL AND date IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_classcash_class_month
-ON "classCashTransactions" ("classId", "period_month");
-
-CREATE INDEX IF NOT EXISTS idx_classcash_student_month
-ON "classCashTransactions" ("studentId", "period_month");
 
 CREATE TABLE IF NOT EXISTS "schoolDeposits" (
     id TEXT PRIMARY KEY,

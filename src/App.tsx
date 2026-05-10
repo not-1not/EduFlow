@@ -89,8 +89,19 @@ type ClassCashWriteEntry = {
 
 const getPeriodMonth = (dateValue: string) => String(dateValue || '').slice(0, 7);
 const CLASSCASH_EDIT_KEY_SEPARATOR = '::';
-const CLASSCASH_TARGET_YEAR = '2026';
-const CLASSCASH_TABLE_NAME = 'classCashTransactions';
+const currentYear = new Date().getFullYear();
+const CLASSCASH_MONTH_TABLES: string[] = [];
+for (let y = 2025; y <= currentYear + 1; y++) {
+    for (let m = 1; m <= 12; m++) {
+        CLASSCASH_MONTH_TABLES.push(`classCashTransactions_${y}_${String(m).padStart(2, '0')}`);
+    }
+}
+const getClassCashTableByDate = (dateValue: string) => {
+    const month = getPeriodMonth(dateValue);
+    const [year, mm] = month.split('-');
+    if (year && mm) return `classCashTransactions_${year}_${mm}`;
+    return `classCashTransactions_${currentYear}_01`;
+};
 
 const applyClassCashFilters = (queryBuilder: any, filters: { studentId?: string; classId?: string; amount?: number }) => {
     let q = queryBuilder;
@@ -103,14 +114,25 @@ const applyClassCashFilters = (queryBuilder: any, filters: { studentId?: string;
 async function fetchClassCashTransactions(filters: { studentId?: string; classId?: string; amount?: number } = {}) {
     const sb = supabase;
     if (!sb) return [] as any[];
-    const { data, error } = await applyClassCashFilters(sb.from(CLASSCASH_TABLE_NAME).select('*'), filters);
     
-    if (error) {
-        console.error(`Error fetching ${CLASSCASH_TABLE_NAME}:`, error);
-        return [];
-    }
+    // We fetch across generated partitioned tables
+    const responses = await Promise.all(
+        CLASSCASH_MONTH_TABLES.map((tableName) =>
+            applyClassCashFilters(sb.from(tableName).select('*'), filters)
+        )
+    );
 
-    const merged: any[] = Array.isArray(data) ? data : [];
+    const merged: any[] = [];
+    responses.forEach(({ data, error }, idx) => {
+        if (error) {
+            // Ignore missing tables gracefully, it just means no transactions for that month yet
+            if (!error.message?.includes('does not exist')) {
+                console.error(`Error fetching ${CLASSCASH_MONTH_TABLES[idx]}:`, error);
+            }
+            return;
+        }
+        if (Array.isArray(data)) merged.push(...data);
+    });
     return merged.map((t) => ({
         ...t,
         period_month: t?.period_month || getPeriodMonth(String(t?.date || ''))
@@ -141,20 +163,28 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
     const chunkSize = 200;
     const maxRetries = 2;
 
-    const rowsToDelete = rows.filter((row) => Number(row.amount) < 0);
-    const rowsToUpsert = rows.filter((row) => Number(row.amount) >= 0);
+    const groupedByTable = rows.reduce((acc, row) => {
+        const tableName = getClassCashTableByDate(row.date);
+        if (!acc[tableName]) acc[tableName] = [];
+        acc[tableName].push(row);
+        return acc;
+    }, {} as Record<string, any[]>);
 
-    for (let i = 0; i < rowsToDelete.length; i += chunkSize) {
+    for (const [tableName, tableRows] of Object.entries(groupedByTable)) {
+        const rowsToDelete = tableRows.filter((row) => Number(row.amount) < 0);
+        const rowsToUpsert = tableRows.filter((row) => Number(row.amount) >= 0);
+
+        for (let i = 0; i < rowsToDelete.length; i += chunkSize) {
             const deleteChunk = rowsToDelete.slice(i, i + chunkSize);
             const deleteIds = deleteChunk.map((row) => row.id).filter(Boolean);
             if (!deleteIds.length) continue;
             if (!supabase) {
                 for (const deleteId of deleteIds) {
-                    await deleteDoc(doc(db, CLASSCASH_TABLE_NAME, deleteId));
+                    await deleteDoc(doc(db, tableName, deleteId));
                 }
                 continue;
             }
-            const { error } = await supabase.from(CLASSCASH_TABLE_NAME).delete().in('id', deleteIds);
+            const { error } = await supabase.from(tableName).delete().in('id', deleteIds);
             if (error) throw error;
         }
 
@@ -165,14 +195,14 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 if (!supabase) {
                     for (const row of chunk) {
-                        await setDoc(doc(db, CLASSCASH_TABLE_NAME, row.id), row);
+                        await setDoc(doc(db, tableName, row.id), row);
                     }
                     lastError = null;
                     break;
                 }
 
                 const { error } = await supabase
-                    .from(CLASSCASH_TABLE_NAME)
+                    .from(tableName)
                     .upsert(chunk, { onConflict: 'id', ignoreDuplicates: false });
 
                 if (!error) {
@@ -190,6 +220,7 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
             throw lastError;
         }
     }
+    } // End of groupedByTable loop
 
     return { total: rows.length };
 }
