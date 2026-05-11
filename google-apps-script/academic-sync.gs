@@ -35,6 +35,58 @@ function doPost(e) {
     return jsonResponse_({ status: 'error', message: 'spreadsheetId wajib diisi.' }, 400);
   }
 
+  const sheet = getOrCreateSheet_(spreadsheetId, sheetName);
+
+  if (mode === 'truncate') {
+    sheet.clearContents();
+    return jsonResponse_({
+      status: 'success',
+      message: 'Sheet berhasil dikosongkan.',
+      sheetName: sheetName,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  if (mode === 'replace') {
+    const replaceRecords = Array.isArray(payload.records)
+      ? payload.records
+      : (payload.record ? [payload.record] : []);
+
+    sheet.clearContents();
+
+    let headers = FIXED_HEADERS.slice();
+    replaceRecords.forEach((record) => {
+      headers = mergeHeaders_(headers, record);
+    });
+
+    writeHeaders_(sheet, headers);
+
+    if (!replaceRecords.length) {
+      return jsonResponse_({
+        status: 'success',
+        message: 'Sheet berhasil diganti.',
+        sheetName: sheetName,
+        updatedAt: new Date().toISOString(),
+        count: 0
+      });
+    }
+
+    const rows = replaceRecords.map((record) => {
+      const rowObject = normalizeRecord_(record);
+      return headers.map((header) => toCellValue_(rowObject[header]));
+    });
+
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+    return jsonResponse_({
+      status: 'success',
+      message: 'Sheet berhasil diganti.',
+      sheetName: sheetName,
+      updatedAt: new Date().toISOString(),
+      count: replaceRecords.length
+    });
+  }
+
   const records = Array.isArray(payload.records)
     ? payload.records
     : (payload.record ? [payload.record] : []);
@@ -43,7 +95,6 @@ function doPost(e) {
     return jsonResponse_({ status: 'error', message: 'Tidak ada record untuk disimpan.' }, 400);
   }
 
-  const sheet = getOrCreateSheet_(spreadsheetId, sheetName);
   const existing = readSheet_(sheet);
   const keyFields = getKeyFields_(sheetName, tableName);
 
@@ -110,6 +161,8 @@ function doGet(e) {
     status: 'success',
     sheetName: sheetName,
     updatedAt: new Date().toISOString(),
+    lastRow: sheet.getLastRow(),
+    lastColumn: sheet.getLastColumn(),
     headers: snapshot.headers,
     records: snapshot.rows
   });

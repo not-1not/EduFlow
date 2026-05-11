@@ -41,10 +41,31 @@ const getTargetSheetName = (tableName: string) => {
     return SHEET_TARGET_MAPPING[tableName] || tableName;
 };
 
+const normalizeSheetRecordForTable = (tableName: string, record: any) => {
+    if (tableName === 'students') {
+        return {
+            ...record,
+            studentId: String(record?.studentId || record?.id || '').trim(),
+            studentName: record?.studentName || record?.name || ''
+        };
+    }
+
+    if (tableName === 'academicRecords') {
+        return {
+            ...record,
+            studentId: String(record?.studentId || record?.id || '').trim()
+        };
+    }
+
+    return record;
+};
+
 const postSheetSync = async (mode: 'upsert' | 'delete', tableName: string, records: any[], targetSheetOverride?: string) => {
     if (!SHEET_SYNC_WEBHOOK_URL || !records.length || !shouldSyncTableToSheet(tableName)) return;
 
     try {
+        const normalizedRecords = records.map((record) => normalizeSheetRecordForTable(tableName, record));
+
         await fetch(SHEET_SYNC_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -54,7 +75,7 @@ const postSheetSync = async (mode: 'upsert' | 'delete', tableName: string, recor
                 tableName,
                 spreadsheetId: SHEET_SYNC_SPREADSHEET_ID,
                 targetSheet: targetSheetOverride || getTargetSheetName(tableName),
-                records
+                records: normalizedRecords
             })
         });
     } catch (error) {
