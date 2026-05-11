@@ -8988,27 +8988,6 @@ function StudentDashboardView({
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {displaySettings.showGrades && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card space-y-4">
-                        <div className="flex items-center gap-2 text-purple-600 mb-2">
-                            <Grid size={18} />
-                            <h3 className="font-black text-sm uppercase tracking-tight">Akademik Terakhir</h3>
-                        </div>
-                        {myGrades.length > 0 ? (
-                            <div className="space-y-3">
-                                {myGrades.slice(0, 3).map(g => (
-                                    <div key={g.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-border">
-                                        <span className="text-xs font-bold truncate max-w-[150px]">Nilai Materi #{g.materialId.slice(-4)}</span>
-                                        <span className="text-lg font-black text-purple-600">{g.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="py-4 text-center text-xs text-slate-400 font-medium">Belum ada data nilai.</div>
-                        )}
-                    </motion.div>
-                )}
-
                 {displaySettings.showAttendance && (
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="card space-y-4">
                         <div className="flex items-center gap-2 text-emerald-600 mb-2">
@@ -9023,30 +9002,6 @@ function StudentDashboardView({
                             <span>Hadir: {myAttendance.filter(a => a.status === 'hadir').length}</span>
                             <span>Izin/Sakit: {myAttendance.filter(a => a.status !== 'hadir').length}</span>
                         </div>
-                    </motion.div>
-                )}
-
-                {displaySettings.showPayments && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="card space-y-4">
-                        <div className="flex items-center gap-2 text-blue-600 mb-2">
-                            <CreditCard size={18} />
-                            <h3 className="font-black text-sm uppercase tracking-tight">Administrasi</h3>
-                        </div>
-                        {myPayments.length > 0 ? (
-                            <div className="space-y-2">
-                                {myPayments.slice(0, 2).map(p => (
-                                    <div key={p.id} className="text-xs p-3 rounded-xl bg-blue-50/50 border border-blue-100">
-                                        <div className="font-bold truncate text-blue-800">{feeItems.find(f => f.id === p.feeItemId)?.name}</div>
-                                        <div className="flex justify-between mt-1 items-end">
-                                            <span className="text-slate-400 font-mono">{p.paymentDate}</span>
-                                            <span className="font-black text-blue-600">{formatCurrency(p.amountPaid)}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="py-4 text-center text-xs text-slate-400 font-medium">Belum ada riwayat bayar.</div>
-                        )}
                     </motion.div>
                 )}
 
@@ -9293,29 +9248,13 @@ function StudentDashboardView({
                             <div className="pt-2 border-t border-blue-100 space-y-2">
                                 <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Gemari & Infaq ({monthStr})</div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    <div className="bg-white rounded-xl p-3 border border-blue-100">
+                                    <div className="bg-white rounded-xl p-3 border border-blue-100 flex justify-between items-center">
                                         <div className="text-xs font-black text-slate-700">Gemari</div>
-                                        <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari {gemari.bebasDays ? `(bebas ${gemari.bebasDays})` : ''}</div>
-                                        <div className="flex justify-between items-center mt-2">
-                                            <div className="text-[10px] text-slate-400">Dibayar</div>
-                                            <div className="text-xs font-black font-mono text-emerald-700">{formatCurrency(gemari.paid)}</div>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="text-[10px] text-slate-400">Kurang</div>
-                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(gemari.kurang)}</div>
-                                        </div>
+                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency(gemari.kurang)}</div>
                                     </div>
-                                    <div className="bg-white rounded-xl p-3 border border-blue-100">
+                                    <div className="bg-white rounded-xl p-3 border border-blue-100 flex justify-between items-center">
                                         <div className="text-xs font-black text-slate-700">Infaq Jumat</div>
-                                        <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat {infaq.bebasDays ? `(bebas ${infaq.bebasDays})` : ''}</div>
-                                        <div className="flex justify-between items-center mt-2">
-                                            <div className="text-[10px] text-slate-400">Dibayar</div>
-                                            <div className="text-xs font-black font-mono text-emerald-700">{formatCurrency(infaq.paid)}</div>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="text-[10px] text-slate-400">Kurang</div>
-                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(infaq.kurang)}</div>
-                                        </div>
+                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency(infaq.kurang)}</div>
                                     </div>
                                 </div>
                             </div>
