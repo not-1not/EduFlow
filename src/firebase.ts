@@ -11,6 +11,58 @@ export const supabase = supabaseUrl && supabaseAnonKey
 
 export const db = supabase;
 
+const SHEET_SYNC_WEBHOOK_URL = import.meta.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || '';
+const SHEET_SYNC_SPREADSHEET_ID = import.meta.env.VITE_ACADEMIC_SPREADSHEET_ID || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
+
+const SHEET_TARGET_MAPPING: Record<string, string> = {
+    students: 'Students',
+    classes: 'Classes',
+    subjects: 'Subjects',
+    materials: 'Materials',
+    grades: 'Grades',
+    attendance: 'Attendance',
+    feeItems: 'FeeItems',
+    studentPayments: 'StudentPayments',
+    savingsTransactions: 'SavingsTransactions',
+    schoolDeposits: 'SchoolDeposits',
+    academicRecords: 'Rekap Akademik'
+};
+
+const shouldSyncTableToSheet = (tableName: string) => {
+    if (!tableName) return false;
+    if (tableName.startsWith('classCashTransactions_')) return true;
+    return Boolean(SHEET_TARGET_MAPPING[tableName]);
+};
+
+const getTargetSheetName = (tableName: string) => {
+    if (tableName.startsWith('classCashTransactions_')) return tableName;
+    return SHEET_TARGET_MAPPING[tableName] || tableName;
+};
+
+const postSheetSync = async (mode: 'upsert' | 'delete', tableName: string, records: any[], targetSheetOverride?: string) => {
+    if (!SHEET_SYNC_WEBHOOK_URL || !records.length || !shouldSyncTableToSheet(tableName)) return;
+
+    try {
+        await fetch(SHEET_SYNC_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mode,
+                source: 'EduFlow-Supabase',
+                spreadsheetId: SHEET_SYNC_SPREADSHEET_ID,
+                targetSheet: targetSheetOverride || getTargetSheetName(tableName),
+                records
+            })
+        });
+    } catch (error) {
+        console.error('Sheet sync failed:', error);
+    }
+};
+
+export const syncSheetRecords = async (tableName: string, records: any[], mode: 'upsert' | 'delete' = 'upsert', targetSheetOverride?: string) => {
+    await postSheetSync(mode, tableName, records, targetSheetOverride);
+};
+
 // Table name mappings (code name -> exact Supabase table name)
 const TABLE_MAPPING: Record<string, string> = {
     'attendance': 'attendance',
@@ -118,6 +170,8 @@ export const addDoc = async (col: any, data: any) => {
         console.error("Supabase Insert Error:", error);
         throw error;
     }
+
+    await postSheetSync('upsert', tableName, [inserted || payload]);
     
     return { id: newId };
 };
@@ -137,6 +191,8 @@ export const addDocs = async (col: any, rows: any[]) => {
         throw error;
     }
 
+    await postSheetSync('upsert', tableName, payloads);
+
     return payloads.map((p) => ({ id: p.id }));
 };
 
@@ -153,6 +209,7 @@ export const setDoc = async (document: any, data: any) => {
         console.error("Supabase Upsert Error:", error);
         throw error;
     }
+    await postSheetSync('upsert', tableName, [updated || payload]);
     return updated;
 };
 
@@ -169,6 +226,7 @@ export const updateDoc = async (document: any, data: any) => {
         console.error("Supabase Update Error:", error);
         throw error;
     }
+    await postSheetSync('upsert', tableName, [updated || { id: docId, ...data }]);
     return updated;
 };
 
@@ -185,6 +243,7 @@ export const deleteDoc = async (document: any) => {
         console.error("Supabase Delete Error:", error);
         throw error;
     }
+    await postSheetSync('delete', tableName, [{ id: docId }]);
     return { status: 'success' };
 };
 

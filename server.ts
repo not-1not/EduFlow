@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -12,6 +13,18 @@ async function startServer() {
 
     // Middleware for JSON parsing
     app.use(express.json());
+
+    const academicSheetWebhookUrl = process.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || '';
+    const academicSpreadsheetId = process.env.VITE_ACADEMIC_SPREADSHEET_ID || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
+    const academicRekapSheetName = process.env.VITE_ACADEMIC_REKAP_SHEET_NAME || 'Rekap Akademik';
+
+    const buildAcademicSheetReadUrl = (baseUrl: string) => {
+        const url = new URL(baseUrl);
+        url.searchParams.set('mode', 'read');
+        url.searchParams.set('spreadsheetId', academicSpreadsheetId);
+        url.searchParams.set('sheetName', academicRekapSheetName);
+        return url.toString();
+    };
 
     // Mock initial data
     let students = [
@@ -381,6 +394,57 @@ async function startServer() {
             res.json(newRecord);
         }
     });
+
+    const proxyGoogleSheetSnapshot = async (req: any, res: any) => {
+        const webhookUrl = String(req.query.webhookUrl || academicSheetWebhookUrl || '').trim();
+        const spreadsheetId = String(req.query.spreadsheetId || academicSpreadsheetId || '').trim();
+        const sheetName = String(req.query.sheetName || academicRekapSheetName || '').trim();
+        if (!webhookUrl) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'VITE_ACADEMIC_SHEET_WEBHOOK_URL belum diatur.'
+            });
+        }
+
+        try {
+            const url = new URL(webhookUrl);
+            url.searchParams.set('mode', 'read');
+            url.searchParams.set('spreadsheetId', spreadsheetId);
+            url.searchParams.set('sheetName', sheetName);
+
+            const response = await fetch(url.toString(), {
+                method: 'GET',
+                headers: { Accept: 'application/json' }
+            });
+            const text = await response.text();
+
+            let data: any = null;
+            try {
+                data = JSON.parse(text);
+            } catch {
+                data = { raw: text };
+            }
+
+            if (!response.ok) {
+                return res.status(response.status).json({
+                    status: 'error',
+                    message: data?.message || `Gagal mengambil data sheet (${response.status})`,
+                    details: data
+                });
+            }
+
+            res.json(data);
+        } catch (error: any) {
+            console.error('Error proxying academic sheet rekap:', error);
+            res.status(500).json({
+                status: 'error',
+                message: error?.message || 'Gagal mengambil data Google Sheets.'
+            });
+        }
+    };
+
+    app.get('/api/google-sheet-snapshot', proxyGoogleSheetSnapshot);
+    app.get('/api/academic-sheet-rekap', proxyGoogleSheetSnapshot);
 
     app.get('/api/users', (req, res) => res.json(users));
     app.post('/api/users', (req, res) => {

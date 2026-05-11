@@ -62,7 +62,7 @@ import {
     LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
+import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase, syncSheetRecords } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings, ChatMessage } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
@@ -3234,6 +3234,7 @@ function AttendanceView({
         }
 
         if (error) throw error;
+        await syncSheetRecords('attendance', [{ ...withClassPayload }], 'upsert');
     };
 
     const upsertAttendanceEntries = async (entries: Array<{ studentId: string; date: string; status: AttendanceStatus }>) => {
@@ -3505,6 +3506,7 @@ function MonthlyAttendanceView({
         }
 
         if (error) throw error;
+        await syncSheetRecords('attendance', [{ ...withClassPayload }], 'upsert');
     };
 
     const handleSaveMonthlyEdits = async () => {
@@ -5600,19 +5602,20 @@ function ClassCashView({
         const uniqueEntries = Array.from(uniqueMap.values());
         await persistClassCashEntries(uniqueEntries);
 
-        // Optional realtime mirror to spreadsheet via webhook (Google Apps Script).
         if (classCashSheetWebhook) {
             try {
                 const studentsById = new Map(students.map((s) => [s.id, s]));
                 const classesById = new Map(classes.map((c) => [c.id, c]));
-                const payload = uniqueEntries.map((entry) => {
+                const payloadBySheet = uniqueEntries.reduce((acc, entry) => {
+                    const sheetName = entry.type === 'gemari' ? classCashGemariSheetName : classCashInfaqSheetName;
+                    if (!acc[sheetName]) acc[sheetName] = [];
                     const student = entry.studentId ? studentsById.get(entry.studentId) : null;
                     const klass = classesById.get(entry.classId);
-                    return {
+                    acc[sheetName].push({
                         key: buildClassCashKey(entry),
                         timestamp: new Date().toISOString(),
                         spreadsheetId: classCashSpreadsheetId,
-                        targetSheet: entry.type === 'gemari' ? classCashGemariSheetName : classCashInfaqSheetName,
+                        targetSheet: sheetName,
                         tanggal: entry.date,
                         kelasId: entry.classId,
                         kelas: klass?.name || entry.classId,
@@ -5624,20 +5627,14 @@ function ClassCashView({
                         nominal: entry.amount,
                         status: entry.amount > 0 ? 'Setor' : 'Bebas Setor',
                         catatan: entry.notes || ''
-                    };
-                });
+                    });
+                    return acc;
+                }, {} as Record<string, any[]>);
 
-                await fetch(classCashSheetWebhook, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        source: 'EduFlow-ClassCash',
-                        mode: 'upsert',
-                        records: payload
-                    })
-                });
+                for (const [sheetName, records] of Object.entries(payloadBySheet)) {
+                    await syncSheetRecords('classCashTransactions', records, 'upsert', sheetName);
+                }
             } catch (sheetError) {
-                // Do not fail primary DB save when sheet sync is unavailable.
                 console.error('Sinkron spreadsheet gagal:', sheetError);
             }
         }
@@ -7419,6 +7416,15 @@ function AcademicView({
     const [massTkaRecords, setMassTkaRecords] = useState<Record<string, any>>({});
     const [tempSubjects, setTempSubjects] = useState<{ id: string, name: string }[]>([]);
     const [tempIjazahSubjects, setTempIjazahSubjects] = useState<{ id: string, name: string }[]>([]);
+    const [sheetLiveRows, setSheetLiveRows] = useState<any[]>([]);
+    const [sheetLiveUpdatedAt, setSheetLiveUpdatedAt] = useState<string>('');
+    const [sheetLiveStatus, setSheetLiveStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+    const [sheetLiveError, setSheetLiveError] = useState<string>('');
+
+    const academicSheetWebhook = (import.meta as any)?.env?.VITE_ACADEMIC_SHEET_WEBHOOK_URL as string | undefined;
+    const academicSpreadsheetId = ((import.meta as any)?.env?.VITE_ACADEMIC_SPREADSHEET_ID as string | undefined) || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
+    const academicRekapSheetName = ((import.meta as any)?.env?.VITE_ACADEMIC_REKAP_SHEET_NAME as string | undefined) || 'Rekap Akademik';
+    const academicSheetReadProxy = ((import.meta as any)?.env?.VITE_ACADEMIC_SHEET_READ_PROXY_URL as string | undefined) || '/api/academic-sheet-rekap';
 
     const selectedClass = classes.find(c => c.id === selectedClassId);
     const filteredStudents = students.filter(s => {
@@ -7458,6 +7464,43 @@ function AcademicView({
     };
 
     useEffect(() => { fetchConfig(); }, []);
+
+    const fetchAcademicSheetLive = async () => {
+        if (!academicSheetWebhook && !academicSheetReadProxy) return;
+
+        setSheetLiveStatus('loading');
+        setSheetLiveError('');
+
+        try {
+            const endpoint = new URL(academicSheetReadProxy, window.location.origin);
+            endpoint.searchParams.set('spreadsheetId', academicSpreadsheetId);
+            endpoint.searchParams.set('sheetName', academicRekapSheetName);
+
+            if (academicSheetWebhook) {
+                endpoint.searchParams.set('webhookUrl', academicSheetWebhook);
+            }
+
+            const res = await fetch(endpoint.toString(), { cache: 'no-store' });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            setSheetLiveRows(Array.isArray(data?.records) ? data.records : []);
+            setSheetLiveUpdatedAt(String(data?.updatedAt || data?.fetchedAt || new Date().toISOString()));
+            setSheetLiveStatus('ready');
+        } catch (error: any) {
+            console.error('Gagal mengambil data Google Sheets:', error);
+            setSheetLiveRows([]);
+            setSheetLiveError(error?.message || 'Gagal memuat data sheet.');
+            setSheetLiveStatus('error');
+        }
+    };
+
+    useEffect(() => {
+        fetchAcademicSheetLive();
+        const timer = window.setInterval(fetchAcademicSheetLive, 30000);
+        return () => window.clearInterval(timer);
+    }, [academicSpreadsheetId, academicRekapSheetName, academicSheetWebhook, academicSheetReadProxy]);
 
     useEffect(() => {
         if (!classes.length) return;
@@ -7507,6 +7550,23 @@ function AcademicView({
         }
     }, [selectedStudentId]);
 
+    useEffect(() => {
+        if (!selectedStudentId || sheetLiveStatus !== 'ready') return;
+        const liveRow = sheetLiveRows.find((row) => String(row?.studentId || '') === String(selectedStudentId));
+        if (!liveRow) return;
+
+        setRecord((prev: any) => {
+            const liveRecord = parseAcademicSheetRow(liveRow);
+            const merged = {
+                ...(prev || { studentId: selectedStudentId, rapot: {}, prestasi: [], ijazah: {}, tka: '' }),
+                ...liveRecord
+            };
+            merged.studentId = selectedStudentId;
+            merged.prestasi = Array.isArray(prev?.prestasi) ? prev.prestasi : (Array.isArray(liveRecord?.prestasi) ? liveRecord.prestasi : []);
+            return merged;
+        });
+    }, [selectedStudentId, sheetLiveRows, sheetLiveStatus, academicConfig.subjects, ijazahConfig.subjects]);
+
     const validateData = () => {
         const errs: string[] = [];
         if (!record) return errs;
@@ -7536,8 +7596,98 @@ function AcademicView({
 
     const handleSave = async () => {
         if (validationErrors.length > 0) return alert('Terdapat kesalahan pada data yang diisi.');
-        await setDoc(doc(db, 'academicRecords', record.studentId), { ...record, studentId: record.studentId });
+        const payload = { ...record, studentId: record.studentId };
+        await setDoc(doc(db, 'academicRecords', record.studentId), payload);
         alert('Data Akademik Berhasil Disimpan');
+    };
+
+    const getAverageRapotFromPayload = (payload: any) => {
+        let total = 0;
+        let count = 0;
+        Object.values(payload?.rapot || {}).forEach((g: any) => {
+            ['s41', 's42', 's51', 's52', 's61'].forEach(k => {
+                if (g?.[k] !== '' && g?.[k] !== null && !isNaN(Number(g?.[k]))) {
+                    total += Number(g[k]);
+                    count++;
+                }
+            });
+        });
+        return count > 0 ? total / count : 0;
+    };
+
+    const getPrestasiSumFromPayload = (payload: any) =>
+        (payload?.prestasi || []).reduce((acc: number, p: any) => acc + (Number(p.poin) || 0), 0);
+
+    const getFinalScoreFromPayload = (payload: any) =>
+        (getAverageRapotFromPayload(payload) * (weights.rapot / 100)) +
+        (Number(payload?.tka || 0) * (weights.tka / 100)) +
+        getPrestasiSumFromPayload(payload);
+
+    const buildAcademicSheetRow = (payload: any) => {
+        const student = students.find(s => s.id === payload.studentId);
+        const studentClassId = String((student as any)?.classId || '').trim();
+        const klass = classes.find(c => c.id === studentClassId || c.name === studentClassId);
+        const row: Record<string, any> = {
+            spreadsheetId: academicSpreadsheetId,
+            targetSheet: academicRekapSheetName,
+            source: 'EduFlow-Academic',
+            updatedAt: new Date().toISOString(),
+            studentId: payload.studentId || '',
+            studentName: student?.name || '',
+            classId: studentClassId || '',
+            className: klass?.name || studentClassId || '',
+            attendanceNumber: (student as any)?.attendanceNumber ?? '',
+            tka: payload.tka ?? '',
+            avgRapot: getAverageRapotFromPayload(payload),
+            finalScore: getFinalScoreFromPayload(payload),
+            totalPrestasi: getPrestasiSumFromPayload(payload)
+        };
+
+        academicConfig.subjects.forEach((sub) => {
+            const g = payload.rapot?.[sub.id] || {};
+            row[`${sub.name} S4.1`] = g.s41 ?? '';
+            row[`${sub.name} S4.2`] = g.s42 ?? '';
+            row[`${sub.name} S5.1`] = g.s51 ?? '';
+            row[`${sub.name} S5.2`] = g.s52 ?? '';
+            row[`${sub.name} S6.1`] = g.s61 ?? '';
+        });
+
+        ijazahConfig.subjects.forEach((sub) => {
+            const iz = payload.ijazah?.[sub.id] || {};
+            row[`${sub.name} (P)`] = iz.grade_p ?? '';
+            row[`${sub.name} (K)`] = iz.grade_k ?? '';
+        });
+
+        return row;
+    };
+
+    const parseAcademicSheetRow = (row: any) => {
+        const rapot: Record<string, any> = {};
+        academicConfig.subjects.forEach((sub) => {
+            rapot[sub.id] = {
+                s41: row?.[`${sub.name} S4.1`] ?? '',
+                s42: row?.[`${sub.name} S4.2`] ?? '',
+                s51: row?.[`${sub.name} S5.1`] ?? '',
+                s52: row?.[`${sub.name} S5.2`] ?? '',
+                s61: row?.[`${sub.name} S6.1`] ?? ''
+            };
+        });
+
+        const ijazah: Record<string, any> = {};
+        ijazahConfig.subjects.forEach((sub) => {
+            ijazah[sub.id] = {
+                id: sub.id,
+                grade_p: row?.[`${sub.name} (P)`] ?? '',
+                grade_k: row?.[`${sub.name} (K)`] ?? ''
+            };
+        });
+
+        return {
+            ...row,
+            rapot,
+            ijazah,
+            tka: row?.tka ?? ''
+        };
     };
 
     const handleOpenSubjectModal = () => {
@@ -7672,7 +7822,8 @@ function AcademicView({
                 });
 
                 const ex = existingMap.get(studentId) || { prestasi: [] };
-                await setDoc(doc(db, 'academicRecords', studentId), { ...ex, studentId, tka, rapot, ijazah });
+                const payload = { ...ex, studentId, tka, rapot, ijazah };
+                await setDoc(doc(db, 'academicRecords', studentId), payload);
             }
             alert('Import Data Akademik & Ijazah Berhasil!');
             if (selectedStudentId) { loadSingleRecord(selectedStudentId).then(setRecord); }
@@ -7744,7 +7895,8 @@ function AcademicView({
             if (updatedTka !== '' && (isNaN(tNum) || tNum < 0 || tNum > 100)) {
                 return alert(`Nilai TKA untuk ${students.find(s=>s.id===sid)?.name} tidak valid (harus 0-100).`);
             }
-            await setDoc(doc(db, 'academicRecords', sid), { ...ex, studentId: sid, tka: updatedTka });
+            const payload = { ...ex, studentId: sid, tka: updatedTka };
+            await setDoc(doc(db, 'academicRecords', sid), payload);
         }
         alert('Data TKA Kelas Berhasil Disimpan!');
         if (selectedStudentId) {
@@ -7872,6 +8024,102 @@ function AcademicView({
                         <Save size={16} /> Simpan Data
                     </button>
                 </div>
+            </div>
+
+            <div className="card border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-amber-50/40">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-widest text-slate-500">Google Sheets Live</div>
+                        <h3 className="text-lg font-black text-slate-900">Rekap Akademik dari Spreadsheet</h3>
+                        <p className="text-sm text-slate-600">
+                            {sheetLiveStatus === 'ready' && sheetLiveUpdatedAt
+                                ? `Terakhir sinkron: ${new Date(sheetLiveUpdatedAt).toLocaleString('id-ID')}`
+                                : sheetLiveStatus === 'loading'
+                                    ? 'Memuat data terbaru dari spreadsheet...'
+                                    : sheetLiveStatus === 'error'
+                                        ? `Gagal memuat data sheet${sheetLiveError ? `: ${sheetLiveError}` : ''}`
+                                        : 'Menunggu data sinkron dari spreadsheet.'}
+                        </p>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                        <button onClick={fetchAcademicSheetLive} className="btn-small bg-white text-slate-700 border border-slate-200 hover:bg-slate-50">
+                            Refresh Sheet
+                        </button>
+                        <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full border ${
+                            sheetLiveStatus === 'ready' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            sheetLiveStatus === 'loading' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                            sheetLiveStatus === 'error' ? 'bg-red-50 text-red-700 border-red-200' :
+                            'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                            {sheetLiveStatus}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="mt-4 overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="bg-white/70">
+                                <th className="text-left p-3 border-b border-slate-200">Siswa</th>
+                                <th className="text-left p-3 border-b border-slate-200">Kelas</th>
+                                <th className="text-right p-3 border-b border-slate-200">TKA</th>
+                                <th className="text-right p-3 border-b border-slate-200">Rata-rata Rapot</th>
+                                <th className="text-right p-3 border-b border-slate-200">Skor Akhir</th>
+                                <th className="text-right p-3 border-b border-slate-200">Prestasi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {(sheetLiveRows.slice(0, 8)).map((row, idx) => (
+                                <tr key={`${row.studentId || idx}`} className="hover:bg-slate-50">
+                                    <td className="p-3 border-b border-slate-100">
+                                        <div className="font-bold text-slate-800">{row.studentName || row.namaSiswa || row.name || 'Tanpa Nama'}</div>
+                                        <div className="text-[10px] font-mono text-slate-400">{row.studentId || '-'}</div>
+                                    </td>
+                                    <td className="p-3 border-b border-slate-100">{row.className || row.kelas || '-'}</td>
+                                    <td className="p-3 border-b border-slate-100 text-right font-mono font-bold">{row.tka ?? '-'}</td>
+                                    <td className="p-3 border-b border-slate-100 text-right font-mono font-bold">{row.avgRapot ?? '-'}</td>
+                                    <td className="p-3 border-b border-slate-100 text-right font-mono font-bold">{row.finalScore ?? '-'}</td>
+                                    <td className="p-3 border-b border-slate-100 text-right font-mono font-bold">{row.totalPrestasi ?? '-'}</td>
+                                </tr>
+                            ))}
+                            {sheetLiveRows.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="py-6 text-center text-slate-400 italic">
+                                        Belum ada data rekap dari spreadsheet.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                {selectedStudentId && (() => {
+                    const liveRow = sheetLiveRows.find((row) => String(row.studentId || '') === String(selectedStudentId));
+                    if (!liveRow) return null;
+                    return (
+                        <div className="mt-4 p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+                            <div className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Snapshot Siswa Terpilih</div>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                                <div>
+                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Nama</div>
+                                    <div className="font-bold">{liveRow.studentName || liveRow.namaSiswa || '-'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] text-slate-400 uppercase font-bold">TKA</div>
+                                    <div className="font-bold">{liveRow.tka ?? '-'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Rata-rata Rapot</div>
+                                    <div className="font-bold">{liveRow.avgRapot ?? '-'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Skor Akhir</div>
+                                    <div className="font-bold">{liveRow.finalScore ?? '-'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
 
             {validationErrors.length > 0 && (
