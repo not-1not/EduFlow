@@ -1,1 +1,3 @@
-export { default } from './google-sheet-snapshot';
+import handler from './google-sheet-snapshot';
+
+export default handler;

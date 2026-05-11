@@ -7424,7 +7424,7 @@ function AcademicView({
     const academicSheetWebhook = ((import.meta as any)?.env?.VITE_ACADEMIC_SHEET_WEBHOOK_URL as string | undefined) || 'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
     const academicSpreadsheetId = ((import.meta as any)?.env?.VITE_ACADEMIC_SPREADSHEET_ID as string | undefined) || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
     const academicRekapSheetName = ((import.meta as any)?.env?.VITE_ACADEMIC_REKAP_SHEET_NAME as string | undefined) || 'Rekap Akademik';
-    const academicSheetReadProxy = ((import.meta as any)?.env?.VITE_ACADEMIC_SHEET_READ_PROXY_URL as string | undefined) || '/api/academic-sheet-rekap';
+    const academicSheetReadProxy = ((import.meta as any)?.env?.VITE_ACADEMIC_SHEET_READ_PROXY_URL as string | undefined) || '/api/google-sheet-snapshot';
 
     const selectedClass = classes.find(c => c.id === selectedClassId);
     const filteredStudents = students.filter(s => {
