@@ -11,7 +11,9 @@ export const supabase = supabaseUrl && supabaseAnonKey
 
 export const db = supabase;
 
-const SHEET_SYNC_WEBHOOK_URL = import.meta.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || '';
+const SHEET_SYNC_WEBHOOK_URL =
+    import.meta.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL ||
+    'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
 const SHEET_SYNC_SPREADSHEET_ID = import.meta.env.VITE_ACADEMIC_SPREADSHEET_ID || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
 
 const SHEET_TARGET_MAPPING: Record<string, string> = {

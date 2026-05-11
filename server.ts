@@ -14,7 +14,7 @@ async function startServer() {
     // Middleware for JSON parsing
     app.use(express.json());
 
-    const academicSheetWebhookUrl = process.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || '';
+    const academicSheetWebhookUrl = process.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
     const academicSpreadsheetId = process.env.VITE_ACADEMIC_SPREADSHEET_ID || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
     const academicRekapSheetName = process.env.VITE_ACADEMIC_REKAP_SHEET_NAME || 'Rekap Akademik';
 

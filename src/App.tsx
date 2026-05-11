@@ -5420,7 +5420,7 @@ function ClassCashView({
     const [showHistory, setShowHistory] = useState(false);
     const [showRangeModal, setShowRangeModal] = useState(false);
     const [isSavingRange, setIsSavingRange] = useState(false);
-    const classCashSheetWebhook = (import.meta as any)?.env?.VITE_CLASSCASH_SHEET_WEBHOOK_URL as string | undefined;
+    const classCashSheetWebhook = ((import.meta as any)?.env?.VITE_CLASSCASH_SHEET_WEBHOOK_URL as string | undefined) || 'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
     const classCashSpreadsheetId = ((import.meta as any)?.env?.VITE_CLASSCASH_SPREADSHEET_ID as string | undefined) || '1oKnCNX5SLz37-8h_XNPuNi-yKTfqvBilw34kzNCHsdo';
     const classCashGemariSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_GEMARI_SHEET_NAME as string | undefined) || 'Sheet1';
     const classCashInfaqSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_INFAQ_SHEET_NAME as string | undefined) || 'Sheet2';
@@ -7421,7 +7421,7 @@ function AcademicView({
     const [sheetLiveStatus, setSheetLiveStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const [sheetLiveError, setSheetLiveError] = useState<string>('');
 
-    const academicSheetWebhook = (import.meta as any)?.env?.VITE_ACADEMIC_SHEET_WEBHOOK_URL as string | undefined;
+    const academicSheetWebhook = ((import.meta as any)?.env?.VITE_ACADEMIC_SHEET_WEBHOOK_URL as string | undefined) || 'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
     const academicSpreadsheetId = ((import.meta as any)?.env?.VITE_ACADEMIC_SPREADSHEET_ID as string | undefined) || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
     const academicRekapSheetName = ((import.meta as any)?.env?.VITE_ACADEMIC_REKAP_SHEET_NAME as string | undefined) || 'Rekap Akademik';
     const academicSheetReadProxy = ((import.meta as any)?.env?.VITE_ACADEMIC_SHEET_READ_PROXY_URL as string | undefined) || '/api/academic-sheet-rekap';

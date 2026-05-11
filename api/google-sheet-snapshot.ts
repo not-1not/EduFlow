@@ -1,5 +1,6 @@
 const DEFAULT_SPREADSHEET_ID = '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
 const DEFAULT_SHEET_NAME = 'Rekap Akademik';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
 
 export default async function handler(req: any, res: any) {
     if (req.method !== 'GET') {
@@ -7,7 +8,7 @@ export default async function handler(req: any, res: any) {
         return res.status(405).json({ status: 'error', message: 'Method not allowed' });
     }
 
-    const webhookUrl = String(process.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || '').trim();
+    const webhookUrl = String(process.env.VITE_ACADEMIC_SHEET_WEBHOOK_URL || DEFAULT_WEBHOOK_URL).trim();
     const spreadsheetId = String(req.query.spreadsheetId || process.env.VITE_ACADEMIC_SPREADSHEET_ID || DEFAULT_SPREADSHEET_ID).trim();
     const sheetName = String(req.query.sheetName || process.env.VITE_ACADEMIC_REKAP_SHEET_NAME || DEFAULT_SHEET_NAME).trim();
 
