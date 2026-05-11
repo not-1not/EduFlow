@@ -18,6 +18,30 @@ const TABLES = [
   { tableName: 'academicRecords', targetSheet: 'Rekap Akademik' }
 ];
 
+const DEFAULT_ACADEMIC_CONFIG = [
+  'Pendidikan Agama & Budi Pekerti',
+  'PPKn',
+  'Bahasa Indonesia',
+  'Matematika',
+  'Ilmu Pengetahuan Alam dan Sosial',
+  'Seni Budaya & Prakarya',
+  'Pendidikan Jasmani',
+  'Mulok Bahasa Jawa',
+  'Bahasa Inggris'
+].map((name, index) => ({ id: `s${index}`, name }));
+
+const DEFAULT_IIJAZAH_CONFIG = [
+  'Pendidikan Agama & Budi Pekerti',
+  'PPKn',
+  'Bahasa Indonesia',
+  'Matematika',
+  'IPAS',
+  'SBdP',
+  'PJOK',
+  'Bahasa Jawa',
+  'Bahasa Inggris'
+].map((name, index) => ({ id: `ij${index}`, name }));
+
 async function fetchAll(tableName) {
   const rows = [];
   const pageSize = 500;
@@ -38,6 +62,18 @@ async function fetchAll(tableName) {
   }
 
   return rows;
+}
+
+async function fetchSettingsConfig() {
+  const [academicSnap, ijazahSnap] = await Promise.all([
+    supabase.from('settings').select('*').eq('id', 'academic_config').maybeSingle(),
+    supabase.from('settings').select('*').eq('id', 'ijazah_config').maybeSingle()
+  ]);
+
+  const academicSubjects = academicSnap.data?.subjects || DEFAULT_ACADEMIC_CONFIG;
+  const ijazahSubjects = ijazahSnap.data?.subjects || DEFAULT_IIJAZAH_CONFIG;
+
+  return { academicSubjects, ijazahSubjects };
 }
 
 async function postSheet(payload) {
@@ -71,6 +107,8 @@ async function backfillTable({ tableName, targetSheet }) {
   const rows = await fetchAll(tableName);
   console.log(`Fetched ${rows.length} rows`);
 
+  const { academicSubjects, ijazahSubjects } = await fetchSettingsConfig();
+
   const normalizedRows = rows.map((row) => {
     const base = { ...row };
 
@@ -80,7 +118,7 @@ async function backfillTable({ tableName, targetSheet }) {
     }
 
     if (tableName === 'academicRecords') {
-      base.studentId = String(row?.studentId || row?.id || '').trim();
+      return buildAcademicSheetRow(row, academicSubjects, ijazahSubjects);
     }
 
     return flattenRecord(base);
@@ -99,6 +137,75 @@ async function backfillTable({ tableName, targetSheet }) {
   }
 
   console.log(`Replaced ${rows.length} rows successfully.`);
+}
+
+function buildAcademicSheetRow(payload, academicSubjects, ijazahSubjects) {
+  const studentId = String(payload?.studentId || payload?.id || '').trim();
+  const rapot = payload?.rapot || {};
+  const ijazah = normalizeIjazahPayload(payload?.ijazah || {});
+  const totalPrestasi = Array.isArray(payload?.prestasi)
+    ? payload.prestasi.reduce((acc, p) => acc + (Number(p?.poin) || 0), 0)
+    : Number(payload?.totalPrestasi || 0);
+  const avgRapot = getAverageRapot(payload, academicSubjects);
+  const finalScore = Number(payload?.finalScore ?? ((avgRapot * 0.5) + (Number(payload?.tka || 0) * 0.5) + totalPrestasi));
+
+  const row = {
+    updatedAt: payload?.updatedAt || new Date().toISOString(),
+    studentId,
+    studentName: payload?.studentName || payload?.name || '',
+    classId: payload?.classId || '',
+    className: payload?.className || '',
+    attendanceNumber: payload?.attendanceNumber ?? '',
+    tka: payload?.tka ?? '',
+    avgRapot,
+    finalScore,
+    totalPrestasi,
+    source: payload?.source || 'EduFlow-Academic'
+  };
+
+  academicSubjects.forEach((sub) => {
+    const g = rapot?.[sub.id] || {};
+    row[`${sub.name} S4.1`] = g.s41 ?? '';
+    row[`${sub.name} S4.2`] = g.s42 ?? '';
+    row[`${sub.name} S5.1`] = g.s51 ?? '';
+    row[`${sub.name} S5.2`] = g.s52 ?? '';
+    row[`${sub.name} S6.1`] = g.s61 ?? '';
+  });
+
+  ijazahSubjects.forEach((sub) => {
+    const iz = ijazah?.[sub.id] || {};
+    row[`${sub.name} (P)`] = iz.grade_p ?? '';
+    row[`${sub.name} (K)`] = iz.grade_k ?? '';
+  });
+
+  return row;
+}
+
+function getAverageRapot(payload, academicSubjects) {
+  let total = 0;
+  let count = 0;
+  academicSubjects.forEach((sub) => {
+    const g = payload?.rapot?.[sub.id] || {};
+    ['s41', 's42', 's51', 's52', 's61'].forEach((k) => {
+      const value = g?.[k];
+      if (value !== '' && value !== null && value !== undefined && !Number.isNaN(Number(value))) {
+        total += Number(value);
+        count++;
+      }
+    });
+  });
+  return count > 0 ? total / count : 0;
+}
+
+function normalizeIjazahPayload(raw) {
+  if (Array.isArray(raw)) {
+    return raw.reduce((acc, curr, idx) => {
+      const key = curr?.id || `ij_${idx}`;
+      acc[key] = curr;
+      return acc;
+    }, {});
+  }
+  return raw || {};
 }
 
 function flattenRecord(input, output = {}, prefix = '') {

@@ -77,6 +77,7 @@ function doPost(e) {
     });
 
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    trimExtraColumns_(sheet, headers.length);
 
     return jsonResponse_({
       status: 'success',
@@ -136,6 +137,8 @@ function doPost(e) {
       sheet.appendRow(rowValues);
     }
   });
+
+  trimExtraColumns_(sheet, headers.length);
 
   return jsonResponse_({
     status: 'success',
@@ -308,6 +311,13 @@ function deleteRowsByKeys_(sheet, headers, rows, sheetName, tableName, keyFields
 function writeHeaders_(sheet, headers) {
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   sheet.setFrozenRows(1);
+}
+
+function trimExtraColumns_(sheet, desiredColumns) {
+  const maxColumns = sheet.getMaxColumns();
+  if (maxColumns > desiredColumns) {
+    sheet.deleteColumns(desiredColumns + 1, maxColumns - desiredColumns);
+  }
 }
 
 function toCellValue_(value) {
