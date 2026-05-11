@@ -77,6 +77,86 @@ const sortStudentsForSelect = (students: Student[]) => {
     });
 };
 
+const normalizeDelimitedHeader = (value: string) =>
+    String(value || '')
+        .replace(/^\uFEFF/, '')
+        .replace(/(^"|"$)/g, '')
+        .trim()
+        .toLowerCase();
+
+const detectDelimitedSeparator = (text: string) => {
+    const sampleLine = String(text || '')
+        .replace(/^\uFEFF/, '')
+        .split(/\r?\n/)
+        .find(line => line.trim().length > 0) || '';
+    const candidates = [',', ';', '\t'] as const;
+    let best = ',';
+    let bestScore = -1;
+
+    for (const delimiter of candidates) {
+        let count = 0;
+        let inQuotes = false;
+        for (let i = 0; i < sampleLine.length; i++) {
+            const ch = sampleLine[i];
+            if (ch === '"') {
+                if (inQuotes && sampleLine[i + 1] === '"') {
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (ch === delimiter && !inQuotes) {
+                count++;
+            }
+        }
+        if (count > bestScore) {
+            bestScore = count;
+            best = delimiter;
+        }
+    }
+
+    return best;
+};
+
+const parseDelimitedLine = (line: string, delimiter: string) => {
+    const cells: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                current += ch;
+            }
+        } else if (ch === '"') {
+            inQuotes = true;
+        } else if (ch === delimiter) {
+            cells.push(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+
+    cells.push(current.trim());
+    return cells.map(cell => cell.replace(/^\uFEFF/, '').trim());
+};
+
+const serializeDelimitedValue = (value: any) => {
+    if (value === undefined || value === null) return '';
+    return `"${String(value).replace(/"/g, '""')}"`;
+};
+
+const serializeDelimitedRow = (values: any[], delimiter = ';') =>
+    values.map(serializeDelimitedValue).join(delimiter);
+
 type ClassCashWriteEntry = {
     classId: string;
     studentId?: string;
@@ -2356,16 +2436,7 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
     };
 
     const parseCSVRow = (text: string) => {
-        let p = '', row = [''], i = 0, s = true;
-        for (let l of text) {
-            if ('"' === l) {
-                if (s && l === p) row[i] += l;
-                s = !s;
-            } else if (',' === l && s) { l = row[++i] = ''; }
-            else row[i] += l;
-            p = l;
-        }
-        return row;
+        return parseDelimitedLine(text, detectDelimitedSeparator(text));
     };
 
     const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -7498,23 +7569,25 @@ function AcademicView({
     const handleExportCSV = async () => {
         const snap = await getDocs(collection(db, 'academicRecords'));
         const allRecords = snap.docs.map(d => d.data());
-        let csv = 'ID Siswa,Nama Siswa,TKA,';
-        
-        // Academic Headers
-        academicConfig.subjects.forEach(s => { 
-            csv += `"${s.name} S4.1","${s.name} S4.2","${s.name} S5.1","${s.name} S5.2","${s.name} S6.1",`; 
+        const delimiter = ';';
+        const headers = ['ID Siswa', 'Nama Siswa', 'TKA'];
+        academicConfig.subjects.forEach(s => {
+            headers.push(
+                `${s.name} S4.1`,
+                `${s.name} S4.2`,
+                `${s.name} S5.1`,
+                `${s.name} S5.2`,
+                `${s.name} S6.1`
+            );
         });
-
-        // Ijazah Headers
         ijazahConfig.subjects.forEach(s => {
-            csv += `"${s.name} (P)","${s.name} (K)",`;
+            headers.push(`${s.name} (P)`, `${s.name} (K)`);
         });
 
-        csv = csv.replace(/,$/, '\n');
-
+        const rows: any[][] = [headers];
         filteredStudents.forEach(stu => {
             const rec = allRecords.find((r: any) => r.studentId === stu.id) || { tka: '', rapot: {}, ijazah: {} };
-            const row = [stu.id, `"${stu.name}"`, rec.tka || ''];
+            const row = [stu.id, stu.name, rec.tka || ''];
             
             // Academic Data
             academicConfig.subjects.forEach(s => {
@@ -7535,10 +7608,11 @@ function AcademicView({
                 row.push(iz.grade_p || '', iz.grade_k || '');
             });
 
-            csv += row.join(',') + '\n';
+            rows.push(row);
         });
-        
-        const blob = new Blob([csv], { type: 'text/csv' });
+
+        const csv = '\uFEFF' + rows.map(row => serializeDelimitedRow(row, delimiter)).join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = `Data_Akademik_Ijazah_${selectedClass?.name || 'Class'}.csv`; a.click();
@@ -7548,42 +7622,53 @@ function AcademicView({
         const file = e.target.files?.[0]; if (!file) return;
         const reader = new FileReader();
         reader.onload = async (evt) => {
-            const text = evt.target?.result as string;
-            const lines = text.split('\n'); if (lines.length < 2) return;
+            const text = String(evt.target?.result || '').replace(/^\uFEFF/, '');
+            const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+            if (lines.length < 2) return;
             const existing = await getDocs(collection(db, 'academicRecords'));
             const existingMap = new Map(existing.docs.map(d => [d.id, d.data()]));
+            const delimiter = detectDelimitedSeparator(text);
+            const headers = parseDelimitedLine(lines[0], delimiter).map(normalizeDelimitedHeader);
+            const headerIndex = new Map(headers.map((header, index) => [header, index]));
+            const getCell = (cols: string[], label: string, fallbackIndex?: number) => {
+                const idx = headerIndex.get(normalizeDelimitedHeader(label));
+                if (idx !== undefined && idx >= 0 && idx < cols.length) return cols[idx];
+                if (fallbackIndex !== undefined) return cols[fallbackIndex] || '';
+                return '';
+            };
             
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
-                const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
+                const cols = parseDelimitedLine(lines[i], delimiter);
                 if (cols.length < 3) continue;
                 
-                const studentId = cols[0]; 
-                const tka = cols[2]; 
+                const studentId = getCell(cols, 'ID Siswa', 0);
+                if (!studentId) continue;
+                const tka = getCell(cols, 'TKA', 2);
                 const rapot: any = {};
                 const ijazah: any = {};
+                let fallbackIdx = 3;
                 
-                let cIdx = 3;
                 // Parse Academic
                 academicConfig.subjects.forEach(s => {
                     rapot[s.id] = { 
-                        s41: cols[cIdx] || '', 
-                        s42: cols[cIdx + 1] || '', 
-                        s51: cols[cIdx + 2] || '', 
-                        s52: cols[cIdx + 3] || '', 
-                        s61: cols[cIdx + 4] || '' 
+                        s41: getCell(cols, `${s.name} S4.1`, fallbackIdx), 
+                        s42: getCell(cols, `${s.name} S4.2`, fallbackIdx + 1), 
+                        s51: getCell(cols, `${s.name} S5.1`, fallbackIdx + 2), 
+                        s52: getCell(cols, `${s.name} S5.2`, fallbackIdx + 3), 
+                        s61: getCell(cols, `${s.name} S6.1`, fallbackIdx + 4) 
                     };
-                    cIdx += 5;
+                    fallbackIdx += 5;
                 });
 
                 // Parse Ijazah
                 ijazahConfig.subjects.forEach(s => {
                     ijazah[s.id] = {
                         id: s.id,
-                        grade_p: cols[cIdx] || '',
-                        grade_k: cols[cIdx + 1] || ''
+                        grade_p: getCell(cols, `${s.name} (P)`, fallbackIdx),
+                        grade_k: getCell(cols, `${s.name} (K)`, fallbackIdx + 1)
                     };
-                    cIdx += 2;
+                    fallbackIdx += 2;
                 });
 
                 const ex = existingMap.get(studentId) || { prestasi: [] };
@@ -7669,11 +7754,13 @@ function AcademicView({
     };
 
     const handleDownloadTkaTemplate = () => {
-        let csv = 'ID Siswa,Nama Siswa,TKA\n';
-        sortStudentsForSelect(filteredStudents).forEach(s => {
-            csv += `${s.id},"${s.name}",${massTkaData[s.id] || ''}\n`;
-        });
-        const blob = new Blob([csv], { type: 'text/csv' });
+        const delimiter = ';';
+        const rows = [
+            ['ID Siswa', 'Nama Siswa', 'TKA'],
+            ...sortStudentsForSelect(filteredStudents).map(s => [s.id, s.name, massTkaData[s.id] || ''])
+        ];
+        const csv = '\uFEFF' + rows.map(row => serializeDelimitedRow(row, delimiter)).join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = `Template_TKA_Kelas_${selectedClass?.name || ''}.csv`;
@@ -7684,16 +7771,23 @@ function AcademicView({
         const file = e.target.files?.[0]; if (!file) return;
         const reader = new FileReader();
         reader.onload = (evt) => {
-            const text = evt.target?.result as string;
-            const lines = text.split('\n');
+            const text = String(evt.target?.result || '').replace(/^\uFEFF/, '');
+            const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+            if (lines.length < 2) return;
+            const delimiter = detectDelimitedSeparator(text);
+            const headers = parseDelimitedLine(lines[0], delimiter).map(normalizeDelimitedHeader);
+            const headerIndex = new Map(headers.map((header, index) => [header, index]));
             const newData = { ...massTkaData };
             for(let i=1; i<lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
-                const cols = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
+                const cols = parseDelimitedLine(line, delimiter);
                 if (cols.length >= 3) {
-                    const sid = cols[0];
-                    const tkaValue = cols[2];
+                    const sidIdx = headerIndex.get(normalizeDelimitedHeader('ID Siswa'));
+                    const tkaIdx = headerIndex.get(normalizeDelimitedHeader('TKA'));
+                    const sid = sidIdx !== undefined ? cols[sidIdx] : cols[0];
+                    const tkaValue = tkaIdx !== undefined ? cols[tkaIdx] : cols[2];
+                    if (!sid) continue;
                     if (filteredStudents.some(s => s.id === sid)) {
                         newData[sid] = tkaValue;
                     }
