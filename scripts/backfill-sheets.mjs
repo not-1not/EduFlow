@@ -76,6 +76,22 @@ async function fetchSettingsConfig() {
   return { academicSubjects, ijazahSubjects };
 }
 
+async function fetchLookups() {
+  const [students, classes] = await Promise.all([
+    fetchAll('students'),
+    fetchAll('classes')
+  ]);
+
+  const studentMap = new Map(
+    students.map((student) => [String(student?.id || '').trim(), student])
+  );
+  const classMap = new Map(
+    classes.map((klass) => [String(klass?.id || '').trim(), klass])
+  );
+
+  return { studentMap, classMap };
+}
+
 async function postSheet(payload) {
   const response = await fetch(WEBHOOK_URL, {
     method: 'POST',
@@ -108,6 +124,7 @@ async function backfillTable({ tableName, targetSheet }) {
   console.log(`Fetched ${rows.length} rows`);
 
   const { academicSubjects, ijazahSubjects } = await fetchSettingsConfig();
+  const { studentMap, classMap } = await fetchLookups();
 
   const normalizedRows = rows.map((row) => {
     const base = { ...row };
@@ -118,7 +135,7 @@ async function backfillTable({ tableName, targetSheet }) {
     }
 
     if (tableName === 'academicRecords') {
-      return buildAcademicSheetRow(row, academicSubjects, ijazahSubjects);
+      return buildAcademicSheetRow(row, academicSubjects, ijazahSubjects, studentMap, classMap);
     }
 
     return flattenRecord(base);
@@ -139,8 +156,11 @@ async function backfillTable({ tableName, targetSheet }) {
   console.log(`Replaced ${rows.length} rows successfully.`);
 }
 
-function buildAcademicSheetRow(payload, academicSubjects, ijazahSubjects) {
+function buildAcademicSheetRow(payload, academicSubjects, ijazahSubjects, studentMap, classMap) {
   const studentId = String(payload?.studentId || payload?.id || '').trim();
+  const student = studentMap.get(studentId) || {};
+  const studentClassId = String(payload?.classId || student?.classId || '').trim();
+  const klass = classMap.get(studentClassId) || classMap.get(String(student?.classId || '').trim()) || {};
   const rapot = payload?.rapot || {};
   const ijazah = normalizeIjazahPayload(payload?.ijazah || {});
   const totalPrestasi = Array.isArray(payload?.prestasi)
@@ -152,10 +172,10 @@ function buildAcademicSheetRow(payload, academicSubjects, ijazahSubjects) {
   const row = {
     updatedAt: payload?.updatedAt || new Date().toISOString(),
     studentId,
-    studentName: payload?.studentName || payload?.name || '',
-    classId: payload?.classId || '',
-    className: payload?.className || '',
-    attendanceNumber: payload?.attendanceNumber ?? '',
+    studentName: payload?.studentName || payload?.name || student?.name || '',
+    classId: studentClassId,
+    className: payload?.className || klass?.name || studentClassId || '',
+    attendanceNumber: payload?.attendanceNumber ?? student?.attendanceNumber ?? '',
     tka: payload?.tka ?? '',
     avgRapot,
     finalScore,
