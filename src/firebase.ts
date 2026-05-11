@@ -17,11 +17,11 @@ const SHEET_SYNC_WEBHOOK_URL =
 const SHEET_SYNC_SPREADSHEET_ID = import.meta.env.VITE_ACADEMIC_SPREADSHEET_ID || '1TurKpEmt-gA-5pF-BQvyVikslV8YAQ8vZqGj5sXkZQg';
 
 const SHEET_TARGET_MAPPING: Record<string, string> = {
-    students: 'Students',
+    students: 'Database Siswa',
     classes: 'Classes',
     subjects: 'Subjects',
     materials: 'Materials',
-    grades: 'Grades',
+    grades: 'Input Nilai',
     attendance: 'Attendance',
     feeItems: 'FeeItems',
     studentPayments: 'StudentPayments',
@@ -51,6 +51,7 @@ const postSheetSync = async (mode: 'upsert' | 'delete', tableName: string, recor
             body: JSON.stringify({
                 mode,
                 source: 'EduFlow-Supabase',
+                tableName,
                 spreadsheetId: SHEET_SYNC_SPREADSHEET_ID,
                 targetSheet: targetSheetOverride || getTargetSheetName(tableName),
                 records

@@ -1,10 +1,18 @@
 # Google Sheets Akademik
 
-Ini adalah struktur yang dipakai untuk sinkronisasi rekap rapot dan ijazah.
+Ini adalah struktur yang dipakai untuk sinkronisasi `Database Siswa`, `Input Nilai`, dan `Akademik & Ijazah`.
 
 ## Tab Utama
 
-`Rekap Akademik`
+- `Database Siswa`
+- `Input Nilai`
+- `Rekap Akademik`
+
+## Kunci Baris
+
+- `Database Siswa` dan `Students` memakai kunci `id`.
+- `Input Nilai` dan `Grades` memakai kunci `id`, lalu fallback `studentId + materialId + scoreType` jika `id` kosong.
+- `Rekap Akademik` dan `Akademik & Ijazah` memakai kunci `studentId`.
 
 ## Tabel Yang Ikut Sinkron
 
@@ -67,7 +75,7 @@ Jika ada 2 mapel rapot dan 1 mapel ijazah, urutannya akan terlihat seperti ini:
 ## Catatan Operasional
 
 - Satu baris = satu siswa.
-- Data terbaru akan di-upsert berdasarkan `studentId`.
+- Data terbaru akan di-upsert berdasarkan kunci tab masing-masing.
 - Saat mapel berubah, header otomatis diperbarui oleh Apps Script.
 - Snapshot live di app dibaca dari endpoint proxy lokal `GET /api/academic-sheet-rekap`.
 

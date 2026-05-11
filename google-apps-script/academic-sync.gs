@@ -1,4 +1,6 @@
 const DEFAULT_REKAP_SHEET_NAME = 'Rekap Akademik';
+const DEFAULT_STUDENT_SHEET_NAME = 'Database Siswa';
+const DEFAULT_GRADE_SHEET_NAME = 'Input Nilai';
 const FIXED_HEADERS = [
   'updatedAt',
   'studentId',
@@ -13,11 +15,21 @@ const FIXED_HEADERS = [
   'source'
 ];
 
+const SHEET_KEY_RULES = {
+  'Database Siswa': ['id', 'studentId', 'nisn', 'nis'],
+  'Students': ['id', 'studentId', 'nisn', 'nis'],
+  'Input Nilai': ['id', 'studentId', 'materialId', 'scoreType'],
+  'Grades': ['id', 'studentId', 'materialId', 'scoreType'],
+  'Rekap Akademik': ['studentId', 'id'],
+  'Akademik & Ijazah': ['studentId', 'id']
+};
+
 function doPost(e) {
   const payload = parsePayload_(e);
   const mode = String(payload.mode || 'upsert').trim().toLowerCase();
   const spreadsheetId = String(payload.spreadsheetId || getParam_(e, 'spreadsheetId') || '').trim();
   const sheetName = String(payload.targetSheet || payload.sheetName || getParam_(e, 'sheetName') || DEFAULT_REKAP_SHEET_NAME).trim();
+  const tableName = String(payload.tableName || '').trim();
 
   if (!spreadsheetId) {
     return jsonResponse_({ status: 'error', message: 'spreadsheetId wajib diisi.' }, 400);
@@ -33,12 +45,13 @@ function doPost(e) {
 
   const sheet = getOrCreateSheet_(spreadsheetId, sheetName);
   const existing = readSheet_(sheet);
+  const keyFields = getKeyFields_(sheetName, tableName);
 
   if (mode === 'delete') {
     const keys = records
-      .map((record) => getRecordKey_(record))
+      .map((record) => getRecordKey_(record, sheetName, tableName, keyFields))
       .filter(Boolean);
-    deleteRowsByKeys_(sheet, existing.headers, keys);
+    deleteRowsByKeys_(sheet, existing.headers, existing.rows, sheetName, tableName, keyFields, keys);
     return jsonResponse_({
       status: 'success',
       message: 'Data berhasil dihapus dari Google Sheets.',
@@ -54,18 +67,18 @@ function doPost(e) {
   });
 
   writeHeaders_(sheet, headers);
-  const rowIndexByStudentId = buildRowIndex_(existing.rows, 'studentId');
+  const rowIndexByKey = buildRowIndex_(existing.rows, sheetName, tableName, keyFields);
 
   records.forEach((record) => {
     const rowObject = normalizeRecord_(record);
     const rowValues = headers.map((header) => toCellValue_(rowObject[header]));
-    const studentId = String(rowObject.studentId || '').trim();
+    const recordKey = getRecordKey_(rowObject, sheetName, tableName, keyFields);
 
-    if (!studentId) {
+    if (!recordKey) {
       return;
     }
 
-    const existingRowIndex = rowIndexByStudentId[studentId];
+    const existingRowIndex = rowIndexByKey[recordKey];
     if (existingRowIndex) {
       sheet.getRange(existingRowIndex, 1, 1, headers.length).setValues([rowValues]);
     } else {
@@ -155,14 +168,18 @@ function normalizeRecord_(record) {
     row[key] = value;
   });
   if (!row.updatedAt) row.updatedAt = new Date().toISOString();
-  if (!row.source) row.source = 'EduFlow-Academic';
+  if (!row.source) row.source = 'EduFlow-Supabase';
   return row;
 }
 
-function buildRowIndex_(rows, keyName) {
+function getKeyFields_(sheetName, tableName) {
+  return SHEET_KEY_RULES[sheetName] || SHEET_KEY_RULES[tableName] || ['id', 'studentId'];
+}
+
+function buildRowIndex_(rows, sheetName, tableName, keyFields) {
   const index = {};
   rows.forEach((row, idx) => {
-    const key = String(row[keyName] || '').trim();
+    const key = getRecordKey_(row, sheetName, tableName, keyFields);
     if (key) {
       index[key] = idx + 2; // account for header row
     }
@@ -170,24 +187,40 @@ function buildRowIndex_(rows, keyName) {
   return index;
 }
 
-function getRecordKey_(record) {
+function getRecordKey_(record, sheetName, tableName, keyFields) {
   const normalized = normalizeRecord_(record);
-  return String(normalized.studentId || normalized.id || normalized.key || '').trim();
+  const fields = keyFields || getKeyFields_(sheetName, tableName);
+
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    const value = String(normalized[field] || '').trim();
+    if (value) return value;
+  }
+
+  if (sheetName === 'Input Nilai' || tableName === 'grades') {
+    const studentId = String(normalized.studentId || '').trim();
+    const materialId = String(normalized.materialId || '').trim();
+    const scoreType = String(normalized.scoreType || '').trim();
+    const fallback = [studentId, materialId, scoreType].filter(Boolean).join('__');
+    if (fallback) return fallback;
+  }
+
+  if (sheetName === 'Rekap Akademik' || sheetName === 'Akademik & Ijazah' || tableName === 'academicRecords') {
+    const studentId = String(normalized.studentId || '').trim();
+    if (studentId) return studentId;
+  }
+
+  return String(normalized.id || normalized.studentId || normalized.key || '').trim();
 }
 
-function deleteRowsByKeys_(sheet, headers, keys) {
+function deleteRowsByKeys_(sheet, headers, rows, sheetName, tableName, keyFields, keys) {
   if (!headers.length || !keys.length) return;
-  const values = sheet.getDataRange().getValues();
-  if (values.length < 2) return;
-
-  const keyIndex = headers.includes('studentId') ? headers.indexOf('studentId') : headers.indexOf('id');
-  if (keyIndex < 0) return;
 
   const rowsToDelete = [];
-  for (let rowIndex = values.length - 1; rowIndex >= 2; rowIndex--) {
-    const currentKey = String(values[rowIndex - 1][keyIndex] || '').trim();
+  for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex--) {
+    const currentKey = getRecordKey_(rows[rowIndex], sheetName, tableName, keyFields);
     if (currentKey && keys.includes(currentKey)) {
-      rowsToDelete.push(rowIndex);
+      rowsToDelete.push(rowIndex + 2);
     }
   }
 
