@@ -7720,14 +7720,42 @@ function AcademicView({
                     >
                         {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
                     </select>
-                    <select
-                        className="bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
-                        value={selectedStudentId}
-                        onChange={e => setSelectedStudentId(e.target.value)}
-                    >
-                        <option value="">-- Pilih Siswa --</option>
-                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name || 'Tanpa Nama'}</option>)}
-                    </select>
+                    {/* Student navigator with up/down arrows */}
+                    {(() => {
+                        const sortedStudents = sortStudentsForSelect(filteredStudents);
+                        const currentIdx = sortedStudents.findIndex(s => s.id === selectedStudentId);
+                        const hasPrev = currentIdx > 0;
+                        const hasNext = currentIdx < sortedStudents.length - 1 && currentIdx !== -1;
+                        const currentStudent = sortedStudents[currentIdx];
+                        return (
+                            <div className="flex items-center gap-1 bg-white border border-border rounded-lg overflow-hidden shadow-sm">
+                                <button
+                                    title="Siswa Sebelumnya"
+                                    disabled={!hasPrev}
+                                    onClick={() => hasPrev && setSelectedStudentId(sortedStudents[currentIdx - 1].id)}
+                                    className="px-2 py-2 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors border-r border-border"
+                                >
+                                    <ArrowUp size={15} />
+                                </button>
+                                <select
+                                    className="bg-transparent px-2 py-2 text-sm font-bold outline-none min-w-[160px] cursor-pointer"
+                                    value={selectedStudentId}
+                                    onChange={e => setSelectedStudentId(e.target.value)}
+                                >
+                                    <option value="">-- Pilih Siswa --</option>
+                                    {sortedStudents.map((s, i) => <option key={s.id} value={s.id}>{i + 1}. {s.name || 'Tanpa Nama'}</option>)}
+                                </select>
+                                <button
+                                    title="Siswa Berikutnya"
+                                    disabled={!hasNext}
+                                    onClick={() => hasNext && setSelectedStudentId(sortedStudents[currentIdx + 1].id)}
+                                    className="px-2 py-2 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors border-l border-border"
+                                >
+                                    <ArrowDown size={15} />
+                                </button>
+                            </div>
+                        );
+                    })()}
 
                     <button onClick={handleOpenMassTkaModal} className="btn-small bg-purple-100 text-purple-700 hover:bg-purple-200">
                         <Users size={16} /> Edit TKA Kelas
