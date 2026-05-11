@@ -207,22 +207,47 @@ function mergeHeaders_(existingHeaders, record) {
 
 function normalizeRecord_(record) {
   const row = {};
-  Object.keys(record || {}).forEach((key) => {
-    if (key === 'records') return;
-    const value = record[key];
-    if (value === undefined || value === null) {
-      row[key] = '';
-      return;
-    }
-    if (typeof value === 'object') {
-      row[key] = JSON.stringify(value);
-      return;
-    }
-    row[key] = value;
-  });
+  flattenRecord_(record || {}, row);
   if (!row.updatedAt) row.updatedAt = new Date().toISOString();
   if (!row.source) row.source = 'EduFlow-Supabase';
   return row;
+}
+
+function flattenRecord_(input, output, prefix) {
+  Object.keys(input || {}).forEach((key) => {
+    if (key === 'records') return;
+    const value = input[key];
+    const nextKey = prefix ? `${prefix}_${key}` : key;
+
+    if (value === undefined || value === null) {
+      output[nextKey] = '';
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      if (!value.length) {
+        output[nextKey] = '';
+        return;
+      }
+
+      if (value.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+        value.forEach((item, index) => {
+          flattenRecord_(item, output, `${nextKey}_${index + 1}`);
+        });
+        return;
+      }
+
+      output[nextKey] = value.join(', ');
+      return;
+    }
+
+    if (typeof value === 'object') {
+      flattenRecord_(value, output, nextKey);
+      return;
+    }
+
+    output[nextKey] = value;
+  });
 }
 
 function getKeyFields_(sheetName, tableName) {

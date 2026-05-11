@@ -7598,6 +7598,7 @@ function AcademicView({
         if (validationErrors.length > 0) return alert('Terdapat kesalahan pada data yang diisi.');
         const payload = { ...record, studentId: record.studentId };
         await setDoc(doc(db, 'academicRecords', record.studentId), payload);
+        await syncAcademicSheetRow(payload);
         alert('Data Akademik Berhasil Disimpan');
     };
 
@@ -7628,8 +7629,6 @@ function AcademicView({
         const studentClassId = String((student as any)?.classId || '').trim();
         const klass = classes.find(c => c.id === studentClassId || c.name === studentClassId);
         const row: Record<string, any> = {
-            spreadsheetId: academicSpreadsheetId,
-            targetSheet: academicRekapSheetName,
             source: 'EduFlow-Academic',
             updatedAt: new Date().toISOString(),
             studentId: payload.studentId || '',
@@ -7659,6 +7658,33 @@ function AcademicView({
         });
 
         return row;
+    };
+
+    const syncAcademicSheetRow = async (payload: any) => {
+        if (!academicSheetWebhook) return;
+        const row = buildAcademicSheetRow(payload);
+
+        try {
+            const response = await fetch(academicSheetWebhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: 'upsert',
+                    spreadsheetId: academicSpreadsheetId,
+                    targetSheet: academicRekapSheetName,
+                    tableName: 'academicRecords',
+                    source: 'EduFlow-Academic',
+                    record: row,
+                    records: [row]
+                })
+            });
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Gagal sync academic sheet:', response.status, text);
+            }
+        } catch (error) {
+            console.error('Gagal sync academic sheet:', error);
+        }
     };
 
     const parseAcademicSheetRow = (row: any) => {
@@ -7824,6 +7850,7 @@ function AcademicView({
                 const ex = existingMap.get(studentId) || { prestasi: [] };
                 const payload = { ...ex, studentId, tka, rapot, ijazah };
                 await setDoc(doc(db, 'academicRecords', studentId), payload);
+                await syncAcademicSheetRow(payload);
             }
             alert('Import Data Akademik & Ijazah Berhasil!');
             if (selectedStudentId) { loadSingleRecord(selectedStudentId).then(setRecord); }
@@ -7897,6 +7924,7 @@ function AcademicView({
             }
             const payload = { ...ex, studentId: sid, tka: updatedTka };
             await setDoc(doc(db, 'academicRecords', sid), payload);
+            await syncAcademicSheetRow(payload);
         }
         alert('Data TKA Kelas Berhasil Disimpan!');
         if (selectedStudentId) {

@@ -28,8 +28,10 @@ Mirror otomatis sekarang berlaku untuk tabel inti berikut:
 - `studentPayments`
 - `savingsTransactions`
 - `schoolDeposits`
-- `academicRecords`
 - `classCashTransactions_*`
+
+Catatan:
+- `academicRecords` disinkronkan langsung dari modul `Akademik & Ijazah` dalam bentuk baris datar, bukan auto-mirror generik Supabase.
 
 Tabel tersebut tetap disimpan di Supabase sebagai sumber data utama, lalu setiap write akan dimirror ke Google Sheets.
 

@@ -27,7 +27,6 @@ const SHEET_TARGET_MAPPING: Record<string, string> = {
     studentPayments: 'StudentPayments',
     savingsTransactions: 'SavingsTransactions',
     schoolDeposits: 'SchoolDeposits',
-    academicRecords: 'Rekap Akademik'
 };
 
 const shouldSyncTableToSheet = (tableName: string) => {

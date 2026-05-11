@@ -72,22 +72,18 @@ async function backfillTable({ tableName, targetSheet }) {
   console.log(`Fetched ${rows.length} rows`);
 
   const normalizedRows = rows.map((row) => {
+    const base = { ...row };
+
     if (tableName === 'students') {
-      return {
-        ...row,
-        studentId: String(row?.studentId || row?.id || '').trim(),
-        studentName: row?.studentName || row?.name || ''
-      };
+      base.studentId = String(row?.studentId || row?.id || '').trim();
+      base.studentName = row?.studentName || row?.name || '';
     }
 
     if (tableName === 'academicRecords') {
-      return {
-        ...row,
-        studentId: String(row?.studentId || row?.id || '').trim()
-      };
+      base.studentId = String(row?.studentId || row?.id || '').trim();
     }
 
-    return row;
+    return flattenRecord(base);
   });
 
   await postSheet({
@@ -103,6 +99,44 @@ async function backfillTable({ tableName, targetSheet }) {
   }
 
   console.log(`Replaced ${rows.length} rows successfully.`);
+}
+
+function flattenRecord(input, output = {}, prefix = '') {
+  Object.keys(input || {}).forEach((key) => {
+    const value = input[key];
+    const nextKey = prefix ? `${prefix}_${key}` : key;
+
+    if (value === undefined || value === null) {
+      output[nextKey] = '';
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      if (!value.length) {
+        output[nextKey] = '';
+        return;
+      }
+
+      if (value.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+        value.forEach((item, index) => {
+          flattenRecord(item, output, `${nextKey}_${index + 1}`);
+        });
+        return;
+      }
+
+      output[nextKey] = value.join(', ');
+      return;
+    }
+
+    if (typeof value === 'object') {
+      flattenRecord(value, output, nextKey);
+      return;
+    }
+
+    output[nextKey] = value;
+  });
+
+  return output;
 }
 
 for (const item of TABLES) {
