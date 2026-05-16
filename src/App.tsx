@@ -5425,11 +5425,20 @@ function GemariView({
         notes: ''
     });
 
-    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const getStudentName = (id: string) => {
+        const s = students.find(x => x.id === id);
+        return s?.name || s?.displayName || s?.fullName || s?.nama || 'Umum / Kolektif';
+    };
     const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+    
     const selectedClass = classes.find(c => c.id === selectedClassId);
     const filteredStudents = students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId));
-    const monthTransactions = transactions.filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth));
+    
+    // Transactions for the selected month and class
+    const monthTransactions = transactions
+        .filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
     const monthSchoolDays = (() => {
         const [y, m] = selectedMonth.split('-').map(Number);
         const daysInMonth = new Date(y, m, 0).getDate();
@@ -5475,18 +5484,8 @@ function GemariView({
         }
     }, [classes, selectedClassId]);
 
-    useEffect(() => {
-        if (!filteredStudents.length) {
-            setSelectedStudentId('');
-            return;
-        }
-        if (!selectedStudentId || !filteredStudents.some(s => s.id === selectedStudentId)) {
-            setSelectedStudentId(filteredStudents[0].id);
-        }
-    }, [filteredStudents, selectedStudentId]);
-
     const resetForm = () => setForm({
-        studentId: selectedStudentId || '',
+        studentId: '',
         transactionType: 'deposit',
         amount: 0,
         date: todayStr,
@@ -5502,17 +5501,17 @@ function GemariView({
             date: tx.date,
             notes: tx.notes || ''
         });
+        setShowForm(true);
     };
 
     const handleSaveTx = async () => {
-        if (!form.studentId) return alert('Pilih siswa terlebih dahulu');
         if (!form.amount || form.amount <= 0) return alert('Nominal harus lebih dari 0');
         const targetClassId = editingTx?.classId || selectedClassId;
 
         if (editingTx) {
             await persistClassCashEntries([{
                 classId: editingTx.classId,
-                studentId: editingTx.studentId,
+                studentId: editingTx.studentId || '',
                 type: 'gemari',
                 transactionType: editingTx.transactionType || 'deposit',
                 amount: -1,
@@ -5523,7 +5522,7 @@ function GemariView({
 
         await persistClassCashEntries([{
             classId: targetClassId,
-            studentId: form.studentId,
+            studentId: form.studentId || '',
             type: 'gemari',
             transactionType: form.transactionType,
             amount: form.amount,
@@ -5540,7 +5539,7 @@ function GemariView({
         if (!confirm('Hapus transaksi ini?')) return;
         await persistClassCashEntries([{
             classId: tx.classId,
-            studentId: tx.studentId,
+            studentId: tx.studentId || '',
             type: 'gemari',
             transactionType: tx.transactionType || 'deposit',
             amount: -1,
@@ -5551,27 +5550,35 @@ function GemariView({
         onRefresh();
     };
 
-    const ledgerRows = monthTransactions
-        .filter(t => !selectedStudentId || t.studentId === selectedStudentId)
-        .map(t => {
-            const student = students.find(s => s.id === t.studentId);
-            const target = targetPerStudent;
-            const paid = monthTransactions.filter(x => x.studentId === t.studentId).reduce((sum, x) => sum + (x.transactionType === 'withdrawal' ? -Number(x.amount || 0) : Number(x.amount || 0)), 0);
-            const status = paid >= target && paid > 0 ? 'sudah_bayar' : paid <= 0 ? 'belum_bayar' : 'kurang_bayar';
-            return { ...t, student, status };
+    // Calculate Ledger Rows with Running Balance
+    const ledgerRows = (() => {
+        const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
+        let runningBalance = 0;
+        return base.map(t => {
+            const debet = t.transactionType === 'deposit' ? Number(t.amount || 0) : 0;
+            const kredit = t.transactionType === 'withdrawal' ? Number(t.amount || 0) : 0;
+            runningBalance += (debet - kredit);
+            return {
+                ...t,
+                student: students.find(s => s.id === t.studentId),
+                debet,
+                kredit,
+                saldo: runningBalance
+            };
         });
+    })();
 
     return (
         <div className="space-y-6 print-container">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">GEMARI SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Input manual, status bayar, dan rekap kekurangan</p>
+                <p className="text-xs font-bold text-slate-500">Buku Transaksi: {selectedClass?.name} - {selectedMonth}</p>
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
                 <div>
                     <h2 className="text-2xl font-black tracking-tighter uppercase italic">GEMARI</h2>
-                    <p className="text-xs text-text-secondary font-bold">Input manual seperti tabungan, lengkap dengan status sudah bayar / belum bayar / kurang bayar</p>
+                    <p className="text-xs text-text-secondary font-bold">Monitor tabungan dan infaq harian siswa secara transparan</p>
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                     <select
@@ -5593,22 +5600,22 @@ function GemariView({
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 no-print">
                 <div className="card">
-                    <p className="stat-label">Total Target</p>
+                    <p className="stat-label">Total Target Kelas</p>
                     <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
                 </div>
                 <div className="card">
-                    <p className="stat-label">Sudah Dibayar</p>
+                    <p className="stat-label">Total Terkumpul</p>
                     <p className="stat-value text-emerald-600">{formatCurrency(totalPaid)}</p>
                 </div>
                 <div className="card">
-                    <p className="stat-label">Kurang Bayar</p>
+                    <p className="stat-label">Sisa Kekurangan</p>
                     <p className="stat-value text-red-500">{formatCurrency(totalKurang)}</p>
                 </div>
                 <div className="card">
-                    <p className="stat-label">Status Siswa</p>
-                    <p className="text-sm font-black text-slate-700">{countSudah} Sudah / {countKurang} Kurang / {countBelum} Belum</p>
+                    <p className="stat-label">Status Partisipasi</p>
+                    <p className="text-sm font-black text-slate-700">{countSudah} Lunas / {countKurang} Nyicil / {countBelum} Belum</p>
                 </div>
             </div>
 
@@ -5618,7 +5625,7 @@ function GemariView({
                         onClick={() => setActiveTab('overview')}
                         className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'overview' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
                     >
-                        Ringkasan
+                        Ringkasan Siswa
                     </button>
                     <button
                         onClick={() => setActiveTab('ledger')}
@@ -5628,7 +5635,7 @@ function GemariView({
                     </button>
                 </div>
                 <button onClick={onOpenPrint} className="btn-small !bg-slate-700 flex items-center gap-2">
-                    <Printer size={14} /> Cetak
+                    <Printer size={14} /> Cetak Laporan
                 </button>
             </div>
 
@@ -5637,11 +5644,11 @@ function GemariView({
                     {studentRows.length === 0 ? (
                         <div className="card p-10 text-center text-slate-400 italic">Belum ada siswa pada kelas ini.</div>
                     ) : studentRows.map(row => (
-                        <div key={row.student.id} className="card space-y-4">
+                        <div key={row.student.id} className="card space-y-4 group hover:border-accent transition-all">
                             <div className="flex items-start justify-between gap-3">
                                 <div>
-                                    <h4 className="font-black text-lg">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">{selectedClass?.name || 'Kelas'}</p>
+                                    <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target Harian: Rp 500</p>
                                 </div>
                                 <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                                     row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
@@ -5651,7 +5658,7 @@ function GemariView({
                                     {row.status === 'sudah_bayar' ? 'Sudah Bayar' : row.status === 'kurang_bayar' ? 'Kurang Bayar' : 'Belum Bayar'}
                                 </span>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="grid grid-cols-2 gap-3 text-xs">
                                 <div className="p-3 bg-slate-50 rounded-xl border border-border">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase">Target</p>
                                     <p className="font-black">{formatCurrency(targetPerStudent)}</p>
@@ -5665,82 +5672,110 @@ function GemariView({
                                     <p className="font-black text-red-500">{formatCurrency(row.kurang)}</p>
                                 </div>
                                 <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Transaksi</p>
-                                    <p className="font-black">{row.txCount}</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Input</p>
+                                    <p className="font-black">{row.txCount} Kali</p>
                                 </div>
                             </div>
-                            <button
-                                onClick={() => {
-                                    setSelectedStudentId(row.student.id);
-                                    setActiveTab('ledger');
-                                }}
-                                className="w-full btn-small"
-                            >
-                                Lihat Transaksi
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setForm({ ...form, studentId: row.student.id, transactionType: 'deposit' });
+                                        setShowForm(true);
+                                    }}
+                                    className="flex-1 btn-primary !py-2 text-[10px]"
+                                >
+                                    Input Bayar
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setSelectedStudentId(row.student.id);
+                                        setActiveTab('ledger');
+                                    }}
+                                    className="flex-1 btn-small !py-2 text-[10px] bg-slate-100 text-slate-600 shadow-none border-none hover:bg-slate-200"
+                                >
+                                    Detail
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
             ) : (
                 <div className="space-y-4">
-                    <div className="flex flex-wrap gap-3 no-print items-end">
-                        <div className="space-y-1 flex-1 min-w-[240px]">
-                            <label className="text-[10px] font-bold uppercase text-text-secondary">Filter Siswa</label>
-                            <select
-                                className="w-full bg-white border border-border rounded-lg px-4 py-2 text-sm outline-none"
-                                value={selectedStudentId}
-                                onChange={e => setSelectedStudentId(e.target.value)}
-                            >
-                                <option value="">Semua Siswa</option>
-                                {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
+                    <div className="flex flex-col md:flex-row gap-4 no-print items-end justify-between bg-slate-50 p-4 rounded-2xl border border-border">
+                        <div className="flex gap-4 items-end flex-wrap">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary ml-1">Cari Siswa</label>
+                                <select
+                                    className="bg-white border border-border rounded-lg px-4 py-2 text-sm outline-none font-bold min-w-[200px]"
+                                    value={selectedStudentId}
+                                    onChange={e => setSelectedStudentId(e.target.value)}
+                                >
+                                    <option value="">Seluruh Kelas</option>
+                                    {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
+                            {selectedStudentId && (
+                                <button onClick={() => setSelectedStudentId('')} className="text-xs font-bold text-accent hover:underline mb-2">Hapus Filter</button>
+                            )}
                         </div>
-                        {selectedStudentId && (
-                            <button onClick={() => setSelectedStudentId('')} className="text-xs font-bold text-accent hover:underline mb-2">Reset</button>
-                        )}
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'deposit' })); setShowForm(true); }} 
+                                className="btn-small !bg-emerald-600 text-white flex items-center gap-2"
+                            >
+                                <Plus size={14} /> Pemasukan
+                            </button>
+                            <button 
+                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'withdrawal' })); setShowForm(true); }} 
+                                className="btn-small !bg-red-500 text-white flex items-center gap-2"
+                            >
+                                <Minus size={14} /> Pengeluaran
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="table-container shadow-sm">
+                    <div className="table-container shadow-sm overflow-x-auto">
                         <table className="data-table">
-                            <thead>
+                            <thead className="bg-slate-900 text-white">
                                 <tr>
-                                    <SortableTH label="TANGGAL" sortKey="date" currentSort={currentSort} onSort={onSort} />
-                                    <SortableTH label="SISWA" sortKey="studentId" currentSort={currentSort} onSort={onSort} />
-                                    <th>STATUS</th>
-                                    <SortableTH label="NOMINAL" sortKey="amount" currentSort={currentSort} onSort={onSort} />
-                                    <th>KETERANGAN</th>
-                                    <th className="no-print">AKSI</th>
+                                    <th className="!text-white border-none">TGL</th>
+                                    <th className="!text-white border-none">SISWA / KETERANGAN</th>
+                                    <th className="!text-white border-none text-right">MASUK (D)</th>
+                                    <th className="!text-white border-none text-right">KELUAR (K)</th>
+                                    <th className="!text-white border-none text-right">SALDO</th>
+                                    <th className="no-print !text-white border-none">AKSI</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {sortedData(ledgerRows).length === 0 ? (
+                                {ledgerRows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="text-center py-16 text-slate-400 italic">Belum ada transaksi GEMARI pada bulan ini.</td>
+                                        <td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada catatan transaksi untuk periode ini.</td>
                                     </tr>
                                 ) : (
-                                    sortedData(ledgerRows).map((t: any) => (
-                                        <tr key={t.id} className="hover:bg-slate-50 transition-all">
-                                            <td className="font-mono text-xs">{t.date}</td>
-                                            <td className="font-bold">{t.student?.name || 'Kolektif'}</td>
-                                            <td>
-                                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                                                    t.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
-                                                    t.status === 'kurang_bayar' ? 'bg-amber-100 text-amber-700' :
-                                                    'bg-red-100 text-red-700'
-                                                }`}>
-                                                    {t.status === 'sudah_bayar' ? 'Sudah Bayar' : t.status === 'kurang_bayar' ? 'Kurang Bayar' : 'Belum Bayar'}
-                                                </span>
+                                    ledgerRows.map((t: any) => (
+                                        <tr key={t.id} className="hover:bg-blue-50/50 transition-all border-b border-slate-100">
+                                            <td className="font-mono text-xs whitespace-nowrap">{t.date}</td>
+                                            <td className="py-3">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-slate-700">{t.student?.name || 'UMUM / KOLEKTIF'}</span>
+                                                    <span className="text-[10px] text-slate-400 italic">{t.notes || '- no notes -'}</span>
+                                                </div>
                                             </td>
-                                            <td className={`font-black font-mono text-sm ${t.transactionType === 'withdrawal' ? 'text-red-500' : 'text-text-primary'}`}>
-                                                {t.transactionType === 'withdrawal' ? '-' : ''}{formatCurrency(Number(t.amount) || 0)}
+                                            <td className="text-right font-bold text-emerald-600">
+                                                {t.debet > 0 ? formatCurrency(t.debet) : '-'}
                                             </td>
-                                            <td className="text-xs text-text-secondary italic">{t.notes || '-'}</td>
+                                            <td className="text-right font-bold text-red-500">
+                                                {t.kredit > 0 ? formatCurrency(t.kredit) : '-'}
+                                            </td>
+                                            <td className="text-right font-black bg-slate-50/50">
+                                                {formatCurrency(t.saldo)}
+                                            </td>
                                             <td className="no-print">
-                                                <div className="flex gap-1">
-                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-50 rounded text-blue-500 transition-all" aria-label="Edit Transaksi">
+                                                <div className="flex gap-1 justify-center">
+                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-100 rounded text-blue-600 transition-all">
                                                         <Edit size={12} />
                                                     </button>
-                                                    <button onClick={() => handleDeleteTx(t)} className="p-1.5 hover:bg-red-50 rounded text-red-400 transition-all" aria-label="Hapus Transaksi">
+                                                    <button onClick={() => handleDeleteTx(t)} className="p-1.5 hover:bg-red-100 rounded text-red-500 transition-all">
                                                         <Trash2 size={12} />
                                                     </button>
                                                 </div>
@@ -5749,81 +5784,116 @@ function GemariView({
                                     ))
                                 )}
                             </tbody>
+                            {ledgerRows.length > 0 && (
+                                <tfoot className="bg-slate-50 font-black">
+                                    <tr>
+                                        <td colSpan={2} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total Periode Ini</td>
+                                        <td className="text-right text-emerald-600">{formatCurrency(ledgerRows.reduce((a, b) => a + b.debet, 0))}</td>
+                                        <td className="text-right text-red-500">{formatCurrency(ledgerRows.reduce((a, b) => a + b.kredit, 0))}</td>
+                                        <td className="text-right bg-slate-100">{formatCurrency(ledgerRows[ledgerRows.length - 1].saldo)}</td>
+                                        <td className="no-print"></td>
+                                    </tr>
+                                </tfoot>
+                            )}
                         </table>
                     </div>
                 </div>
             )}
 
             <AnimatePresence>
-                {(showForm || editingTx) && (
-                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                {showForm && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
                         <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-border space-y-4"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-border relative overflow-hidden"
                         >
-                            <div className="flex justify-between items-center">
-                                <h3 className="text-xl font-black uppercase tracking-tighter">{editingTx ? 'Edit Transaksi GEMARI' : 'Input Manual GEMARI'}</h3>
-                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} aria-label="Tutup form">
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-accent to-blue-400" />
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">{editingTx ? 'Ubah Catatan' : 'Input Transaksi'}</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modul Gemari Siswa</p>
+                                </div>
+                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} className="p-2 hover:bg-slate-100 rounded-full transition-all">
                                     <X size={20} />
                                 </button>
                             </div>
-                            <div className="space-y-3">
+                            
+                            <div className="space-y-4">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Siswa</label>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nama Siswa</label>
                                     <select
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
                                         value={form.studentId}
                                         onChange={e => setForm(prev => ({ ...prev, studentId: e.target.value }))}
                                     >
-                                        <option value="">-- Pilih Siswa --</option>
+                                        <option value="">-- UMUM / KOLEKTIF --</option>
                                         {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                     </select>
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Tipe</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={form.transactionType}
-                                        onChange={e => setForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
-                                    >
-                                        <option value="deposit">Sudah Bayar / Setor</option>
-                                        <option value="withdrawal">Koreksi / Kurang</option>
-                                    </select>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tipe</label>
+                                        <select
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
+                                            value={form.transactionType}
+                                            onChange={e => setForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
+                                        >
+                                            <option value="deposit">Pemasukan (D)</option>
+                                            <option value="withdrawal">Pengeluaran (K)</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal</label>
+                                        <input
+                                            type="date"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
+                                            value={form.date}
+                                            onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))}
+                                        />
+                                    </div>
                                 </div>
+
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-accent"
-                                        value={form.amount}
-                                        onChange={e => setForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
-                                    />
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nominal (Rp)</label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-10 outline-none font-black text-lg text-accent focus:border-accent focus:bg-white transition-all"
+                                            value={form.amount}
+                                            onChange={e => setForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
+                                        />
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">Rp</div>
+                                    </div>
                                 </div>
+
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Tanggal</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={form.date}
-                                        onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Catatan</label>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Keterangan / Catatan</label>
                                     <textarea
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none text-sm min-h-[90px]"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-sm min-h-[80px] focus:border-accent focus:bg-white transition-all"
                                         value={form.notes}
                                         onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
-                                        placeholder="Opsional"
+                                        placeholder="Tuliskan alasan atau sumber dana..."
                                     />
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">Batal</button>
-                                <button onClick={handleSaveTx} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-bold uppercase text-xs">{editingTx ? 'Simpan' : 'Tambah'}</button>
+
+                            <div className="flex gap-3 mt-8">
+                                <button 
+                                    onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} 
+                                    className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    onClick={handleSaveTx} 
+                                    className="flex-3 py-4 bg-slate-900 text-yellow-400 rounded-2xl font-black uppercase text-xs shadow-xl shadow-slate-200 active:scale-95 transition-all"
+                                >
+                                    {editingTx ? 'Update Data' : 'Simpan Transaksi'}
+                                </button>
                             </div>
                         </motion.div>
                     </div>
