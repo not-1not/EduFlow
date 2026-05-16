@@ -6049,7 +6049,7 @@ function ClassCashView({
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border mt-10">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold">Input Rentang Tanggal</h3>
+                            <h3 className="text-xl font-bold">Input Rentang Manual</h3>
                             <button onClick={() => setShowRangeModal(false)} aria-label="Tutup modal rentang tanggal"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
@@ -6067,7 +6067,7 @@ function ClassCashView({
                                 </select>
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis Pembayaran</label>
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis Input</label>
                                 <select
                                     className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
                                     value={rangeForm.targetType}
@@ -6100,19 +6100,19 @@ function ClassCashView({
                                 </div>
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Status Inputan</label>
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Status Input</label>
                                 <select
                                     className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
                                     value={rangeForm.status}
                                     onChange={e => setRangeForm({ ...rangeForm, status: e.target.value as any })}
                                 >
-                                    <option value="setor">Setor / Manual</option>
-                                    <option value="bebas_setor">Kosongkan (Rentang Tanpa Nominal)</option>
+                                    <option value="setor">Isi Nominal</option>
+                                    <option value="bebas_setor">Kosongkan</option>
                                 </select>
                             </div>
                             {rangeForm.status === 'setor' && (
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal Manual</label>
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -6128,7 +6128,7 @@ function ClassCashView({
                                 disabled={isSavingRange}
                                 className={`btn-primary w-full py-4 rounded-xl mt-4 ${isSavingRange ? 'opacity-60 cursor-not-allowed' : ''}`}
                             >
-                                {isSavingRange ? 'Menyimpan...' : 'Simpan & Rekap'}
+                                {isSavingRange ? 'Menyimpan...' : 'Simpan'}
                             </button>
                         </div>
                     </div>
@@ -6549,8 +6549,6 @@ function MonthlyClassCashView({
 
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
-    const getNominal = () => 0;
-
     const isHoliday = (date: Date) => {
         const day = date.getDay();
         const dateStr = date.toISOString().split('T')[0];
@@ -6582,7 +6580,7 @@ function MonthlyClassCashView({
         const current = getRecordAmount(studentId, d);
         let next = 0;
         if (current === -1) {
-            next = getNominal();
+            next = 0;
         } else if (current > 0) {
             next = 0;
         } else {
@@ -6595,7 +6593,7 @@ function MonthlyClassCashView({
         const date = new Date(year, m - 1, d);
         if (isHoliday(date).holiday) return;
 
-        const val = value !== undefined ? value : getNominal();
+        const val = value !== undefined ? value : 0;
         const newEdits = { ...edits };
         students.forEach(s => {
             newEdits[getCellKey(s.id, d)] = val;
@@ -6605,7 +6603,7 @@ function MonthlyClassCashView({
     };
 
     const handleFillAllDates = (value?: number) => {
-        const val = value !== undefined ? value : getNominal();
+        const val = value !== undefined ? value : 0;
         const newEdits = { ...edits };
         days.forEach(d => {
             const date = new Date(year, m - 1, d);
@@ -6685,27 +6683,27 @@ function MonthlyClassCashView({
                 </div>
             )}
             <div className="p-3 bg-slate-50 border-b border-border flex justify-end gap-2 no-print items-center">
-                <span className="text-[10px] font-black uppercase text-slate-400 mr-2">Aksi Masal se-Bulan:</span>
-                <button 
-                    onClick={() => handleFillAllDates(getNominal())}
-                    className="btn-small bg-success/10 text-success hover:bg-success hover:text-white border border-success/20 transition-all flex items-center gap-2"
-                    title="Isi SEMUA tanggal sekolah sebagai SETOR"
-                >
-                    <CheckSquare size={14} />
-                    S (Manual)
-                </button>
+                <span className="text-[10px] font-black uppercase text-slate-400 mr-2">Aksi Bulanan:</span>
                 <button 
                     onClick={() => handleFillAllDates(0)}
+                    className="btn-small bg-success/10 text-success hover:bg-success hover:text-white border border-success/20 transition-all flex items-center gap-2"
+                    title="Isi semua tanggal sekolah dengan nominal 0"
+                >
+                    <CheckSquare size={14} />
+                    Isi 0
+                </button>
+                <button 
+                    onClick={() => handleFillAllDates(-1)}
                     className="btn-small bg-yellow-50 text-yellow-700 hover:bg-yellow-500 hover:text-white border border-yellow-200 transition-all flex items-center gap-2"
-                    title="Isi SEMUA tanggal sekolah sebagai BEBAS BAYAR"
+                    title="Kosongkan semua tanggal sekolah"
                 >
                     <AlertCircle size={14} />
-                    B (0)
+                    Kosongkan
                 </button>
                 <button 
                     onClick={() => handleFillAllDates(-1)}
                     className="btn-small bg-red-50 text-red-600 hover:bg-red-500 hover:text-white border border-red-200 transition-all flex items-center gap-2"
-                    title="HAPUS SEMUA data bulan ini"
+                    title="Hapus semua data bulan ini"
                 >
                     <Trash2 size={14} />
                     Hapus
@@ -6715,9 +6713,9 @@ function MonthlyClassCashView({
                 <thead>
                     <tr>
                         <th className="text-left p-2 border border-border sticky left-0 bg-slate-100 z-10 min-w-[200px] text-xs font-black uppercase">Nama Siswa</th>
-                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Hari</th>
-                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Bayar (Bln)</th>
-                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap text-accent">Saldo (Kum)</th>
+                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Tgl</th>
+                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Nominal (Bln)</th>
+                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap text-accent">Total (Kum)</th>
                         {days.map(d => {
                             const date = new Date(year, m - 1, d);
                             const holidayInfo = isHoliday(date);
@@ -6725,7 +6723,7 @@ function MonthlyClassCashView({
                                 <th
                                     key={d}
                                     className={`p-1 border border-border font-mono text-[10px] min-w-[36px] transition-colors relative ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : 'cursor-pointer hover:bg-accent hover:text-white bg-slate-50'}`}
-                                    title={holidayInfo.holiday ? holidayInfo.name : `Klik untuk opsi masal tanggal ${d}`}
+                                    title={holidayInfo.holiday ? holidayInfo.name : `Klik untuk opsi massal tanggal ${d}`}
                                     onClick={(e) => {
                                         if (holidayInfo.holiday) return;
                                         const rect = e.currentTarget.getBoundingClientRect();
@@ -6806,10 +6804,10 @@ function MonthlyClassCashView({
                 </tbody>
             </table>
             <div className="p-4 flex gap-6 text-[10px] font-bold uppercase tracking-widest text-text-secondary bg-slate-50">
-                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-success text-success flex items-center justify-center">S</div> Setor Normal</div>
-                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-yellow-500 text-yellow-600 flex items-center justify-center">B</div> Bebas Setor (Rp 0)</div>
+                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-success text-success flex items-center justify-center">S</div> Nominal diisi</div>
+                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-yellow-500 text-yellow-600 flex items-center justify-center">0</div> Nominal 0</div>
                 <div className="flex items-center gap-2"><div className="w-4 h-4 text-slate-300 flex items-center justify-center">-</div> Kosong / Hapus</div>
-                <div className="flex items-center gap-2 ml-auto italic opacity-50">Klik sel tabel untuk mengedit, klik TANGGAL di header untuk opsi masal hari itu.</div>
+                            <div className="flex items-center gap-2 ml-auto italic opacity-50">Klik sel tabel untuk mengubah nominal, klik tanggal di header untuk aksi massal.</div>
             </div>
 
             {/* Floating Header Menu */}
@@ -6824,28 +6822,19 @@ function MonthlyClassCashView({
                             style={{ position: 'fixed', left: headerMenu.x, top: headerMenu.y, zIndex: 50 }}
                             className="bg-white shadow-2xl border border-slate-200 rounded-xl overflow-hidden min-w-[140px]"
                         >
-                            <div className="p-2 bg-slate-900 text-yellow-400 text-[10px] font-black uppercase text-center">Tgl {headerMenu.day}</div>
+                            <div className="p-2 bg-slate-900 text-yellow-400 text-[10px] font-black uppercase text-center">Tanggal {headerMenu.day}</div>
                             <button 
-                                onClick={() => handleFillDate(headerMenu.day, getNominal())}
+                                onClick={() => handleFillDate(headerMenu.day, 0)}
                                 className="w-full text-left p-3 hover:bg-success hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
                             >
                                 <div className="w-5 h-5 bg-success/10 rounded flex items-center justify-center text-success">S</div>
-                                Setor Normal
-                            </button>
-                            <button 
-                                onClick={() => handleFillDate(headerMenu.day, 0)}
-                                className="w-full text-left p-3 hover:bg-yellow-500 hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
-                            >
-                                <div className="w-5 h-5 bg-yellow-50 rounded flex items-center justify-center text-yellow-600">B</div>
-                                Bebas Bayar
+                                Isi 0
                             </button>
                             <button 
                                 onClick={() => handleFillDate(headerMenu.day, -1)}
-                                className="w-full text-left p-3 hover:bg-red-500 hover:text-white text-xs font-bold transition-all flex items-center gap-2"
+                                className="w-full text-left p-3 hover:bg-yellow-500 hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
                             >
-                                <div className="w-5 h-5 bg-red-50 rounded flex items-center justify-center text-red-500">
-                                    <Trash2 size={12} />
-                                </div>
+                                <div className="w-5 h-5 bg-yellow-50 rounded flex items-center justify-center text-yellow-600">B</div>
                                 Hapus / Reset
                             </button>
                         </motion.div>
