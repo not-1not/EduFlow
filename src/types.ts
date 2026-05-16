@@ -280,10 +280,7 @@ export type View =
      | 'student-profile'
      | 'payments'
      | 'savings'
-     | 'class-cash'
-     | 'kas-dashboard'
-     | 'kas-monthly'
-     | 'kas-individual'
+     | 'gemari'
      | 'academic'
      | 'users';
 

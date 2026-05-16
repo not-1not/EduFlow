@@ -342,7 +342,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
         { id: '2', type: 'arrears', title: 'Tunggakan Tertinggi', isVisible: true, order: 1 },
         { id: '3', type: 'recent_savings', title: 'Aktivitas Tabungan', isVisible: true, order: 2 },
         { id: '4', type: 'attendance_summary', title: 'Rekap Kehadiran', isVisible: true, order: 3 },
-        { id: '5', type: 'cash_flow', title: 'Arus Kas Kelas', isVisible: true, order: 4 },
+        { id: '5', type: 'cash_flow', title: 'Gemari', isVisible: true, order: 4 },
     ]);
 
     useEffect(() => {
@@ -679,8 +679,8 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 />;
             case 'savings':
                 return <SavingsView students={students} classes={classes} transactions={savings} onRefresh={fetchData} onOpenPrint={() => setShowPrintModal(true)} {...commonProps} />;
-            case 'class-cash':
-                return <ClassCashView
+            case 'gemari':
+                return <GemariView
                     classes={classes}
                     students={students}
                     transactions={classCash}
@@ -873,10 +873,10 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableClassCash) && (
                         <NavItem
                             icon={<Coins size={20} />}
-                            label="KAS Kelas"
-                            active={currentView === 'class-cash'}
+                            label="GEMARI"
+                            active={currentView === 'gemari'}
                             collapsed={isSidebarCollapsed}
-                            onClick={() => { setCurrentView('class-cash'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                            onClick={() => { setCurrentView('gemari'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableAcademic) && (
@@ -953,7 +953,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                                                      currentView === 'payments' ? 'Pembayaran Uang Sekolah' :
                                                          currentView === 'savings' ? 'Tabungan Siswa' :
                                                              currentView === 'attendance' ? 'Presensi Siswa' :
-                                                                 currentView === 'class-cash' ? 'KAS & Infaq Kelas' : 'Pengaturan'}
+                                                                 currentView === 'gemari' ? 'GEMARI' : 'Pengaturan'}
                          </h1>
                         <div className="hidden sm:block h-4 w-px bg-border flex-shrink-0"></div>
                         <div className="hidden sm:block">
@@ -2179,10 +2179,10 @@ function DashboardView({
                                                 <p className="text-xl font-black text-emerald-700">{formatCurrency(classCash.filter(t => t.type === 'infaq').reduce((acc, t) => acc + t.amount, 0))}</p>
                                             </div>
                                             <button
-                                                onClick={() => onNavigate('class-cash')}
+                                                onClick={() => onNavigate('gemari')}
                                                 className="w-full btn-small"
                                             >
-                                                Lihat Rincian Kas
+                                                Buka GEMARI
                                             </button>
                                         </div>
                                         <div className="space-y-2">
@@ -5386,7 +5386,7 @@ function PaymentsView({
     );
 }
 
-function ClassCashView({
+function GemariView({
     classes,
     students,
     transactions,
@@ -5409,84 +5409,64 @@ function ClassCashView({
     sortedData: any,
     SortableTH: any
 }) {
-    const [activeTab, setActiveTab] = useState<'gemari' | 'infaq'>('gemari');
-    const [viewMode, setViewMode] = useState<'daily' | 'monthly' | 'ledger'>('daily');
+    const GEMARI_RATE = 500;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-    const [showMonthPicker, setShowMonthPicker] = useState(false);
-    const [studentAmounts, setStudentAmounts] = useState<{ [key: string]: number }>({});
-
-    const [showHistory, setShowHistory] = useState(false);
-    const [showRangeModal, setShowRangeModal] = useState(false);
-    const [isSavingRange, setIsSavingRange] = useState(false);
-    const [bulkAmount, setBulkAmount] = useState<number>(0);
-    const [editingHistoryTx, setEditingHistoryTx] = useState<ClassCashTransaction | null>(null);
-    const [editingHistoryForm, setEditingHistoryForm] = useState<{
-        studentId: string;
-        type: 'gemari' | 'infaq';
-        transactionType: 'deposit' | 'withdrawal';
-        amount: number;
-        date: string;
-        notes: string;
-    }>({
+    const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [showForm, setShowForm] = useState(false);
+    const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
+    const [form, setForm] = useState({
         studentId: '',
-        type: 'gemari',
-        transactionType: 'deposit',
+        transactionType: 'deposit' as 'deposit' | 'withdrawal',
         amount: 0,
-        date: new Date().toISOString().split('T')[0],
+        date: todayStr,
         notes: ''
-    });
-    const classCashSheetWebhook = ((import.meta as any)?.env?.VITE_CLASSCASH_SHEET_WEBHOOK_URL as string | undefined) || 'https://script.google.com/macros/s/AKfycbzHdQC1AQDWXQfG5LKTeP1QNuOq5q6ZouVZucX3Eb_56IRuNoemEi8YUKB4LvXs5Gvo/exec';
-    const classCashSpreadsheetId = ((import.meta as any)?.env?.VITE_CLASSCASH_SPREADSHEET_ID as string | undefined) || '1oKnCNX5SLz37-8h_XNPuNi-yKTfqvBilw34kzNCHsdo';
-    const classCashGemariSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_GEMARI_SHEET_NAME as string | undefined) || 'Sheet1';
-    const classCashInfaqSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_INFAQ_SHEET_NAME as string | undefined) || 'Sheet2';
-
-    const [rangeForm, setRangeForm] = useState({
-        startDate: '',
-        endDate: '',
-        studentId: '',
-        targetType: 'active' as 'active' | 'gemari' | 'infaq' | 'both',
-        status: 'setor' as 'setor' | 'bebas_setor',
-        customAmount: 0
     });
 
     const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     const selectedClass = classes.find(c => c.id === selectedClassId);
-    const filteredStudents = students.filter(s => {
-        const studentClass = String((s as any)?.classId || '').trim();
-        if (!selectedClassId) return true;
-        if (studentClass === String(selectedClassId)) return true;
-        if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
-        return false;
-    });
-    const sortedFilteredStudents = sortStudentsForSelect(filteredStudents);
-    const holiday = holidays.find(h => h.date === selectedDate);
-    const dateObj = new Date(selectedDate);
-    const isWeekend = dateObj.getDay() === 0;
-    const isFriday = dateObj.getDay() === 5;
+    const filteredStudents = students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId));
+    const monthTransactions = transactions.filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth));
+    const monthSchoolDays = (() => {
+        const [y, m] = selectedMonth.split('-').map(Number);
+        const daysInMonth = new Date(y, m, 0).getDate();
+        let total = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(y, m - 1, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isHoliday = holidays.some(h => h.date === dateStr);
+            if (d.getDay() !== 0 && !isHoliday) total++;
+        }
+        return total;
+    })();
+    const targetPerStudent = monthSchoolDays * GEMARI_RATE;
 
-    // Calculate Monthly Recap
-    const currentMonthStr = selectedDate.substring(0, 7);
-    const getMonthlyRecap = () => {
-        const monthTx = transactions.filter(t => t.type === activeTab && t.classId === selectedClassId && t.date.startsWith(currentMonthStr));
-        const sudahSetor = monthTx
-            .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
-            .reduce((acc, t) => acc + t.amount, 0);
-        const pengeluaran = monthTx
-            .filter(t => (t as any).transactionType === 'withdrawal')
-            .reduce((acc, t) => acc + t.amount, 0);
-        const saldoBersih = Math.max(0, sudahSetor - pengeluaran);
-
+    const studentRows = filteredStudents.map(s => {
+        const studentTx = monthTransactions.filter(t => t.studentId === s.id);
+        const paid = studentTx.reduce((sum, t) => sum + (t.transactionType === 'withdrawal' ? -Number(t.amount || 0) : Number(t.amount || 0)), 0);
+        const kurang = Math.max(0, targetPerStudent - paid);
+        const status = paid >= targetPerStudent && paid > 0 ? 'sudah_bayar' : paid <= 0 ? 'belum_bayar' : 'kurang_bayar';
         return {
-            totalSeharusnya: sudahSetor + pengeluaran,
-            sudahSetor,
-            belumSetor: pengeluaran,
-            saldoBersih,
+            student: s,
+            paid,
+            kurang,
+            status,
+            txCount: studentTx.length
         };
-    };
+    }).sort((a, b) => {
+        const order: Record<string, number> = { kurang_bayar: 0, belum_bayar: 1, sudah_bayar: 2 };
+        return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
+    });
 
-    const recap = getMonthlyRecap();
+    const totalPaid = studentRows.reduce((sum, row) => sum + row.paid, 0);
+    const totalTarget = targetPerStudent * filteredStudents.length;
+    const totalKurang = studentRows.reduce((sum, row) => sum + row.kurang, 0);
+    const countSudah = studentRows.filter(row => row.status === 'sudah_bayar').length;
+    const countBelum = studentRows.filter(row => row.status === 'belum_bayar').length;
+    const countKurang = studentRows.filter(row => row.status === 'kurang_bayar').length;
 
     useEffect(() => {
         if (!classes.length) return;
@@ -5495,160 +5475,103 @@ function ClassCashView({
         }
     }, [classes, selectedClassId]);
 
-    const handleSaveRange = async () => {
-        if (!rangeForm.startDate || !rangeForm.endDate) return alert('Pilih tanggal awal dan akhir!');
-        if (!rangeForm.studentId) return alert('Pilih nama siswa terlebih dahulu!');
-        if (isSavingRange) return;
-
-        const start = new Date(rangeForm.startDate);
-        const end = new Date(rangeForm.endDate);
-        if (start > end) return alert('Tanggal akhir harus lebih besar atau sama dengan tanggal awal!');
-
-        setIsSavingRange(true);
-        try {
-            const entries: any[] = [];
-            let currentDate = new Date(start);
-            const targetTypes = rangeForm.targetType === 'both'
-                ? (['gemari', 'infaq'] as const)
-                : ([(rangeForm.targetType === 'active' ? activeTab : rangeForm.targetType)] as const);
-
-            while (currentDate <= end) {
-                const dateStr = [currentDate.getFullYear(), ('0' + (currentDate.getMonth() + 1)).slice(-2), ('0' + currentDate.getDate()).slice(-2)].join('-');
-                const isH = holidays.some(h => h.date === dateStr);
-                const dayOfWeek = currentDate.getDay();
-
-                targetTypes.forEach((targetType) => {
-                    let validDay = false;
-                    if (targetType === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
-                    if (targetType === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
-
-                    if (validDay || rangeForm.status === 'bebas_setor') {
-                        const manualAmount = Number(rangeForm.customAmount || 0);
-                        if (rangeForm.status === 'setor' && manualAmount <= 0) {
-                            throw new Error('Nominal manual harus lebih besar dari 0.');
-                        }
-                        entries.push({
-                            classId: selectedClassId,
-                            studentId: rangeForm.studentId,
-                            amount: rangeForm.status === 'setor' ? manualAmount : 0,
-                            date: dateStr,
-                            type: targetType,
-                            notes: rangeForm.status === 'bebas_setor' ? 'Bebas Setor' : `Input rentang - ${targetType}`
-                        });
-                    }
-                });
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-
-            if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
-
-            await saveClassCashEntries(entries);
-
-            onRefresh();
-            setShowRangeModal(false);
-            alert(`Berhasil menyimpan ${entries.length} entri untuk siswa terpilih.`);
-        } catch (error) {
-            console.error('Gagal menyimpan input rentang:', error);
-            alert('Gagal menyimpan input rentang. Silakan coba lagi.');
-        } finally {
-            setIsSavingRange(false);
+    useEffect(() => {
+        if (!filteredStudents.length) {
+            setSelectedStudentId('');
+            return;
         }
-    };
-
-    const jumpMonth = (offset: number) => {
-        const [yearStr, monthStr] = selectedMonth.split('-');
-        const date = new Date(Number(yearStr), Number(monthStr) - 1 + offset, 1);
-        const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        setSelectedMonth(month);
-        setSelectedDate(`${month}-01`);
-    };
-
-    const handleSave = async () => {
-
-        const entries = (Object.entries(studentAmounts) as [string, number][])
-            .filter(([_, amount]) => amount > 0)
-            .map(([studentId, amount]) => ({
-                classId: selectedClassId,
-                studentId,
-                amount,
-                date: selectedDate,
-                type: activeTab,
-                notes: `Input per siswa - ${activeTab}`
-            }));
-
-        if (entries.length === 0) return alert('Input nominal terlebih dahulu');
-
-        try {
-            await saveClassCashEntries(entries);
-            setStudentAmounts({});
-            onRefresh();
-            alert(`Berhasil menyimpan ${entries.length} data ${activeTab}`);
-        } catch (error) {
-            console.error('Gagal menyimpan input harian kas/infaq:', error);
-            alert('Gagal menyimpan semua data. Tidak ada data baru yang disimpan. Silakan coba lagi.');
+        if (!selectedStudentId || !filteredStudents.some(s => s.id === selectedStudentId)) {
+            setSelectedStudentId(filteredStudents[0].id);
         }
+    }, [filteredStudents, selectedStudentId]);
+
+    const resetForm = () => setForm({
+        studentId: selectedStudentId || '',
+        transactionType: 'deposit',
+        amount: 0,
+        date: todayStr,
+        notes: ''
+    });
+
+    const openEdit = (tx: ClassCashTransaction) => {
+        setEditingTx(tx);
+        setForm({
+            studentId: tx.studentId || '',
+            transactionType: tx.transactionType || 'deposit',
+            amount: Math.abs(Number(tx.amount) || 0),
+            date: tx.date,
+            notes: tx.notes || ''
+        });
     };
 
-    const saveClassCashEntries = async (entries: ClassCashWriteEntry[]) => {
-        if (!entries.length) return;
+    const handleSaveTx = async () => {
+        if (!form.studentId) return alert('Pilih siswa terlebih dahulu');
+        if (!form.amount || form.amount <= 0) return alert('Nominal harus lebih dari 0');
+        const targetClassId = editingTx?.classId || selectedClassId;
 
-        // Deduplicate same logical row in a single save cycle.
-        const uniqueMap = new Map<string, ClassCashWriteEntry>();
-        entries.forEach((e) => uniqueMap.set(buildClassCashKey(e), e));
-        const uniqueEntries = Array.from(uniqueMap.values());
-        await persistClassCashEntries(uniqueEntries);
-
-        if (classCashSheetWebhook) {
-            try {
-                const studentsById = new Map(students.map((s) => [s.id, s]));
-                const classesById = new Map(classes.map((c) => [c.id, c]));
-                const payloadBySheet = uniqueEntries.reduce((acc, entry) => {
-                    const sheetName = entry.type === 'gemari' ? classCashGemariSheetName : classCashInfaqSheetName;
-                    if (!acc[sheetName]) acc[sheetName] = [];
-                    const student = entry.studentId ? studentsById.get(entry.studentId) : null;
-                    const klass = classesById.get(entry.classId);
-                    acc[sheetName].push({
-                        key: buildClassCashKey(entry),
-                        timestamp: new Date().toISOString(),
-                        spreadsheetId: classCashSpreadsheetId,
-                        targetSheet: sheetName,
-                        tanggal: entry.date,
-                        kelasId: entry.classId,
-                        kelas: klass?.name || entry.classId,
-                        studentId: entry.studentId || '',
-                        noAbsen: (student as any)?.attendanceNumber ?? '',
-                        namaSiswa: student ? getStudentName(student) : 'Kolektif',
-                        jenis: entry.type,
-                        tipeTransaksi: entry.transactionType || 'deposit',
-                        nominal: entry.amount,
-                        status: entry.amount > 0 ? 'Setor' : 'Bebas Setor',
-                        catatan: entry.notes || ''
-                    });
-                    return acc;
-                }, {} as Record<string, any[]>);
-
-                for (const [sheetName, records] of Object.entries(payloadBySheet)) {
-                    await syncSheetRecords('classCashTransactions', records, 'upsert', sheetName);
-                }
-            } catch (sheetError) {
-                console.error('Sinkron spreadsheet gagal:', sheetError);
-            }
+        if (editingTx) {
+            await persistClassCashEntries([{
+                classId: editingTx.classId,
+                studentId: editingTx.studentId,
+                type: 'gemari',
+                transactionType: editingTx.transactionType || 'deposit',
+                amount: -1,
+                date: editingTx.date,
+                notes: editingTx.notes
+            }]);
         }
+
+        await persistClassCashEntries([{
+            classId: targetClassId,
+            studentId: form.studentId,
+            type: 'gemari',
+            transactionType: form.transactionType,
+            amount: form.amount,
+            date: form.date,
+            notes: form.notes || undefined
+        }]);
+        setShowForm(false);
+        setEditingTx(null);
+        resetForm();
+        onRefresh();
     };
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+    const handleDeleteTx = async (tx: ClassCashTransaction) => {
+        if (!confirm('Hapus transaksi ini?')) return;
+        await persistClassCashEntries([{
+            classId: tx.classId,
+            studentId: tx.studentId,
+            type: 'gemari',
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }]);
+        if (editingTx?.id === tx.id) setEditingTx(null);
+        onRefresh();
     };
 
-    const filteredTx = transactions.filter(t => t.type === activeTab && (!selectedClassId || t.classId === selectedClassId));
-    const total = filteredTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
+    const ledgerRows = monthTransactions
+        .filter(t => !selectedStudentId || t.studentId === selectedStudentId)
+        .map(t => {
+            const student = students.find(s => s.id === t.studentId);
+            const target = targetPerStudent;
+            const paid = monthTransactions.filter(x => x.studentId === t.studentId).reduce((sum, x) => sum + (x.transactionType === 'withdrawal' ? -Number(x.amount || 0) : Number(x.amount || 0)), 0);
+            const status = paid >= target && paid > 0 ? 'sudah_bayar' : paid <= 0 ? 'belum_bayar' : 'kurang_bayar';
+            return { ...t, student, status };
+        });
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-6 print-container">
+            <div className="print-header">
+                <h1 className="text-2xl font-black uppercase tracking-tighter">GEMARI SISWA</h1>
+                <p className="text-xs font-bold text-slate-500">Input manual, status bayar, dan rekap kekurangan</p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
                 <div>
-                    <h2 className="text-2xl font-black tracking-tighter uppercase italic">{activeTab === 'gemari' ? 'Kas Gemari Manual' : 'Infaq Manual'}</h2>
-                    <p className="text-xs text-text-secondary font-bold">Input nominal bebas seperti tabungan, bisa diedit dan dihapus</p>
+                    <h2 className="text-2xl font-black tracking-tighter uppercase italic">GEMARI</h2>
+                    <p className="text-xs text-text-secondary font-bold">Input manual seperti tabungan, lengkap dengan status sudah bayar / belum bayar / kurang bayar</p>
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                     <select
@@ -5658,486 +5581,182 @@ function ClassCashView({
                     >
                         {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
                     </select>
-                    {viewMode === 'daily' && (
-                        <button onClick={() => setShowHistory(!showHistory)} className="btn-small !bg-slate-700 flex items-center gap-2">
-                            <History size={14} /> {showHistory ? 'Input Data' : 'Riwayat'}
-                        </button>
-                    )}
+                    <input
+                        type="month"
+                        className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
+                        value={selectedMonth}
+                        onChange={e => setSelectedMonth(e.target.value)}
+                    />
+                    <button onClick={() => { resetForm(); setEditingTx(null); setShowForm(true); }} className="btn-primary flex items-center gap-2">
+                        <Plus size={16} /> Input Manual
+                    </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left Panel: Summary & Calendar Check */}
-                <div className="lg:col-span-4 space-y-6">
-                    <div className="card !p-0 overflow-hidden">
-                        <div className="flex border-b border-border">
-                            <button
-                                onClick={() => setActiveTab('gemari')}
-                                className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'gemari' ? 'bg-slate-900 text-yellow-400 shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                            >
-                                KAS GEMARI
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('infaq')}
-                                className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'infaq' ? 'bg-slate-900 text-yellow-400 shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                            >
-                                INFAQ JUMAT
-                            </button>
-                        </div>
-
-                        <div className="p-6 text-center bg-white">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Total Saldo Terkumpul</p>
-                            <p className={`text-4xl font-black font-mono ${activeTab === 'gemari' ? 'text-accent' : 'text-emerald-600'}`}>
-                                {formatCurrency(total)}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex bg-slate-200 p-1 rounded-xl w-full">
-                        <button
-                            onClick={() => setViewMode('daily')}
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === 'daily' ? 'bg-white shadow' : 'text-slate-500 hover:bg-slate-300'}`}
-                        >
-                            Harian
-                        </button>
-                        <button
-                            onClick={() => setViewMode('monthly')}
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === 'monthly' ? 'bg-white shadow' : 'text-slate-500 hover:bg-slate-300'}`}
-                        >
-                            Bulanan
-                        </button>
-                        <button
-                            onClick={() => setViewMode('ledger')}
-                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === 'ledger' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:bg-slate-300'}`}
-                        >
-                            Buku Kas
-                        </button>
-                    </div>
-
-                    <div className="card space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pemilihan Bulan</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                <button onClick={() => jumpMonth(-1)} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">Bulan Lalu</button>
-                                <button onClick={() => { const now = new Date(); const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; setSelectedMonth(m); setSelectedDate(`${m}-01`); }} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">Bulan Ini</button>
-                                <button onClick={() => setShowMonthPicker(v => !v)} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">{showMonthPicker ? 'Tutup' : 'Pilih Bulan'}</button>
-                            </div>
-                        </div>
-
-                        {showMonthPicker && (
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Bulan Aktif</label>
-                                <input
-                                    type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
-                                    placeholder="YYYY-MM"
-                                    pattern="\d{4}-\d{2}"
-                                    title="Format: YYYY-MM"
-                                    className="w-full bg-slate-50 border border-border rounded-xl p-4 outline-none font-bold text-base focus:border-accent"
-                                    value={selectedMonth}
-                                    onChange={e => { setSelectedMonth(e.target.value); if (e.target.value) setSelectedDate(`${e.target.value}-01`); }}
-                                />
-                            </div>
-                        )}
-
-                        {viewMode === 'monthly' || viewMode === 'ledger' ? (
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pilih Bulan</label>
-                                <input
-                                    type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
-                                    placeholder="YYYY-MM"
-                                    pattern="\d{4}-\d{2}"
-                                    title="Format: YYYY-MM"
-                                    className="w-full bg-slate-50 border border-border rounded-xl p-4 outline-none font-bold text-base focus:border-accent"
-                                    value={selectedMonth}
-                                    onChange={e => setSelectedMonth(e.target.value)}
-                                />
-                            </div>
-                        ) : (
-                            <>
-                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pilih Tanggal Transaksi</label>
-                                <input
-                                    type="date"
-                                    className={`w-full bg-slate-50 border rounded-xl p-4 outline-none font-bold text-lg ${holiday || isWeekend ? 'border-red-200 text-red-500' : 'border-border'}`}
-                                    value={selectedDate}
-                                    onChange={e => setSelectedDate(e.target.value)}
-                                />
-                            </>
-                        )}
-
-                        {viewMode === 'daily' && holiday && (
-                            <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3">
-                                <AlertCircle className="text-red-500 flex-shrink-0" size={18} />
-
-                                <div>
-                                    <p className="text-xs font-bold text-red-700">Hari Libur Sekolah</p>
-                                    <p className="text-[10px] text-red-600 font-medium">{holiday.name}</p>
-                                </div>
-                            </div>
-                        )}
-                        {viewMode === 'daily' && isWeekend && !holiday && (
-                            <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl flex items-start gap-3">
-                                <Clock className="text-orange-500 flex-shrink-0" size={18} />
-                                <div>
-                                    <p className="text-xs font-bold text-orange-700">Hari Libur Akhir Pekan</p>
-                                    <p className="text-[10px] text-orange-600 font-medium">Minggu adalah hari libur.</p>
-                                </div>
-                            </div>
-                        )}
-                        {viewMode === 'daily' && activeTab === 'infaq' && !isFriday && (
-                            <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">
-                                <CalendarCheck className="text-blue-500 flex-shrink-0" size={18} />
-                                <div>
-                                    <p className="text-xs font-bold text-blue-700">Bukan Hari Jumat</p>
-                                    <p className="text-[10px] text-blue-600 font-medium">Infaq Jumat biasanya dilakukan di hari Jumat.</p>
-                                </div>
-                            </div>
-                        )}
-                        {viewMode === 'daily' && isFriday && activeTab === 'infaq' && (
-                            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-3">
-                                <CheckSquare className="text-emerald-500 flex-shrink-0" size={18} />
-                                <div>
-                                    <p className="text-xs font-bold text-emerald-700">Jumat Berkah</p>
-                                    <p className="text-[10px] text-emerald-600 font-medium">Waktunya input setoran Infaq Jumat.</p>
-                                </div>
-                            </div>
-                        )}
-
-                        <button
-                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'gemari', studentId: '', customAmount: 0 })); setShowRangeModal(true); }}
-                            className="w-full mt-4 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
-                        >
-                            <CalendarCheck size={16} /> Input Rentang Gemari
-                        </button>
-                        <button
-                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'infaq', studentId: '', customAmount: 0 })); setShowRangeModal(true); }}
-                            className="w-full mt-2 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
-                        >
-                            <CalendarCheck size={16} /> Input Rentang Infaq
-                        </button>
-
-                        <div className="card space-y-3 mt-4 border border-blue-100 bg-blue-50/20">
-                            <h4 className="text-[10px] uppercase font-black tracking-widest text-blue-600 text-center mb-2">Rekap Bulanan ({new Date(selectedDate).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })})</h4>
-                            <div className="grid grid-cols-2 gap-2 text-center">
-                                <div className="bg-white p-2 rounded border border-blue-100 shadow-sm">
-                                    <p className="text-[9px] font-bold text-slate-400 capitalize">Total Transaksi</p>
-                                    <p className="text-sm font-black text-slate-700">{formatCurrency(recap.totalSeharusnya)}</p>
-                                </div>
-                                <div className="bg-white p-2 rounded border border-blue-100 shadow-sm">
-                                    <p className="text-[9px] font-bold text-slate-400 capitalize">Saldo Bersih</p>
-                                    <p className="text-sm font-black text-blue-600">{formatCurrency(recap.saldoBersih)}</p>
-                                </div>
-                            </div>
-                            <div className="bg-white p-2 rounded border border-red-100 text-center shadow-sm">
-                                <p className="text-[9px] font-bold text-slate-400 capitalize">Pengeluaran</p>
-                                <p className="text-sm font-black text-red-500">{formatCurrency(recap.belumSetor)}</p>
-                            </div>
-                        </div>
-                    </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="card">
+                    <p className="stat-label">Total Target</p>
+                    <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
                 </div>
-
-                {/* Right Panel: Grid Input or History */}
-                <div className="lg:col-span-8">
-                    {viewMode === 'ledger' ? (
-                        <LedgerClassCashView
-                            transactions={filteredTx}
-                            students={students}
-                            classId={selectedClassId}
-                            type={activeTab}
-                            month={selectedMonth}
-                            holidays={holidays}
-                            onRefresh={onRefresh}
-                            formatCurrency={formatCurrency}
-                            onOpenPrint={onOpenPrint}
-                            onSort={onSort}
-                            currentSort={currentSort}
-                            sortedData={sortedData}
-                            SortableTH={SortableTH}
-                        />
-                    ) : viewMode === 'monthly' ? (
-                        <MonthlyClassCashView
-                            students={sortedFilteredStudents}
-                            month={selectedMonth}
-                            type={activeTab}
-                            transactions={transactions}
-                            classId={selectedClassId}
-                            holidays={holidays}
-                            onRefresh={onRefresh}
-                        />
-                    ) : showHistory ? (
-                        <div className="card !p-0 flex flex-col h-full">
-                            <div className="p-5 border-b border-border flex justify-between items-center bg-slate-50/50">
-                                <h3 className="text-xs font-black uppercase tracking-widest">Riwayat Entri {activeTab}</h3>
-                                <button onClick={onOpenPrint} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500" aria-label="Cetak Riwayat"><Printer size={16} /></button>
-                            </div>
-                            <div className="table-container min-h-[400px]">
-                                <table className="data-table">
-                                    <thead>
-                                        <tr>
-                                            <SortableTH label="TANGGAL" sortKey="date" currentSort={currentSort} onSort={onSort} />
-                                            <SortableTH label="SISWA" sortKey="studentId" currentSort={currentSort} onSort={onSort} />
-                                            <SortableTH label="NOMINAL" sortKey="amount" currentSort={currentSort} onSort={onSort} />
-                                            <th>AKSI</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {sortedData(filteredTx).map((t: any) => (
-                                            <tr key={t.id} className="hover:bg-slate-50">
-                                                <td className="font-mono text-xs font-bold">{t.date}</td>
-                                                <td className="font-bold">{t.studentId ? getStudentName(students.find(s => s.id === t.studentId)) : 'Kolektif'}</td>
-                                                <td className="font-black text-slate-700 text-sm">{formatCurrency(t.amount)}</td>
-                                                <td>
-                                                    <div className="flex gap-1">
-                                                        <button
-                                                            className="p-1 hover:bg-blue-50 text-blue-500 rounded transition-all"
-                                                            title="Edit Transaksi"
-                                                            onClick={() => {
-                                                                setEditingHistoryTx(t);
-                                                                setEditingHistoryForm({
-                                                                    studentId: t.studentId || '',
-                                                                    type: t.type,
-                                                                    transactionType: t.transactionType || 'deposit',
-                                                                    amount: Math.abs(Number(t.amount) || 0),
-                                                                    date: t.date,
-                                                                    notes: t.notes || ''
-                                                                });
-                                                            }}
-                                                        >
-                                                            <Edit size={12} />
-                                                        </button>
-                                                        <button
-                                                            className="p-1 hover:bg-red-50 text-red-400 rounded transition-all"
-                                                            title="Hapus Transaksi"
-                                                            onClick={async () => {
-                                                                if (!confirm('Hapus transaksi ini?')) return;
-                                                                await persistClassCashEntries([{
-                                                                    classId: t.classId,
-                                                                    studentId: t.studentId,
-                                                                    type: t.type,
-                                                                    transactionType: t.transactionType || 'deposit',
-                                                                    amount: -1,
-                                                                    date: t.date,
-                                                                    notes: t.notes
-                                                                }]);
-                                                                onRefresh();
-                                                            }}
-                                                        >
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <h3 className="stat-label">Input {activeTab === 'gemari' ? 'Gemari' : 'Infaq'} Manual Per Siswa</h3>
-                                <div className="flex gap-2">
-                                    <div className="flex items-center gap-2 bg-white border border-border rounded-lg px-2 py-1">
-                                        <span className="text-[10px] font-black uppercase text-slate-400">Nominal Massal</span>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-28 bg-transparent outline-none text-xs font-bold text-accent font-mono"
-                                            value={bulkAmount}
-                                            onChange={e => setBulkAmount(parseInt(e.target.value || '0'))}
-                                            placeholder="0"
-                                        />
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            const newAmounts: { [key: string]: number } = {};
-                                            sortedFilteredStudents.forEach(s => newAmounts[s.id] = bulkAmount);
-                                            setStudentAmounts(newAmounts);
-                                        }}
-                                        className="text-[10px] font-bold bg-success/10 text-success px-3 py-1 rounded-lg hover:bg-success/20 uppercase transition-all"
-                                    >
-                                        Isi Semua
-                                    </button>
-                                    <button
-                                        onClick={() => setStudentAmounts({})}
-                                        className="text-[10px] font-bold bg-slate-100 text-slate-500 hover:bg-slate-200 px-3 py-1 rounded-lg uppercase"
-                                    >
-                                        Reset Grid
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="card !p-0 overflow-hidden">
-                                <table className="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th className="w-16">#</th>
-                                            <th>NAMA SISWA</th>
-                                            <th>STATUS SETORAN</th>
-                                            <th className="w-48 text-right">NOMINAL (Rp)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className={(holiday || isWeekend) ? 'opacity-50 pointer-events-none' : ''}>
-                                        {sortedFilteredStudents.map((s, idx) => {
-                                            const isSetor = studentAmounts[s.id] !== undefined && studentAmounts[s.id] > 0;
-                                            return (
-                                                <tr key={s.id} className="hover:bg-slate-50 transition-all">
-                                                    <td className="font-mono text-xs text-text-secondary">{idx + 1}</td>
-                                                    <td className="font-bold cursor-pointer" onClick={() => {
-                                                        setStudentAmounts(prev => ({
-                                                            ...prev,
-                                                            [s.id]: isSetor ? 0 : bulkAmount
-                                                        }));
-                                                    }}>{getStudentName(s)}</td>
-                                                    <td>
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={() => {
-                                                                    setStudentAmounts(prev => ({ ...prev, [s.id]: bulkAmount }));
-                                                                }}
-                                                                className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-all ${isSetor ? 'bg-success text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
-                                                            >
-                                                                S
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    const newAm = { ...studentAmounts };
-                                                                    delete newAm[s.id];
-                                                                    setStudentAmounts(newAm);
-                                                                }}
-                                                                className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-all ${!isSetor ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
-                                                            >
-                                                                T
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <div className="flex items-center gap-2 justify-end">
-                                                            <span className="text-[10px] font-bold text-slate-400">Rp</span>
-                                                            <input
-                                                                type="number"
-                                                                className="w-24 bg-white border border-border rounded px-2 py-1 text-right text-sm font-bold focus:border-accent outline-none"
-                                                                value={studentAmounts[s.id] !== undefined ? studentAmounts[s.id] : ''}
-                                                                placeholder="0"
-                                                                onChange={e => setStudentAmounts({ ...studentAmounts, [s.id]: parseInt(e.target.value) || 0 })}
-                                                            />
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-border shadow-sm">
-                                <div>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase">Total Setoran Sesi Ini</p>
-                                    <p className="text-xl font-black text-accent">{formatCurrency((Object.values(studentAmounts) as number[]).reduce((a, b) => a + b, 0))}</p>
-                                </div>
-                                <button
-                                    onClick={handleSave}
-                                    disabled={!!holiday || isWeekend}
-                                    className={`btn-primary px-10 py-3 rounded-xl flex items-center gap-2 font-bold uppercase tracking-widest text-xs ${(holiday || isWeekend) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <Save size={16} /> Simpan Data
-                                </button>
-                            </div>
-                        </div>
-                    )}
+                <div className="card">
+                    <p className="stat-label">Sudah Dibayar</p>
+                    <p className="stat-value text-emerald-600">{formatCurrency(totalPaid)}</p>
+                </div>
+                <div className="card">
+                    <p className="stat-label">Kurang Bayar</p>
+                    <p className="stat-value text-red-500">{formatCurrency(totalKurang)}</p>
+                </div>
+                <div className="card">
+                    <p className="stat-label">Status Siswa</p>
+                    <p className="text-sm font-black text-slate-700">{countSudah} Sudah / {countKurang} Kurang / {countBelum} Belum</p>
                 </div>
             </div>
 
-            {showRangeModal && (
-                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border mt-10">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold">Input Rentang Manual</h3>
-                            <button onClick={() => setShowRangeModal(false)} aria-label="Tutup modal rentang tanggal"><X size={20} /></button>
-                        </div>
-                        <div className="space-y-4">
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nama Siswa</label>
-                                <select
-                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                    value={rangeForm.studentId}
-                                    onChange={e => setRangeForm({ ...rangeForm, studentId: e.target.value })}
-                                >
-                                    <option value="">Pilih siswa...</option>
-                                    {sortedFilteredStudents.map((s) => (
-                                        <option key={s.id} value={s.id}>{getStudentName(s)}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis Input</label>
-                                <select
-                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                    value={rangeForm.targetType}
-                                    onChange={e => setRangeForm({ ...rangeForm, targetType: e.target.value as any })}
-                                >
-                                    <option value="active">Tab Aktif ({activeTab === 'gemari' ? 'Gemari' : 'Infaq'})</option>
-                                    <option value="gemari">Gemari</option>
-                                    <option value="infaq">Infaq</option>
-                                    <option value="both">Gemari + Infaq</option>
-                                </select>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Awal</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none"
-                                        value={rangeForm.startDate}
-                                        onChange={e => setRangeForm({ ...rangeForm, startDate: e.target.value })}
-                                    />
+            <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
+                <div className="flex gap-8">
+                    <button
+                        onClick={() => setActiveTab('overview')}
+                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'overview' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
+                    >
+                        Ringkasan
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('ledger')}
+                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'ledger' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
+                    >
+                        Buku Transaksi
+                    </button>
+                </div>
+                <button onClick={onOpenPrint} className="btn-small !bg-slate-700 flex items-center gap-2">
+                    <Printer size={14} /> Cetak
+                </button>
+            </div>
+
+            {activeTab === 'overview' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {studentRows.length === 0 ? (
+                        <div className="card p-10 text-center text-slate-400 italic">Belum ada siswa pada kelas ini.</div>
+                    ) : studentRows.map(row => (
+                        <div key={row.student.id} className="card space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <h4 className="font-black text-lg">{row.student.name}</h4>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">{selectedClass?.name || 'Kelas'}</p>
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Akhir</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none"
-                                        value={rangeForm.endDate}
-                                        onChange={e => setRangeForm({ ...rangeForm, endDate: e.target.value })}
-                                    />
+                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                    row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
+                                    row.status === 'kurang_bayar' ? 'bg-amber-100 text-amber-700' :
+                                    'bg-red-100 text-red-700'
+                                }`}>
+                                    {row.status === 'sudah_bayar' ? 'Sudah Bayar' : row.status === 'kurang_bayar' ? 'Kurang Bayar' : 'Belum Bayar'}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Target</p>
+                                    <p className="font-black">{formatCurrency(targetPerStudent)}</p>
+                                </div>
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Dibayar</p>
+                                    <p className="font-black text-emerald-600">{formatCurrency(row.paid)}</p>
+                                </div>
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Kurang</p>
+                                    <p className="font-black text-red-500">{formatCurrency(row.kurang)}</p>
+                                </div>
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Transaksi</p>
+                                    <p className="font-black">{row.txCount}</p>
                                 </div>
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Status Input</label>
-                                <select
-                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                    value={rangeForm.status}
-                                    onChange={e => setRangeForm({ ...rangeForm, status: e.target.value as any })}
-                                >
-                                    <option value="setor">Isi Nominal</option>
-                                    <option value="bebas_setor">Kosongkan</option>
-                                </select>
-                            </div>
-                            {rangeForm.status === 'setor' && (
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-accent"
-                                        value={rangeForm.customAmount}
-                                        onChange={e => setRangeForm({ ...rangeForm, customAmount: parseInt(e.target.value) || 0 })}
-                                    />
-                                </div>
-                            )}
                             <button
-                                type="button"
-                                onClick={handleSaveRange}
-                                disabled={isSavingRange}
-                                className={`btn-primary w-full py-4 rounded-xl mt-4 ${isSavingRange ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                onClick={() => {
+                                    setSelectedStudentId(row.student.id);
+                                    setActiveTab('ledger');
+                                }}
+                                className="w-full btn-small"
                             >
-                                {isSavingRange ? 'Menyimpan...' : 'Simpan'}
+                                Lihat Transaksi
                             </button>
                         </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="flex flex-wrap gap-3 no-print items-end">
+                        <div className="space-y-1 flex-1 min-w-[240px]">
+                            <label className="text-[10px] font-bold uppercase text-text-secondary">Filter Siswa</label>
+                            <select
+                                className="w-full bg-white border border-border rounded-lg px-4 py-2 text-sm outline-none"
+                                value={selectedStudentId}
+                                onChange={e => setSelectedStudentId(e.target.value)}
+                            >
+                                <option value="">Semua Siswa</option>
+                                {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                        {selectedStudentId && (
+                            <button onClick={() => setSelectedStudentId('')} className="text-xs font-bold text-accent hover:underline mb-2">Reset</button>
+                        )}
+                    </div>
+
+                    <div className="table-container shadow-sm">
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <SortableTH label="TANGGAL" sortKey="date" currentSort={currentSort} onSort={onSort} />
+                                    <SortableTH label="SISWA" sortKey="studentId" currentSort={currentSort} onSort={onSort} />
+                                    <th>STATUS</th>
+                                    <SortableTH label="NOMINAL" sortKey="amount" currentSort={currentSort} onSort={onSort} />
+                                    <th>KETERANGAN</th>
+                                    <th className="no-print">AKSI</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedData(ledgerRows).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="text-center py-16 text-slate-400 italic">Belum ada transaksi GEMARI pada bulan ini.</td>
+                                    </tr>
+                                ) : (
+                                    sortedData(ledgerRows).map((t: any) => (
+                                        <tr key={t.id} className="hover:bg-slate-50 transition-all">
+                                            <td className="font-mono text-xs">{t.date}</td>
+                                            <td className="font-bold">{t.student?.name || 'Kolektif'}</td>
+                                            <td>
+                                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                                    t.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
+                                                    t.status === 'kurang_bayar' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-red-100 text-red-700'
+                                                }`}>
+                                                    {t.status === 'sudah_bayar' ? 'Sudah Bayar' : t.status === 'kurang_bayar' ? 'Kurang Bayar' : 'Belum Bayar'}
+                                                </span>
+                                            </td>
+                                            <td className={`font-black font-mono text-sm ${t.transactionType === 'withdrawal' ? 'text-red-500' : 'text-text-primary'}`}>
+                                                {t.transactionType === 'withdrawal' ? '-' : ''}{formatCurrency(Number(t.amount) || 0)}
+                                            </td>
+                                            <td className="text-xs text-text-secondary italic">{t.notes || '-'}</td>
+                                            <td className="no-print">
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-50 rounded text-blue-500 transition-all" aria-label="Edit Transaksi">
+                                                        <Edit size={12} />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteTx(t)} className="p-1.5 hover:bg-red-50 rounded text-red-400 transition-all" aria-label="Hapus Transaksi">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}
 
             <AnimatePresence>
-                {editingHistoryTx && (
-                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                {(showForm || editingTx) && (
+                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -6145,41 +5764,32 @@ function ClassCashView({
                             className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-border space-y-4"
                         >
                             <div className="flex justify-between items-center">
-                                <h3 className="text-lg font-black uppercase tracking-tighter">Edit Transaksi</h3>
-                                <button onClick={() => setEditingHistoryTx(null)} aria-label="Tutup edit transaksi"><X size={20} /></button>
+                                <h3 className="text-xl font-black uppercase tracking-tighter">{editingTx ? 'Edit Transaksi GEMARI' : 'Input Manual GEMARI'}</h3>
+                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} aria-label="Tutup form">
+                                    <X size={20} />
+                                </button>
                             </div>
-                            <div className="grid grid-cols-1 gap-3">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={editingHistoryForm.type}
-                                        onChange={e => setEditingHistoryForm(prev => ({ ...prev, type: e.target.value as 'gemari' | 'infaq' }))}
-                                    >
-                                        <option value="gemari">Gemari</option>
-                                        <option value="infaq">Infaq</option>
-                                    </select>
-                                </div>
+                            <div className="space-y-3">
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold uppercase text-text-secondary">Siswa</label>
                                     <select
                                         className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={editingHistoryForm.studentId}
-                                        onChange={e => setEditingHistoryForm(prev => ({ ...prev, studentId: e.target.value }))}
+                                        value={form.studentId}
+                                        onChange={e => setForm(prev => ({ ...prev, studentId: e.target.value }))}
                                     >
-                                        <option value="">Kolektif</option>
-                                        {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                        <option value="">-- Pilih Siswa --</option>
+                                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                     </select>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Tipe Transaksi</label>
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Tipe</label>
                                     <select
                                         className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={editingHistoryForm.transactionType}
-                                        onChange={e => setEditingHistoryForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
+                                        value={form.transactionType}
+                                        onChange={e => setForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
                                     >
-                                        <option value="deposit">Setor</option>
-                                        <option value="withdrawal">Tarik</option>
+                                        <option value="deposit">Sudah Bayar / Setor</option>
+                                        <option value="withdrawal">Koreksi / Kurang</option>
                                     </select>
                                 </div>
                                 <div className="space-y-1">
@@ -6187,9 +5797,9 @@ function ClassCashView({
                                     <input
                                         type="number"
                                         min="0"
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={editingHistoryForm.amount}
-                                        onChange={e => setEditingHistoryForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-accent"
+                                        value={form.amount}
+                                        onChange={e => setForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -6197,53 +5807,23 @@ function ClassCashView({
                                     <input
                                         type="date"
                                         className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
-                                        value={editingHistoryForm.date}
-                                        onChange={e => setEditingHistoryForm(prev => ({ ...prev, date: e.target.value }))}
+                                        value={form.date}
+                                        onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))}
                                     />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold uppercase text-text-secondary">Catatan</label>
                                     <textarea
                                         className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none text-sm min-h-[90px]"
-                                        value={editingHistoryForm.notes}
-                                        onChange={e => setEditingHistoryForm(prev => ({ ...prev, notes: e.target.value }))}
+                                        value={form.notes}
+                                        onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
+                                        placeholder="Opsional"
                                     />
                                 </div>
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={() => setEditingHistoryTx(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">Batal</button>
-                                <button
-                                    onClick={async () => {
-                                        if (!editingHistoryTx) return;
-                                        if (!editingHistoryForm.amount || editingHistoryForm.amount <= 0) {
-                                            alert('Masukkan nominal yang valid');
-                                            return;
-                                        }
-                                        await persistClassCashEntries([{
-                                            classId: editingHistoryTx.classId,
-                                            studentId: editingHistoryTx.studentId,
-                                            type: editingHistoryTx.type,
-                                            transactionType: editingHistoryTx.transactionType || 'deposit',
-                                            amount: -1,
-                                            date: editingHistoryTx.date,
-                                            notes: editingHistoryTx.notes
-                                        }]);
-                                        await persistClassCashEntries([{
-                                            classId: editingHistoryTx.classId,
-                                            studentId: editingHistoryForm.studentId || undefined,
-                                            type: editingHistoryForm.type,
-                                            transactionType: editingHistoryForm.transactionType,
-                                            amount: editingHistoryForm.amount,
-                                            date: editingHistoryForm.date,
-                                            notes: editingHistoryForm.notes || undefined
-                                        }]);
-                                        setEditingHistoryTx(null);
-                                        onRefresh();
-                                    }}
-                                    className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-bold uppercase text-xs"
-                                >
-                                    Simpan
-                                </button>
+                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-xs">Batal</button>
+                                <button onClick={handleSaveTx} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-bold uppercase text-xs">{editingTx ? 'Simpan' : 'Tambah'}</button>
                             </div>
                         </motion.div>
                     </div>
@@ -6522,729 +6102,6 @@ function SavingsView({
         </div>
     );
 }
-
-function MonthlyClassCashView({
-    students,
-    month,
-    type,
-    transactions,
-    classId,
-    holidays,
-    onRefresh
-}: {
-    students: Student[],
-    month: string,
-    type: 'gemari' | 'infaq',
-    transactions: ClassCashTransaction[],
-    classId: string,
-    holidays: Holiday[],
-    onRefresh: () => void
-}) {
-    const [year, m] = month.split('-').map(Number);
-    const daysInMonth = new Date(year, m, 0).getDate();
-    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-    const [edits, setEdits] = useState<{ [key: string]: number }>({});
-    const [headerMenu, setHeaderMenu] = useState<{ day: number, x: number, y: number } | null>(null);
-
-    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
-
-    const isHoliday = (date: Date) => {
-        const day = date.getDay();
-        const dateStr = date.toISOString().split('T')[0];
-
-        if (day === 0) return { holiday: true, name: 'Minggu' };
-        if (type === 'infaq' && day !== 5) return { holiday: true, name: 'Bukan Jumat' };
-
-        const holiday = holidays.find(h => h.date === dateStr);
-        if (holiday) return { holiday: true, name: holiday.name };
-
-        return { holiday: false };
-    };
-
-    const getCellKey = (studentId: string, d: number) => {
-        const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        return `${studentId}${CLASSCASH_EDIT_KEY_SEPARATOR}${dateStr}`;
-    };
-
-    const getRecordAmount = (studentId: string, d: number) => {
-        const key = getCellKey(studentId, d);
-        if (edits[key] !== undefined) return edits[key];
-
-        const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const record = transactions.find(r => r.studentId === studentId && r.date === dateStr && r.classId === classId && r.type === type);
-        return record ? record.amount : -1;
-    };
-
-    const handleToggle = (studentId: string, d: number) => {
-        const current = getRecordAmount(studentId, d);
-        let next = 0;
-        if (current === -1) {
-            next = 0;
-        } else if (current > 0) {
-            next = 0;
-        } else {
-            next = -1;
-        }
-        setEdits(prev => ({ ...prev, [getCellKey(studentId, d)]: next }));
-    };
-
-    const handleFillDate = (d: number, value?: number) => {
-        const date = new Date(year, m - 1, d);
-        if (isHoliday(date).holiday) return;
-
-        const val = value !== undefined ? value : 0;
-        const newEdits = { ...edits };
-        students.forEach(s => {
-            newEdits[getCellKey(s.id, d)] = val;
-        });
-        setEdits(newEdits);
-        setHeaderMenu(null);
-    };
-
-    const handleFillAllDates = (value?: number) => {
-        const val = value !== undefined ? value : 0;
-        const newEdits = { ...edits };
-        days.forEach(d => {
-            const date = new Date(year, m - 1, d);
-            if (!isHoliday(date).holiday) {
-                students.forEach(s => {
-                    newEdits[getCellKey(s.id, d)] = val;
-                });
-            }
-        });
-        setEdits(newEdits);
-    };
-
-    const handleSaveAll = async () => {
-        const keys = Object.keys(edits);
-        if (keys.length === 0) return alert('Tidak ada perubahan untuk disimpan.');
-
-        const entries = keys.map(k => {
-            const sepIndex = k.lastIndexOf(CLASSCASH_EDIT_KEY_SEPARATOR);
-            if (sepIndex < 0) {
-                return null;
-            }
-            const studentId = k.slice(0, sepIndex);
-            const dateStr = k.slice(sepIndex + CLASSCASH_EDIT_KEY_SEPARATOR.length);
-            return {
-                classId,
-                studentId,
-                amount: Number(edits[k]),
-                date: dateStr,
-                type,
-                transactionType: 'deposit',
-                notes: `Iuran ${type.toUpperCase()}`
-            };
-        }).filter(Boolean) as ClassCashWriteEntry[];
-
-        try {
-            await persistClassCashEntries(entries);
-            setEdits({});
-            onRefresh();
-        } catch (error: any) {
-            console.error('Gagal menyimpan mass edit bulanan kas/infaq:', error);
-            const msg = error?.message || error?.details || 'Terjadi kesalahan sistem';
-            alert(`Gagal menyimpan mass edit bulanan: ${msg}`);
-        }
-    };
-
-    const hasEdits = Object.keys(edits).length > 0;
-
-    // Grand Totals Calculation (Moved here to avoid initialization error)
-    const grandTotals = students.reduce((acc, s) => {
-        const studentTransactions = transactions.filter(t => t.studentId === s.id && t.type === type);
-        const monthDatePrefix = `${year}-${String(m).padStart(2, '0')}-`;
-        
-        let monthTotal = 0;
-        for (let d = 1; d <= daysInMonth; d++) {
-            const amount = getRecordAmount(s.id, d);
-            if (amount > 0) monthTotal += amount;
-        }
-        
-        const otherMonthsTotal = studentTransactions
-            .filter(t => !t.date.startsWith(monthDatePrefix))
-            .reduce((total, t) => total + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
-        
-        acc.month += monthTotal;
-        acc.cumulative += (monthTotal + otherMonthsTotal);
-        return acc;
-    }, { month: 0, cumulative: 0 });
-
-    return (
-        <div className="card !p-0 overflow-x-auto min-w-full relative">
-            {hasEdits && (
-                <div className="sticky top-0 left-0 right-0 bg-blue-50/90 backdrop-blur-sm border-b border-blue-100 p-4 z-20 flex justify-between items-center">
-                    <p className="text-xs font-bold text-blue-700">Terdapat {Object.keys(edits).length} perubahan yang belum disimpan.</p>
-                    <div className="flex gap-2">
-                        <button onClick={() => setEdits({})} className="text-xs font-bold text-slate-500 hover:text-slate-700">Batal</button>
-                        <button onClick={handleSaveAll} className="btn-small !bg-blue-600 hover:!bg-blue-700 flex items-center gap-2" title="Simpan Perubahan"><Save size={14} /> Simpan Perubahan</button>
-                    </div>
-                </div>
-            )}
-            <div className="p-3 bg-slate-50 border-b border-border flex justify-end gap-2 no-print items-center">
-                <span className="text-[10px] font-black uppercase text-slate-400 mr-2">Aksi Bulanan:</span>
-                <button 
-                    onClick={() => handleFillAllDates(0)}
-                    className="btn-small bg-success/10 text-success hover:bg-success hover:text-white border border-success/20 transition-all flex items-center gap-2"
-                    title="Isi semua tanggal sekolah dengan nominal 0"
-                >
-                    <CheckSquare size={14} />
-                    Isi 0
-                </button>
-                <button 
-                    onClick={() => handleFillAllDates(-1)}
-                    className="btn-small bg-yellow-50 text-yellow-700 hover:bg-yellow-500 hover:text-white border border-yellow-200 transition-all flex items-center gap-2"
-                    title="Kosongkan semua tanggal sekolah"
-                >
-                    <AlertCircle size={14} />
-                    Kosongkan
-                </button>
-                <button 
-                    onClick={() => handleFillAllDates(-1)}
-                    className="btn-small bg-red-50 text-red-600 hover:bg-red-500 hover:text-white border border-red-200 transition-all flex items-center gap-2"
-                    title="Hapus semua data bulan ini"
-                >
-                    <Trash2 size={14} />
-                    Hapus
-                </button>
-            </div>
-            <table className="w-full border-collapse">
-                <thead>
-                    <tr>
-                        <th className="text-left p-2 border border-border sticky left-0 bg-slate-100 z-10 min-w-[200px] text-xs font-black uppercase">Nama Siswa</th>
-                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Tgl</th>
-                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap">Nominal (Bln)</th>
-                        <th className="p-2 border border-border bg-slate-50 text-[9px] font-black uppercase whitespace-nowrap text-accent">Total (Kum)</th>
-                        {days.map(d => {
-                            const date = new Date(year, m - 1, d);
-                            const holidayInfo = isHoliday(date);
-                            return (
-                                <th
-                                    key={d}
-                                    className={`p-1 border border-border font-mono text-[10px] min-w-[36px] transition-colors relative ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : 'cursor-pointer hover:bg-accent hover:text-white bg-slate-50'}`}
-                                    title={holidayInfo.holiday ? holidayInfo.name : `Klik untuk opsi massal tanggal ${d}`}
-                                    onClick={(e) => {
-                                        if (holidayInfo.holiday) return;
-                                        const rect = e.currentTarget.getBoundingClientRect();
-                                        setHeaderMenu({ day: d, x: rect.left, y: rect.bottom });
-                                    }}
-                                >
-                                    {d}
-                                </th>
-                            );
-                        })}
-                    </tr>
-                </thead>
-                <tbody>
-                    {students.map(s => {
-                        const studentTransactions = transactions.filter(t => t.studentId === s.id && t.type === type);
-                        const monthDatePrefix = `${year}-${String(m).padStart(2, '0')}-`;
-                        
-                        let daysCount = 0;
-                        let monthTotal = 0;
-                        
-                        for (let d = 1; d <= daysInMonth; d++) {
-                            const amount = getRecordAmount(s.id, d);
-                            if (amount > 0) {
-                                daysCount++;
-                                monthTotal += amount;
-                            }
-                        }
-                        
-                        const otherMonthsTotal = studentTransactions
-                            .filter(t => !t.date.startsWith(monthDatePrefix))
-                            .reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
-                        
-                        const cumulativeTotal = monthTotal + otherMonthsTotal;
-
-                        return (
-                            <tr key={s.id} className="hover:bg-slate-50 transition-all group">
-                                <td className="p-2 border border-border sticky left-0 bg-white group-hover:bg-slate-50 z-10 font-bold text-[11px] truncate whitespace-nowrap">{getStudentName(s)}</td>
-                                <td className="p-1 border border-border text-center font-mono text-[10px] font-bold bg-slate-50/30">{daysCount}</td>
-                                <td className="p-1 border border-border text-right font-mono text-[10px] font-bold bg-slate-50/30">{monthTotal.toLocaleString('id-ID')}</td>
-                                <td className="p-1 border border-border text-right font-mono text-[10px] font-black text-accent bg-slate-50/30">{cumulativeTotal.toLocaleString('id-ID')}</td>
-                                {days.map(d => {
-                                const date = new Date(year, m - 1, d);
-                                const holidayInfo = isHoliday(date);
-                                const amount = getRecordAmount(s.id, d);
-                                const isEdited = edits[getCellKey(s.id, d)] !== undefined;
-
-                                return (
-                                    <td key={d} className={`p-0 border border-border text-center ${holidayInfo.holiday ? 'bg-slate-50/50 cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-slate-200'} ${isEdited ? 'bg-blue-50/50' : ''}`} onClick={() => !holidayInfo.holiday && handleToggle(s.id, d)}>
-                                        <div className="w-full h-full min-h-[32px] flex items-center justify-center text-[10px] font-black">
-                                            {amount > 0 ? (
-                                                <span className="text-success h-full w-full flex items-center justify-center border-b-2 border-success">S</span>
-                                            ) : amount === 0 ? (
-                                                <span className="text-yellow-600 h-full w-full flex items-center justify-center border-b-2 border-yellow-500">B</span>
-                                            ) : (
-                                                <span className="text-slate-300">-</span>
-                                            )}
-                                        </div>
-                                    </td>
-                                );
-                            })}
-                        </tr>
-                        );
-                    })}
-                    {students.length > 0 && (
-                        <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 no-print">
-                            <td className="p-2 border border-border sticky left-0 bg-slate-100 z-10 text-[10px] text-slate-500 uppercase">TOTAL KESELURUHAN</td>
-                            <td className="p-1 border border-border bg-slate-50/30"></td>
-                            <td className="p-1 border border-border text-right font-mono text-[11px] font-black text-blue-900 bg-blue-50/50">{grandTotals.month.toLocaleString('id-ID')}</td>
-                            <td className="p-1 border border-border text-right font-mono text-[11px] font-black text-blue-900 bg-blue-50/50">{grandTotals.cumulative.toLocaleString('id-ID')}</td>
-                            {days.map(d => <td key={d} className="p-0 border border-border bg-slate-50/10"></td>)}
-                        </tr>
-                    )}
-                    {students.length === 0 && (
-                        <tr>
-                            <td colSpan={daysInMonth + 4} className="text-center py-20 opacity-30 italic">Pilih kelas untuk melihat grid bulanan</td>
-                        </tr>
-                    )}
-                </tbody>
-            </table>
-            <div className="p-4 flex gap-6 text-[10px] font-bold uppercase tracking-widest text-text-secondary bg-slate-50">
-                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-success text-success flex items-center justify-center">S</div> Nominal diisi</div>
-                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-yellow-500 text-yellow-600 flex items-center justify-center">0</div> Nominal 0</div>
-                <div className="flex items-center gap-2"><div className="w-4 h-4 text-slate-300 flex items-center justify-center">-</div> Kosong / Hapus</div>
-                            <div className="flex items-center gap-2 ml-auto italic opacity-50">Klik sel tabel untuk mengubah nominal, klik tanggal di header untuk aksi massal.</div>
-            </div>
-
-            {/* Floating Header Menu */}
-            <AnimatePresence>
-                {headerMenu && (
-                    <>
-                        <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(null)}></div>
-                        <motion.div 
-                            initial={{ opacity: 0, y: -10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            style={{ position: 'fixed', left: headerMenu.x, top: headerMenu.y, zIndex: 50 }}
-                            className="bg-white shadow-2xl border border-slate-200 rounded-xl overflow-hidden min-w-[140px]"
-                        >
-                            <div className="p-2 bg-slate-900 text-yellow-400 text-[10px] font-black uppercase text-center">Tanggal {headerMenu.day}</div>
-                            <button 
-                                onClick={() => handleFillDate(headerMenu.day, 0)}
-                                className="w-full text-left p-3 hover:bg-success hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
-                            >
-                                <div className="w-5 h-5 bg-success/10 rounded flex items-center justify-center text-success">S</div>
-                                Isi 0
-                            </button>
-                            <button 
-                                onClick={() => handleFillDate(headerMenu.day, -1)}
-                                className="w-full text-left p-3 hover:bg-yellow-500 hover:text-white text-xs font-bold transition-all border-b border-slate-50 flex items-center gap-2"
-                            >
-                                <div className="w-5 h-5 bg-yellow-50 rounded flex items-center justify-center text-yellow-600">B</div>
-                                Hapus / Reset
-                            </button>
-                        </motion.div>
-                    </>
-                )}
-            </AnimatePresence>
-        </div>
-    );
-}
-
-function LedgerClassCashView({
-    transactions,
-    students,
-    classId,
-    type,
-    month,
-    holidays,
-    onRefresh,
-    formatCurrency,
-    onOpenPrint,
-    onSort,
-    currentSort,
-    sortedData,
-    SortableTH
-}: {
-    transactions: ClassCashTransaction[],
-    students: Student[],
-    classId: string,
-    type: 'gemari' | 'infaq',
-    month: string,
-    holidays: Holiday[],
-    onRefresh: () => void,
-    formatCurrency: (n: number) => string,
-    onOpenPrint: () => void,
-    onSort: (k: string) => void,
-    currentSort: any,
-    sortedData: any,
-    SortableTH: any
-}) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const [showAddExpenseForm, setShowAddExpenseForm] = useState(false);
-    const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
-    const [expense, setExpense] = useState({ date: todayStr, amount: '', notes: '' });
-    const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '', notes: '' });
-    const [editingItem, setEditingItem] = useState<any>(null);
-    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
-    const getMonthNameIndo = (mKey: string) => {
-        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        const [y, m] = mKey.split('-').map(Number);
-        return `${months[m - 1]} ${y}`;
-    };
-    const studentsForSelect = sortStudentsForSelect(students);
-
-    // Running balance calculation across all available history
-    const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    const studentIuranGroups: { [key: string]: ClassCashTransaction[] } = {};
-    const individualItems: ClassCashTransaction[] = [];
-    
-    allSortedTx.forEach(t => {
-        // More robust check: if it has studentId, it's an iuran (even if transactionType is missing or not 'deposit')
-        const isStudentIuran = !!t.studentId;
-        if (!isStudentIuran) {
-            individualItems.push(t);
-        } else {
-            const mKey = t.date.substring(0, 7); // YYYY-MM
-            if (!studentIuranGroups[mKey]) studentIuranGroups[mKey] = [];
-            studentIuranGroups[mKey].push(t);
-        }
-    });
-
-    let displayItems: any[] = [];
-    
-    // Aggregated Student Iuran (Consolidated per month)
-    Object.keys(studentIuranGroups).sort().forEach(mKey => {
-        const group = studentIuranGroups[mKey];
-        const totalAmount = group.reduce((acc, t) => acc + t.amount, 0);
-        const actualCount = group.filter(t => t.amount > 0).length;
-        const bebasCount = group.filter(t => t.amount === 0).length;
-        
-        // Calculate Target Hari (Kewajiban) for each month group
-        const [yearG, mG] = mKey.split('-').map(Number);
-        const daysInMonthG = new Date(yearG, mG, 0).getDate();
-        let targetCountG = 0;
-        for (let d = 1; d <= daysInMonthG; d++) {
-            const dateObj = new Date(yearG, mG - 1, d);
-            const day = dateObj.getDay();
-            const dateStr = dateObj.toISOString().split('T')[0];
-            let isHoliday = day === 0 || (type === 'infaq' && day !== 5) || holidays.find(h => h.date === dateStr);
-            if (!isHoliday) targetCountG++;
-        }
-        const targetHari = Math.max(0, (targetCountG * students.length) - bebasCount);
-        if (totalAmount <= 0) return;
-
-        const lastDate = group.reduce((max, t) => t.date > max ? t.date : max, mKey + '-01');
-        
-        displayItems.push({
-            id: 'agg-iuran-' + mKey,
-            date: lastDate,
-            desc: `REKAP ${getMonthNameIndo(mKey).toUpperCase()} (${targetCountG} HARI)`,
-            debit: totalAmount,
-            credit: 0,
-            isAggregated: true
-        });
-    });
-
-    // Individual manually entered Items
-    individualItems.forEach(tw => {
-        const amt = Number(tw.amount || 0);
-        
-        // Hide zero or invalid amounts
-        if (!amt || isNaN(amt) || amt <= 0) {
-            // Expenses (withdrawals) with 0 are also hidden, but if amt > 0 it should be shown
-            if (tw.transactionType !== 'withdrawal') return;
-            if (amt === 0) return;
-        }
-
-        // Hide legacy rows that might have leaked out of aggregation
-        if (tw.notes?.includes('Mass Edit Bulanan')) return;
-        
-        displayItems.push({
-            ...tw,
-            debit: tw.transactionType === 'withdrawal' ? 0 : amt,
-            credit: tw.transactionType === 'withdrawal' ? amt : 0,
-            desc: tw.notes || (tw.transactionType === 'withdrawal' ? 'Pengeluaran/Penarikan' : 'Pemasukan Umum')
-        });
-    });
-
-    // Sort all by date chronologically
-    displayItems.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-
-    // Calculate Global Running Balance
-    let running = 0;
-    const finalDisplayItems = displayItems.map(item => {
-        running += item.debit - item.credit;
-        return { ...item, balance: running };
-    });
-
-    const handleAddExpense = async () => {
-        if (!expense.amount || isNaN(Number(expense.amount))) return alert('Nominal tidak valid!');
-        if (!expense.notes) return alert('Keterangan pengeluaran wajib diisi!');
-
-        const entry: ClassCashWriteEntry = {
-            classId,
-            type,
-            transactionType: 'withdrawal',
-            amount: Number(expense.amount),
-            date: expense.date,
-            period_month: getPeriodMonth(expense.date),
-            notes: expense.notes
-        };
-
-        await persistClassCashEntries([entry]);
-
-        setExpense({ date: todayStr, amount: '', notes: '' });
-        setShowAddExpenseForm(false);
-        onRefresh();
-    };
-
-    const handleAddIncome = async () => {
-        if (!income.studentId && !income.notes) return alert('Pilih siswa atau masukkan keterangan pemasukan!');
-        if (!income.amount || isNaN(Number(income.amount))) return alert('Nominal tidak valid!');
-
-        const entry: ClassCashWriteEntry = {
-            classId,
-            studentId: income.studentId || undefined,
-            type,
-            transactionType: 'deposit',
-            amount: Number(income.amount),
-            date: income.date,
-            period_month: getPeriodMonth(income.date),
-            notes: income.notes || undefined
-        };
-
-        await persistClassCashEntries([entry]);
-
-        setIncome({ date: todayStr, studentId: '', amount: '', notes: '' });
-        setShowAddIncomeForm(false);
-        onRefresh();
-    };
-
-    const handleDelete = async (item: any) => {
-        if (!confirm('Hapus transaksi ini?')) return;
-        const entry: ClassCashWriteEntry = {
-            classId,
-            studentId: item.studentId,
-            type,
-            transactionType: item.transactionType,
-            amount: -1, // Triggers delete in persistClassCashEntries
-            date: item.date,
-            period_month: getPeriodMonth(item.date),
-            notes: item.notes
-        };
-        await persistClassCashEntries([entry]);
-        onRefresh();
-    };
-
-    const handleUpdateItem = async () => {
-        if (!editingItem) return;
-        const entry: ClassCashWriteEntry = {
-            classId,
-            studentId: editingItem.studentId,
-            type,
-            transactionType: editingItem.transactionType,
-            amount: Number(editingItem.amount || editingItem.debit || editingItem.credit),
-            date: editingItem.date,
-            period_month: getPeriodMonth(editingItem.date),
-            notes: editingItem.notes
-        };
-        await persistClassCashEntries([entry]);
-        setEditingItem(null);
-        onRefresh();
-    };
-
-    return (
-        <div className="card !p-0 flex flex-col h-full min-h-[500px]">
-            <div className="p-5 border-b border-border flex justify-between items-center bg-slate-50/50">
-                <div>
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">Buku Kas (Mutasi Saldo)</h3>
-                    <p className="text-[10px] font-bold text-slate-400">Pemasukan & Pengeluaran {type.toUpperCase()}</p>
-                </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => {
-                            setShowAddIncomeForm(false);
-                            setShowAddExpenseForm(v => !v);
-                        }}
-                        className="btn-small bg-red-100 text-red-600 hover:bg-red-200 font-bold flex items-center gap-2"
-                    >
-                        {showAddExpenseForm ? <X size={14} /> : <Plus size={14} />} {showAddExpenseForm ? 'Batal' : 'Tambah Pengeluaran'}
-                    </button>
-                    <button
-                        onClick={() => {
-                            setShowAddExpenseForm(false);
-                            setShowAddIncomeForm(v => !v);
-                        }}
-                        className="btn-small bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold flex items-center gap-2"
-                    >
-                        {showAddIncomeForm ? <X size={14} /> : <Plus size={14} />} {showAddIncomeForm ? 'Batal' : 'Tambah Pemasukan'}
-                    </button>
-                    <button onClick={onOpenPrint} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500" aria-label="Cetak Laporan Kas"><Printer size={16} /></button>
-                </div>
-            </div>
-
-            {showAddExpenseForm && (
-                <div className="p-4 bg-red-50 border-b border-red-100 flex gap-4 items-end">
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-red-800 uppercase">Tanggal</label>
-                        <input type="date" className="p-2 rounded border border-red-200 outline-none w-full font-mono text-sm" value={expense.date} onChange={e => setExpense({ ...expense, date: e.target.value })} />
-                    </div>
-                    <div className="space-y-1 flex-1">
-                        <label className="text-[10px] font-bold text-red-800 uppercase">Keterangan Penggunaan</label>
-                        <input type="text" className="p-2 rounded border border-red-200 outline-none w-full text-sm" placeholder="Contoh: Beli sapu & pel" value={expense.notes} onChange={e => setExpense({ ...expense, notes: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-red-800 uppercase">Nominal (Rp)</label>
-                        <input type="number" className="p-2 rounded border border-red-200 outline-none w-full font-mono text-sm" placeholder="0" value={expense.amount} onChange={e => setExpense({ ...expense, amount: e.target.value })} />
-                    </div>
-                    <button onClick={handleAddExpense} className="btn-small bg-red-800 hover:bg-red-900 text-white h-[38px] shadow-lg">
-                        Simpan Pengeluaran
-                    </button>
-                </div>
-            )}
-
-            {showAddIncomeForm && (
-                <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex flex-wrap gap-4 items-end">
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Tanggal</label>
-                        <input type="date" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" value={income.date} onChange={e => setIncome({ ...income, date: e.target.value })} />
-                    </div>
-                    <div className="space-y-1 min-w-[200px]">
-                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Pilih Siswa (Opsional)</label>
-                        <select
-                            className="p-2 rounded border border-emerald-200 outline-none w-full text-sm bg-white"
-                            value={income.studentId}
-                            onChange={e => setIncome({ ...income, studentId: e.target.value })}
-                        >
-                            <option value="">-- Bukan Siswa (Pemasukan Umum) --</option>
-                            {studentsForSelect.map((s) => (
-                                <option key={s.id} value={s.id}>{getStudentName(s)}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="space-y-1 flex-1 min-w-[200px]">
-                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Keterangan Pemasukan</label>
-                        <input
-                            type="text"
-                            className="p-2 rounded border border-emerald-200 outline-none w-full text-sm"
-                            placeholder={income.studentId ? "Catatan tambahan (opsional)" : "Contoh: Kas sisa acara, Donasi, dll"}
-                            value={income.notes}
-                            onChange={e => setIncome({ ...income, notes: e.target.value })}
-                        />
-                    </div>
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Nominal (Rp)</label>
-                        <input type="number" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" placeholder="0" value={income.amount} onChange={e => setIncome({ ...income, amount: e.target.value })} />
-                    </div>
-                    <button onClick={handleAddIncome} className="btn-small bg-emerald-700 hover:bg-emerald-800 text-white h-[38px] shadow-lg">
-                        Simpan Pemasukan
-                    </button>
-                </div>
-            )}
-
-            <div className="table-container p-4">
-                <table className="data-table">
-                    <thead>
-                        <tr>
-                            <SortableTH label="TANGGAL" sortKey="date" currentSort={currentSort} onSort={onSort} />
-                            <SortableTH label="KETERANGAN / URAIAN" sortKey="desc" currentSort={currentSort} onSort={onSort} />
-                            <SortableTH label="DEBIT (MASUK)" sortKey="debit" currentSort={currentSort} onSort={onSort} />
-                            <SortableTH label="KREDIT (KELUAR)" sortKey="credit" currentSort={currentSort} onSort={onSort} />
-                            <th className="text-right w-32 bg-slate-50">SALDO AKHIR</th>
-                            <th className="no-print">AKSI</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {/* Global history: no Saldo Pindahan needed */}
-                        {finalDisplayItems.length === 0 ? (
-                            <tr><td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada riwayat mutasi kas</td></tr>
-                        ) : finalDisplayItems.map((l: any, i: number) => (
-                            <tr key={l.id} className="hover:bg-slate-50">
-                                <td className="font-mono text-xs text-slate-500">{l.date}</td>
-                                <td className="font-bold text-sm">{l.desc}</td>
-                                <td className="text-right text-success font-mono font-bold">{l.debit > 0 ? formatCurrency(l.debit) : '-'}</td>
-                                <td className="text-right text-red-500 font-mono font-bold">{l.credit > 0 ? formatCurrency(l.credit) : '-'}</td>
-                                <td className="text-right font-black font-mono bg-slate-50 text-accent">{formatCurrency(l.balance)}</td>
-                                <td className="no-print">
-                                    {!l.isAggregated && (
-                                        <div className="flex gap-1 justify-center">
-                                            <button 
-                                                onClick={() => setEditingItem({
-                                                    ...l, 
-                                                    amount: l.transactionType === 'deposit' ? l.debit : l.credit
-                                                })} 
-                                                className="p-1 hover:bg-blue-50 text-blue-500 rounded transition-all" 
-                                                title="Edit Transaksi"
-                                            >
-                                                <Edit size={12} />
-                                            </button>
-                                            <button 
-                                                onClick={() => handleDelete(l)} 
-                                                className="p-1 hover:bg-red-50 text-red-400 rounded transition-all" 
-                                                title="Hapus Transaksi"
-                                            >
-                                                <Trash2 size={12} />
-                                            </button>
-                                        </div>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* Editing Modal */}
-            <AnimatePresence>
-                {editingItem && (
-                    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border space-y-6"
-                        >
-                            <div className="flex justify-between items-center">
-                                <h3 className="text-xl font-bold uppercase tracking-tighter">Edit Transaksi</h3>
-                                <button onClick={() => setEditingItem(null)}><X size={20} /></button>
-                            </div>
-                            <div className="space-y-4">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Tanggal</label>
-                                    <input 
-                                        type="date" 
-                                        className="w-full p-3 bg-slate-50 border border-border rounded-xl outline-none focus:border-accent" 
-                                        value={editingItem.date} 
-                                        onChange={e => setEditingItem({ ...editingItem, date: e.target.value })} 
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Nominal</label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full p-3 bg-slate-50 border border-border rounded-xl outline-none focus:border-accent font-bold text-lg" 
-                                        value={editingItem.amount} 
-                                        onChange={e => setEditingItem({ ...editingItem, amount: e.target.value })} 
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan</label>
-                                    <textarea 
-                                        className="w-full p-3 bg-slate-50 border border-border rounded-xl outline-none focus:border-accent text-sm min-h-[100px]" 
-                                        value={editingItem.notes || ''} 
-                                        onChange={e => setEditingItem({ ...editingItem, notes: e.target.value })} 
-                                        placeholder="Keterangan transaksi..."
-                                    />
-                                </div>
-                            </div>
-                            <div className="flex gap-3">
-                                <button onClick={() => setEditingItem(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 uppercase text-xs">Batal</button>
-                                <button onClick={handleUpdateItem} className="flex-2 py-3 bg-slate-900 text-yellow-400 rounded-xl font-bold hover:bg-slate-800 uppercase text-xs shadow-lg">Simpan Perubahan</button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-        </div>
-    );
-}
-
 const GradeInput = ({ value, onChange, placeholder = '' }: any) => {
     const hasError = value !== '' && value !== null && (Number(value) < 0 || Number(value) > 100);
     return (
@@ -9972,7 +8829,7 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
                                 { key: 'enableAttendance', label: 'Modul Presensi', icon: <CalendarCheck size={16} /> },
                                 { key: 'enablePayments', label: 'Manajemen Pembayaran', icon: <CreditCard size={16} /> },
                                 { key: 'enableSavings', label: 'Tabungan Siswa', icon: <Wallet size={16} /> },
-                                { key: 'enableClassCash', label: 'KAS & Infaq Kelas', icon: <Coins size={16} /> },
+                                { key: 'enableClassCash', label: 'GEMARI', icon: <Coins size={16} /> },
                                 { key: 'enableAcademic', label: 'Akademik & Ijazah', icon: <FileSpreadsheet size={16} /> },
                             ].map(feature => (
                                 <div key={feature.key} className="flex items-center justify-between p-3 border border-border rounded-xl bg-slate-50/50">
@@ -10003,7 +8860,7 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
                                 { key: 'showAttendance', label: 'Tampilkan Presensi', icon: <CalendarCheck size={16} /> },
                                 { key: 'showPayments', label: 'Tampilkan Pembayaran', icon: <CreditCard size={16} /> },
                                 { key: 'showSavings', label: 'Tampilkan Tabungan', icon: <Wallet size={16} /> },
-                                { key: 'showClassCash', label: 'Tampilkan Kas Kelas', icon: <Coins size={16} /> },
+                                { key: 'showClassCash', label: 'Tampilkan GEMARI', icon: <Coins size={16} /> },
                             ].map(item => (
                                 <div key={item.key} className="flex items-center justify-between p-3 border border-border rounded-xl bg-amber-50/20">
                                     <div className="flex items-center gap-2">
