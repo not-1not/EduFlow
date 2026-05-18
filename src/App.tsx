@@ -59,7 +59,8 @@ import {
     TrendingDown,
     MessageSquare,
     Send,
-    LogOut
+    LogOut,
+    Minus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase, syncSheetRecords } from './firebase';
@@ -5427,33 +5428,34 @@ function GemariView({
 
     const getStudentName = (id: string) => {
         const s = students.find(x => x.id === id);
-        return s?.name || s?.displayName || s?.fullName || s?.nama || 'Umum / Kolektif';
+        return s?.name || (s as any)?.displayName || (s as any)?.fullName || (s as any)?.nama || 'Umum / Kolektif';
     };
     const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     
-    const selectedClass = classes.find(c => c.id === selectedClassId);
-    const filteredStudents = students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId));
+    const selectedClass = React.useMemo(() => classes.find(c => c.id === selectedClassId), [classes, selectedClassId]);
+    const filteredStudents = React.useMemo(() => students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId)), [students, selectedClassId]);
     
     // Transactions for the selected month and class
-    const monthTransactions = transactions
+    const monthTransactions = React.useMemo(() => transactions
         .filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth))
-        .sort((a, b) => a.date.localeCompare(b.date));
+        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedMonth]);
 
-    const monthSchoolDays = (() => {
+    const monthSchoolDays = React.useMemo(() => {
         const [y, m] = selectedMonth.split('-').map(Number);
+        if (!y || !m) return 0;
         const daysInMonth = new Date(y, m, 0).getDate();
         let total = 0;
         for (let day = 1; day <= daysInMonth; day++) {
             const d = new Date(y, m - 1, day);
             const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
-            const isHoliday = holidays.some(h => h.date === dateStr);
+            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
             if (d.getDay() !== 0 && !isHoliday) total++;
         }
         return total;
-    })();
+    }, [selectedMonth, holidays]);
     const targetPerStudent = monthSchoolDays * GEMARI_RATE;
 
-    const studentRows = filteredStudents.map(s => {
+    const studentRows = React.useMemo(() => filteredStudents.map(s => {
         const studentTx = monthTransactions.filter(t => t.studentId === s.id);
         const paid = studentTx.reduce((sum, t) => sum + (t.transactionType === 'withdrawal' ? -Number(t.amount || 0) : Number(t.amount || 0)), 0);
         const kurang = Math.max(0, targetPerStudent - paid);
@@ -5468,7 +5470,7 @@ function GemariView({
     }).sort((a, b) => {
         const order: Record<string, number> = { kurang_bayar: 0, belum_bayar: 1, sudah_bayar: 2 };
         return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
-    });
+    }), [filteredStudents, monthTransactions, targetPerStudent]);
 
     const totalPaid = studentRows.reduce((sum, row) => sum + row.paid, 0);
     const totalTarget = targetPerStudent * filteredStudents.length;
@@ -5551,7 +5553,7 @@ function GemariView({
     };
 
     // Calculate Ledger Rows with Running Balance
-    const ledgerRows = (() => {
+    const ledgerRows = React.useMemo(() => {
         const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
         let runningBalance = 0;
         return base.map(t => {
@@ -5566,7 +5568,7 @@ function GemariView({
                 saldo: runningBalance
             };
         });
-    })();
+    }, [monthTransactions, selectedStudentId, students]);
 
     return (
         <div className="space-y-6 print-container">
