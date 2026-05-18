@@ -5418,6 +5418,7 @@ function GemariView({
     const [selectedStudentId, setSelectedStudentId] = useState('');
     const [showForm, setShowForm] = useState(false);
     const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
+    const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
     const [form, setForm] = useState({
         studentId: '',
         transactionType: 'deposit' as 'deposit' | 'withdrawal',
@@ -5549,6 +5550,26 @@ function GemariView({
             notes: tx.notes
         }]);
         if (editingTx?.id === tx.id) setEditingTx(null);
+        onRefresh();
+    };
+
+    const handleBulkDeleteTx = async () => {
+        if (selectedTxIds.size === 0) return;
+        if (!confirm(`Hapus ${selectedTxIds.size} transaksi terpilih?`)) return;
+
+        const txsToDelete = monthTransactions.filter(t => selectedTxIds.has(t.id));
+        const entries = txsToDelete.map(tx => ({
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'gemari' as const,
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }));
+        
+        await persistClassCashEntries(entries);
+        setSelectedTxIds(new Set());
         onRefresh();
     };
 
@@ -5736,10 +5757,33 @@ function GemariView({
                         </div>
                     </div>
 
+                    {selectedTxIds.size > 0 && (
+                        <div className="bg-red-50 border border-red-100 p-3 mb-4 rounded-xl flex justify-between items-center no-print">
+                            <span className="text-sm font-bold text-red-800">{selectedTxIds.size} transaksi terpilih</span>
+                            <button onClick={handleBulkDeleteTx} className="btn-small bg-red-500 text-white hover:bg-red-600 flex items-center gap-2 shadow-sm shadow-red-500/20">
+                                <Trash2 size={14} /> Hapus Terpilih
+                            </button>
+                        </div>
+                    )}
+
                     <div className="table-container shadow-sm overflow-x-auto">
                         <table className="data-table">
                             <thead className="bg-slate-900 text-white">
                                 <tr>
+                                    <th className="w-10 !text-white border-none py-3 px-4">
+                                        <input 
+                                            type="checkbox" 
+                                            className="rounded cursor-pointer w-4 h-4 accent-red-500 focus:ring-red-500 border-white/20 bg-white/10" 
+                                            checked={ledgerRows.length > 0 && selectedTxIds.size === ledgerRows.length}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedTxIds(new Set(ledgerRows.map((t: any) => t.id)));
+                                                } else {
+                                                    setSelectedTxIds(new Set());
+                                                }
+                                            }}
+                                        />
+                                    </th>
                                     <th className="!text-white border-none">TGL</th>
                                     <th className="!text-white border-none">SISWA / KETERANGAN</th>
                                     <th className="!text-white border-none text-right">MASUK (D)</th>
@@ -5751,11 +5795,24 @@ function GemariView({
                             <tbody>
                                 {ledgerRows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada catatan transaksi untuk periode ini.</td>
+                                        <td colSpan={7} className="text-center py-20 text-slate-400 italic">Belum ada catatan transaksi untuk periode ini.</td>
                                     </tr>
                                 ) : (
                                     ledgerRows.map((t: any) => (
-                                        <tr key={t.id} className="hover:bg-blue-50/50 transition-all border-b border-slate-100">
+                                        <tr key={t.id} className={`transition-all border-b border-slate-100 ${selectedTxIds.has(t.id) ? 'bg-red-50/50' : 'hover:bg-blue-50/50'}`}>
+                                            <td className="text-center py-3 px-4">
+                                                <input 
+                                                    type="checkbox"
+                                                    className="w-4 h-4 text-red-500 rounded border-slate-300 focus:ring-red-500 cursor-pointer accent-red-500"
+                                                    checked={selectedTxIds.has(t.id)}
+                                                    onChange={(e) => {
+                                                        const newSet = new Set(selectedTxIds);
+                                                        if (e.target.checked) newSet.add(t.id);
+                                                        else newSet.delete(t.id);
+                                                        setSelectedTxIds(newSet);
+                                                    }}
+                                                />
+                                            </td>
                                             <td className="font-mono text-xs whitespace-nowrap">{t.date}</td>
                                             <td className="py-3">
                                                 <div className="flex flex-col">
@@ -5789,7 +5846,7 @@ function GemariView({
                             {ledgerRows.length > 0 && (
                                 <tfoot className="bg-slate-50 font-black">
                                     <tr>
-                                        <td colSpan={2} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total Periode Ini</td>
+                                        <td colSpan={3} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total Periode Ini</td>
                                         <td className="text-right text-emerald-600">{formatCurrency(ledgerRows.reduce((a, b) => a + b.debet, 0))}</td>
                                         <td className="text-right text-red-500">{formatCurrency(ledgerRows.reduce((a, b) => a + b.kredit, 0))}</td>
                                         <td className="text-right bg-slate-100">{formatCurrency(ledgerRows[ledgerRows.length - 1].saldo)}</td>
