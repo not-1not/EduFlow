@@ -5686,7 +5686,7 @@ function GemariView({
                                     }}
                                     className="flex-1 btn-primary !py-2 text-[10px]"
                                 >
-                                    Input Bayar
+                                    Input / Edit
                                 </button>
                                 <button
                                     onClick={() => {
@@ -5929,6 +5929,7 @@ function SavingsView({
     const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
     const [showForm, setShowForm] = useState(false);
     const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [editingTx, setEditingTx] = useState<any>(null);
 
     const [newTransaction, setNewTransaction] = useState({
         studentId: '',
@@ -5938,9 +5939,30 @@ function SavingsView({
         notes: ''
     });
 
-    const handleAddTransaction = async () => {
-        await addDoc(collection(db, 'savingsTransactions'), newTransaction);
+    const openEdit = (tx: any) => {
+        setEditingTx(tx);
+        setNewTransaction({
+            studentId: tx.studentId,
+            amount: tx.amount,
+            date: tx.date || new Date().toISOString().split('T')[0],
+            type: tx.type,
+            notes: tx.notes || ''
+        });
+        setShowForm(true);
+    };
+
+    const handleSaveTransaction = async () => {
+        if (!newTransaction.studentId || newTransaction.amount <= 0) {
+            alert('Lengkapi data dengan benar');
+            return;
+        }
+        if (editingTx) {
+            await updateDoc(doc(db, 'savingsTransactions', editingTx.id), newTransaction);
+        } else {
+            await addDoc(collection(db, 'savingsTransactions'), newTransaction);
+        }
         setShowForm(false);
+        setEditingTx(null);
         setNewTransaction({
             studentId: '',
             amount: 0,
@@ -5948,6 +5970,16 @@ function SavingsView({
             type: 'deposit',
             notes: ''
         });
+        onRefresh();
+    };
+
+    const handleDeleteTransaction = async (tx: any) => {
+        if (!confirm('Hapus transaksi ini?')) return;
+        await deleteDoc(doc(db, 'savingsTransactions', tx.id));
+        if (editingTx?.id === tx.id) {
+            setEditingTx(null);
+            setShowForm(false);
+        }
         onRefresh();
     };
 
@@ -6034,9 +6066,28 @@ function SavingsView({
                                 <p className="text-[10px] font-bold uppercase text-text-secondary mb-1">Saldo Saat Ini</p>
                                 <p className="text-xl font-black text-accent">{formatCurrency(s.balance)}</p>
                             </div>
-                            <div className="mt-3 pt-3 border-t border-border flex justify-between items-center text-[10px] font-bold text-text-secondary">
-                                <span>{s.txCount} Transaksi</span>
-                                <span className="flex items-center gap-1 group-hover:text-accent">Detail <ChevronRight size={10} /></span>
+                            <div className="mt-3 pt-3 border-t border-border flex gap-2">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setNewTransaction({ ...newTransaction, studentId: s.id, type: 'deposit' });
+                                        setEditingTx(null);
+                                        setShowForm(true);
+                                    }}
+                                    className="flex-1 btn-primary py-2 text-xs flex items-center justify-center gap-1"
+                                >
+                                    <Plus size={12} /> Input Edit
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedStudentId(s.id);
+                                        setActiveTab('ledger');
+                                    }}
+                                    className="flex-1 btn-small py-2 text-xs"
+                                >
+                                    Riwayat
+                                </button>
                             </div>
                         </div>
                     ))}
@@ -6093,7 +6144,16 @@ function SavingsView({
                                                 {t.type === 'withdrawal' ? '-' : ''}{formatCurrency(t.amount)}
                                             </td>
                                             <td className="text-xs text-text-secondary italic">{t.notes || '-'}</td>
-                                            <td className="no-print"><button className="p-1.5 hover:bg-slate-100 rounded text-slate-400 transition-all" aria-label="Lihat Riwayat Transaksi"><History size={12} /></button></td>
+                                            <td className="no-print">
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-100 rounded text-blue-600 transition-all" aria-label="Edit Transaksi">
+                                                        <Edit size={12} />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteTransaction(t)} className="p-1.5 hover:bg-red-100 rounded text-red-500 transition-all" aria-label="Hapus Transaksi">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     );
                                 })}
@@ -6107,8 +6167,8 @@ function SavingsView({
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold">Transaksi Tabungan</h3>
-                            <button onClick={() => setShowForm(false)} aria-label="Tutup form tabungan"><X size={20} /></button>
+                            <h3 className="text-xl font-bold">{editingTx ? 'Koreksi Transaksi Tabungan' : 'Transaksi Tabungan'}</h3>
+                            <button onClick={() => { setShowForm(false); setEditingTx(null); }} aria-label="Tutup form tabungan"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="space-y-1">
@@ -6166,7 +6226,10 @@ function SavingsView({
                                     onChange={e => setNewTransaction({ ...newTransaction, notes: e.target.value })}
                                 />
                             </div>
-                            <button onClick={handleAddTransaction} className="w-full btn-primary py-3 mt-4">Proses Transaksi</button>
+                            <div className="flex gap-3 mt-4">
+                                <button onClick={() => { setShowForm(false); setEditingTx(null); }} className="flex-1 py-3 border border-border rounded-xl font-bold">Batal</button>
+                                <button onClick={handleSaveTransaction} className="flex-1 btn-primary py-3">{editingTx ? 'Simpan Koreksi' : 'Proses Transaksi'}</button>
+                            </div>
                         </div>
                     </div>
                 </div>
