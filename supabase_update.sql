@@ -179,6 +179,14 @@ CREATE TABLE IF NOT EXISTS "schoolDeposits" (
     notes TEXT
 );
 
+-- 14a. gemariSettings Table
+CREATE TABLE IF NOT EXISTS "gemariSettings" (
+    month TEXT PRIMARY KEY,
+    rate NUMERIC NOT NULL DEFAULT 500,
+    "targetOverride" NUMERIC,
+    "updatedAt" TEXT
+);
+
 CREATE TABLE IF NOT EXISTS "academicRecords" (
     id TEXT PRIMARY KEY,
     "studentId" TEXT,

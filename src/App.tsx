@@ -5496,22 +5496,29 @@ function GemariView({
         })();
     }, [selectedMonth]);
 
-    // Load all settings for the table range
+    // Load all settings for the table range (single batch query)
     const loadSettingsTable = async () => {
         setSettingsLoading(true);
+        setSettingsSavingError('');
         const table: Record<string, { rate: number; override: string }> = {};
-        for (const m of settingsMonths) {
-            try {
-                const snap = await getDoc(doc(db, 'gemariSettings', m));
-                if (snap.exists()) {
-                    const d = snap.data();
-                    table[m] = { rate: Number(d.rate) || DEFAULT_GEMARI_RATE, override: d.targetOverride ? String(d.targetOverride) : '' };
-                } else {
-                    table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+        try {
+            const { data, error } = await supabase!.from('gemariSettings').select('month, rate, "targetOverride"').in('month', settingsMonths);
+            if (!error && data) {
+                const rows = data as any[];
+                const found = new Set(rows.map((r: any) => r.month));
+                for (const m of settingsMonths) {
+                    if (found.has(m)) {
+                        const r = rows.find((x: any) => x.month === m)!;
+                        table[m] = { rate: Number(r.rate) || DEFAULT_GEMARI_RATE, override: r.targetOverride ? String(r.targetOverride) : '' };
+                    } else {
+                        table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+                    }
                 }
-            } catch {
-                table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+            } else {
+                for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
             }
+        } catch {
+            for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
         }
         setSettingsTable(table);
         setSettingsLoading(false);
@@ -5527,21 +5534,21 @@ function GemariView({
     const handleSaveAllSettings = async () => {
         setSettingsLoading(true);
         setSettingsSavingError('');
-        const errors: string[] = [];
+        const rows: any[] = [];
         for (const m of settingsMonths) {
             const entry = settingsTable[m];
             if (!entry) continue;
+            const rate = Number(entry.rate) || DEFAULT_GEMARI_RATE;
+            const override = entry.override ? Number(entry.override) : null;
+            rows.push({ month: m, rate, targetOverride: override, updatedAt: new Date().toISOString() });
+        }
+        if (rows.length > 0) {
             try {
-                const rate = Number(entry.rate) || DEFAULT_GEMARI_RATE;
-                const override = entry.override ? Number(entry.override) : null;
-                await setDoc(doc(db, 'gemariSettings', m), {
-                    rate,
-                    targetOverride: override || null,
-                    month: m,
-                    updatedAt: new Date().toISOString()
-                });
+                await supabase!.from('gemariSettings').upsert(rows, { onConflict: 'month' });
             } catch (err: any) {
-                errors.push(`${monthLabel(m)}: ${err?.message || err}`);
+                setSettingsSavingError(err?.message || String(err));
+                setSettingsLoading(false);
+                return;
             }
         }
         // Reload the active month's settings
@@ -5551,11 +5558,7 @@ function GemariView({
             setGemariTargetOverride(active.override ? Number(active.override) : null);
         }
         setSettingsLoading(false);
-        if (errors.length > 0) {
-            setSettingsSavingError(errors.join('\n'));
-        } else {
-            setShowGemariSettings(false);
-        }
+        setShowGemariSettings(false);
     };
 
     const handleBulkFillRate = () => {
