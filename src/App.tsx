@@ -5501,9 +5501,21 @@ function GemariView({
         setSettingsLoading(true);
         setSettingsSavingError('');
         const table: Record<string, { rate: number; override: string }> = {};
+
+        const fetchSettings = () => supabase!
+            .from('gemariSettings')
+            .select('month, rate, "targetOverride"')
+            .in('month', settingsMonths);
+
         try {
-            const { data, error } = await supabase!.from('gemariSettings').select('month, rate, "targetOverride"').in('month', settingsMonths);
-            if (!error && data) {
+            const { data, error } = await Promise.race([
+                fetchSettings(),
+                new Promise<never>((_, rej) => setTimeout(() => rej(new Error(
+                    'Koneksi terlalu lama (>15 dtk). Periksa sambungan internet atau tabel gemariSettings belum dibuat di Supabase.'
+                )), 15000))
+            ]);
+            if (error) throw error;
+            if (data && data.length > 0) {
                 const rows = data as any[];
                 const found = new Set(rows.map((r: any) => r.month));
                 for (const m of settingsMonths) {
@@ -5517,8 +5529,10 @@ function GemariView({
             } else {
                 for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
             }
-        } catch {
+        } catch (err: any) {
+            console.error('Gagal memuat pengaturan GEMARI:', err);
             for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+            setSettingsSavingError(err?.message || String(err));
         }
         setSettingsTable(table);
         setSettingsLoading(false);
@@ -5531,34 +5545,41 @@ function GemariView({
 
     const [settingsSavingError, setSettingsSavingError] = useState('');
 
-    const handleSaveAllSettings = async () => {
+    const handleSaveAllSettings = () => {
+        if (!supabase || !supabase.from) {
+            setSettingsSavingError('Supabase belum dikonfigurasi. Cek file .env');
+            return;
+        }
         setSettingsLoading(true);
         setSettingsSavingError('');
-        const rows: any[] = [];
-        for (const m of settingsMonths) {
+        const rows: any[] = settingsMonths.map(m => {
             const entry = settingsTable[m];
-            if (!entry) continue;
+            if (!entry) return null;
             const rate = Number(entry.rate) || DEFAULT_GEMARI_RATE;
             const override = entry.override ? Number(entry.override) : null;
-            rows.push({ month: m, rate, targetOverride: override, updatedAt: new Date().toISOString() });
-        }
-        if (rows.length > 0) {
+            return { month: m, rate, targetOverride: override, updatedAt: new Date().toISOString() };
+        }).filter(Boolean);
+
+        const saveUp = async () => {
             try {
-                await supabase!.from('gemariSettings').upsert(rows, { onConflict: 'month' });
+                if (rows.length > 0) {
+                    const { error } = await supabase.from('gemariSettings').upsert(rows, { onConflict: 'month' });
+                    if (error) throw error;
+                }
+                // Update in-memory live rate from the just-saved table
+                const active = settingsTable[selectedMonth];
+                if (active) {
+                    setGemariRate(Number(active.rate) || DEFAULT_GEMARI_RATE);
+                    setGemariTargetOverride(active.override ? Number(active.override) : null);
+                }
             } catch (err: any) {
-                setSettingsSavingError(err?.message || String(err));
+                console.error('Gagal menyimpan pengaturan GEMARI:', err);
+                setSettingsSavingError(`Gagal menyimpan: ${err?.message || err}`);
+            } finally {
                 setSettingsLoading(false);
-                return;
             }
-        }
-        // Reload the active month's settings
-        const active = settingsTable[selectedMonth];
-        if (active) {
-            setGemariRate(Number(active.rate) || DEFAULT_GEMARI_RATE);
-            setGemariTargetOverride(active.override ? Number(active.override) : null);
-        }
-        setSettingsLoading(false);
-        setShowGemariSettings(false);
+        };
+        void saveUp();
     };
 
     const handleBulkFillRate = () => {
