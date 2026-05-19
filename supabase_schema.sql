@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS "schoolDeposits" (
 CREATE TABLE IF NOT EXISTS "gemariSettings" (
     month TEXT PRIMARY KEY,
     rate NUMERIC NOT NULL DEFAULT 500,
+    "targetDays" NUMERIC,
     "targetOverride" NUMERIC,
     "updatedAt" TEXT
 );
@@ -199,6 +200,7 @@ CREATE TABLE IF NOT EXISTS "gemariSettings" (
 CREATE TABLE IF NOT EXISTS "infaqSettings" (
     month TEXT PRIMARY KEY,
     rate NUMERIC NOT NULL DEFAULT 1000,
+    "targetDays" NUMERIC,
     "targetOverride" NUMERIC,
     "updatedAt" TEXT
 );

@@ -5453,13 +5453,14 @@ function GemariView({
     const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
     const [gemariRate, setGemariRate] = useState(DEFAULT_GEMARI_RATE);
     const [gemariTargetOverride, setGemariTargetOverride] = useState<number | null>(null);
+    const [gemariTargetDays, setGemariTargetDays] = useState<number | null>(null);
     const [showGemariSettings, setShowGemariSettings] = useState(false);
 
-    // Table-based settings: map of month -> { rate, override }
+    // Table-based settings: map of month -> { rate, targetDays, override }
     const currentYear = new Date().getFullYear();
     const [settingsRangeStart, setSettingsRangeStart] = useState(`${currentYear - 1}-07`);
     const [settingsRangeEnd, setSettingsRangeEnd] = useState(`${currentYear}-06`);
-    const [settingsTable, setSettingsTable] = useState<Record<string, { rate: number; override: string }>>({});
+    const [settingsTable, setSettingsTable] = useState<Record<string, { rate: number; targetDays: string; override: string }>>({});
     const [settingsBulkRate, setSettingsBulkRate] = useState(DEFAULT_GEMARI_RATE);
     const [settingsLoading, setSettingsLoading] = useState(false);
 
@@ -5517,13 +5518,16 @@ function GemariView({
                     const data = snap.data();
                     setGemariRate(Number(data.rate) || DEFAULT_GEMARI_RATE);
                     setGemariTargetOverride(data.targetOverride ? Number(data.targetOverride) : null);
+                    setGemariTargetDays(data.targetDays !== null && data.targetDays !== undefined ? Number(data.targetDays) : null);
                 } else {
                     setGemariRate(DEFAULT_GEMARI_RATE);
                     setGemariTargetOverride(null);
+                    setGemariTargetDays(null);
                 }
             } catch {
                 setGemariRate(DEFAULT_GEMARI_RATE);
                 setGemariTargetOverride(null);
+                setGemariTargetDays(null);
             }
         })();
     }, [selectedMonth]);
@@ -5532,11 +5536,11 @@ function GemariView({
     const loadSettingsTable = async () => {
         setSettingsLoading(true);
         setSettingsSavingError('');
-        const table: Record<string, { rate: number; override: string }> = {};
+        const table: Record<string, { rate: number; targetDays: string; override: string }> = {};
 
         const fetchSettings = () => supabase!
             .from('gemariSettings')
-            .select('month, rate, "targetOverride"')
+            .select('month, rate, "targetDays", "targetOverride"')
             .in('month', settingsMonths);
 
         try {
@@ -5553,17 +5557,21 @@ function GemariView({
                 for (const m of settingsMonths) {
                     if (found.has(m)) {
                         const r = rows.find((x: any) => x.month === m)!;
-                        table[m] = { rate: Number(r.rate) || DEFAULT_GEMARI_RATE, override: r.targetOverride ? String(r.targetOverride) : '' };
+                        table[m] = {
+                            rate: Number(r.rate) || DEFAULT_GEMARI_RATE,
+                            targetDays: r.targetDays !== null && r.targetDays !== undefined ? String(r.targetDays) : '',
+                            override: r.targetOverride ? String(r.targetOverride) : ''
+                        };
                     } else {
-                        table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+                        table[m] = { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
                     }
                 }
             } else {
-                for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+                for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
             }
         } catch (err: any) {
             console.error('Gagal memuat pengaturan GEMARI:', err);
-            for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+            for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
             setSettingsSavingError(err?.message || String(err));
         }
         setSettingsTable(table);
@@ -5589,8 +5597,9 @@ function GemariView({
             const entry = settingsTable[m];
             if (!entry) return null;
             const rate = Number(entry.rate) || DEFAULT_GEMARI_RATE;
+            const targetDays = entry.targetDays !== '' ? Number(entry.targetDays) : null;
             const override = entry.override ? Number(entry.override) : null;
-            return { month: m, rate, targetOverride: override, updatedAt: new Date().toISOString() };
+            return { month: m, rate, targetDays, targetOverride: override, updatedAt: new Date().toISOString() };
         }).filter(Boolean);
 
         const saveUp = async () => {
@@ -5604,6 +5613,7 @@ function GemariView({
                 if (active) {
                     setGemariRate(Number(active.rate) || DEFAULT_GEMARI_RATE);
                     setGemariTargetOverride(active.override ? Number(active.override) : null);
+                    setGemariTargetDays(active.targetDays !== '' ? Number(active.targetDays) : null);
                 }
             } catch (err: any) {
                 console.error('Gagal menyimpan pengaturan GEMARI:', err);
@@ -5618,7 +5628,7 @@ function GemariView({
     const handleBulkFillRate = () => {
         const updated = { ...settingsTable };
         for (const m of settingsMonths) {
-            updated[m] = { ...updated[m], rate: settingsBulkRate };
+            updated[m] = { ...(updated[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), rate: settingsBulkRate };
         }
         setSettingsTable(updated);
     };
@@ -5650,7 +5660,8 @@ function GemariView({
         }
         return total;
     }, [selectedMonth, holidays]);
-    const targetPerStudent = gemariTargetOverride || (monthSchoolDays * gemariRate);
+    const effectiveGemariDays = gemariTargetDays ?? monthSchoolDays;
+    const targetPerStudent = gemariTargetOverride || (effectiveGemariDays * gemariRate);
 
     const studentRows = React.useMemo(() => filteredStudents.map(s => {
         const studentTx = monthTransactions.filter(t => t.studentId === s.id);
@@ -5875,7 +5886,7 @@ function GemariView({
                 <div className="card cursor-pointer hover:border-accent transition-all group" onClick={openGemariSettings}>
                     <p className="stat-label flex items-center gap-1">Tarif Harian <Settings size={10} className="group-hover:text-accent" /></p>
                     <p className="stat-value text-purple-600">{formatCurrency(gemariRate)}</p>
-                    <p className="text-[9px] text-slate-400 mt-1">{gemariTargetOverride ? `Override: ${formatCurrency(gemariTargetOverride)}` : `${monthSchoolDays} hari × Rp ${gemariRate.toLocaleString('id-ID')}`}</p>
+                    <p className="text-[9px] text-slate-400 mt-1">{gemariTargetOverride ? `Override: ${formatCurrency(gemariTargetOverride)}` : `${effectiveGemariDays} hari × Rp ${gemariRate.toLocaleString('id-ID')}`}</p>
                 </div>
             </div>
 
@@ -5908,7 +5919,7 @@ function GemariView({
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target Harian: {formatCurrency(gemariRate)}</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: {effectiveGemariDays} hari × {formatCurrency(gemariRate)}</p>
                                 </div>
                                 <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                                     row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
@@ -6278,8 +6289,8 @@ function GemariView({
                                         </thead>
                                         <tbody>
                                             {settingsMonths.map(m => {
-                                                const entry = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, override: '' };
-                                                const days = getSchoolDaysForMonth(m);
+                                                const entry = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
+                                                const days = entry.targetDays !== '' ? Number(entry.targetDays) : getSchoolDaysForMonth(m);
                                                 const target = entry.override ? Number(entry.override) : days * entry.rate;
                                                 const isActive = m === selectedMonth;
                                                 return (
@@ -6288,13 +6299,22 @@ function GemariView({
                                                             <span className={`font-bold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>{monthLabel(m)}</span>
                                                             {isActive && <span className="ml-2 text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black">AKTIF</span>}
                                                         </td>
-                                                        <td className="py-2.5 px-2 text-center font-mono text-slate-500">{days}</td>
+                                                        <td className="py-2.5 px-2">
+                                                            <input
+                                                                type="number"
+                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+                                                                value={entry.targetDays}
+                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), targetDays: e.target.value } }))}
+                                                                placeholder={String(getSchoolDaysForMonth(m))}
+                                                                min={0}
+                                                            />
+                                                        </td>
                                                         <td className="py-2.5 px-2">
                                                             <input
                                                                 type="number"
                                                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
                                                                 value={entry.rate}
-                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...prev[m], rate: Number(e.target.value) } }))}
+                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), rate: Number(e.target.value) } }))}
                                                                 min={0}
                                                             />
                                                         </td>
@@ -6303,7 +6323,7 @@ function GemariView({
                                                                 type="number"
                                                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
                                                                 value={entry.override}
-                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...prev[m], override: e.target.value } }))}
+                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), override: e.target.value } }))}
                                                                 placeholder="—"
                                                                 min={0}
                                                             />
@@ -6320,8 +6340,9 @@ function GemariView({
                                                 <td colSpan={4} className="py-3 px-2 text-right text-[10px] font-black uppercase text-purple-500">Total Target/Siswa (Setahun):</td>
                                                 <td className="py-3 px-2 text-right font-black text-purple-700 text-base">
                                                     {formatCurrency(settingsMonths.reduce((sum, m) => {
-                                                        const e = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, override: '' };
-                                                        return sum + (e.override ? Number(e.override) : getSchoolDaysForMonth(m) * e.rate);
+                                                        const e = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
+                                                        const days = e.targetDays !== '' ? Number(e.targetDays) : getSchoolDaysForMonth(m);
+                                                        return sum + (e.override ? Number(e.override) : days * e.rate);
                                                     }, 0))}
                                                 </td>
                                             </tr>
@@ -6388,13 +6409,14 @@ function InfaqJumatView({
     const [selectedInfaqIds, setSelectedInfaqIds] = useState<Set<string>>(new Set());
     const [infaqRate, setInfaqRate] = useState(DEFAULT_INFAQ_RATE);
     const [infaqTargetOverride, setInfaqTargetOverride] = useState<number | null>(null);
+    const [infaqTargetDays, setInfaqTargetDays] = useState<number | null>(null);
     const [showInfaqSettings, setShowInfaqSettings] = useState(false);
 
-    // Table-based settings: map of month -> { rate, override }
+    // Table-based settings: map of month -> { rate, targetDays, override }
     const currentYear = new Date().getFullYear();
     const [infaqRangeStart, setInfaqRangeStart] = useState(`${currentYear - 1}-07`);
     const [infaqRangeEnd, setInfaqRangeEnd] = useState(`${currentYear}-06`);
-    const [infaqTable, setInfaqTable] = useState<Record<string, { rate: number; override: string }>>({});
+    const [infaqTable, setInfaqTable] = useState<Record<string, { rate: number; targetDays: string; override: string }>>({});
     const [infaqBulkRate, setInfaqBulkRate] = useState(DEFAULT_INFAQ_RATE);
     const [infaqLoading, setInfaqLoading] = useState(false);
 
@@ -6428,7 +6450,7 @@ function InfaqJumatView({
             const d = new Date(y, m - 1, day);
             const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
             const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
-            if (d.getDay() !== 0 && !isHoliday) total++;
+            if (d.getDay() === 5 && !isHoliday) total++;
         }
         return total;
     };
@@ -6452,13 +6474,16 @@ function InfaqJumatView({
                     const data = snap.data();
                     setInfaqRate(Number(data.rate) || DEFAULT_INFAQ_RATE);
                     setInfaqTargetOverride(data.targetOverride ? Number(data.targetOverride) : null);
+                    setInfaqTargetDays(data.targetDays !== null && data.targetDays !== undefined ? Number(data.targetDays) : null);
                 } else {
                     setInfaqRate(DEFAULT_INFAQ_RATE);
                     setInfaqTargetOverride(null);
+                    setInfaqTargetDays(null);
                 }
             } catch {
                 setInfaqRate(DEFAULT_INFAQ_RATE);
                 setInfaqTargetOverride(null);
+                setInfaqTargetDays(null);
             }
         })();
     }, [selectedMonth]);
@@ -6467,11 +6492,11 @@ function InfaqJumatView({
     const loadInfaqSettings = async () => {
         setInfaqLoading(true);
         setInfaqSavingError('');
-        const table: Record<string, { rate: number; override: string }> = {};
+        const table: Record<string, { rate: number; targetDays: string; override: string }> = {};
 
         const fetchSettings = () => supabase!
             .from('infaqSettings')
-            .select('month, rate, "targetOverride"')
+            .select('month, rate, "targetDays", "targetOverride"')
             .in('month', infaqMonths);
 
         try {
@@ -6488,17 +6513,21 @@ function InfaqJumatView({
                 for (const m of infaqMonths) {
                     if (found.has(m)) {
                         const r = rows.find((x: any) => x.month === m)!;
-                        table[m] = { rate: Number(r.rate) || DEFAULT_INFAQ_RATE, override: r.targetOverride ? String(r.targetOverride) : '' };
+                        table[m] = {
+                            rate: Number(r.rate) || DEFAULT_INFAQ_RATE,
+                            targetDays: r.targetDays !== null && r.targetDays !== undefined ? String(r.targetDays) : '',
+                            override: r.targetOverride ? String(r.targetOverride) : ''
+                        };
                     } else {
-                        table[m] = { rate: DEFAULT_INFAQ_RATE, override: '' };
+                        table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
                     }
                 }
             } else {
-                for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, override: '' };
+                for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
             }
         } catch (err: any) {
             console.error('Gagal memuat pengaturan INFAQ Jumat:', err);
-            for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, override: '' };
+            for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
             setInfaqSavingError(err?.message || String(err));
         }
         setInfaqTable(table);
@@ -6524,8 +6553,9 @@ function InfaqJumatView({
             const entry = infaqTable[m];
             if (!entry) return null;
             const rate = Number(entry.rate) || DEFAULT_INFAQ_RATE;
+            const targetDays = entry.targetDays !== '' ? Number(entry.targetDays) : null;
             const override = entry.override ? Number(entry.override) : null;
-            return { month: m, rate, targetOverride: override, updatedAt: new Date().toISOString() };
+            return { month: m, rate, targetDays, targetOverride: override, updatedAt: new Date().toISOString() };
         }).filter(Boolean);
 
         const saveUp = async () => {
@@ -6539,6 +6569,7 @@ function InfaqJumatView({
                 if (active) {
                     setInfaqRate(Number(active.rate) || DEFAULT_INFAQ_RATE);
                     setInfaqTargetOverride(active.override ? Number(active.override) : null);
+                    setInfaqTargetDays(active.targetDays !== '' ? Number(active.targetDays) : null);
                 }
             } catch (err: any) {
                 console.error('Gagal menyimpan pengaturan INFAQ Jumat:', err);
@@ -6553,7 +6584,7 @@ function InfaqJumatView({
     const handleBulkFillInfaqRate = () => {
         const updated = { ...infaqTable };
         for (const m of infaqMonths) {
-            updated[m] = { ...updated[m], rate: infaqBulkRate };
+            updated[m] = { ...(updated[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), rate: infaqBulkRate };
         }
         setInfaqTable(updated);
     };
@@ -6581,11 +6612,12 @@ function InfaqJumatView({
             const d = new Date(y, m - 1, day);
             const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
             const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
-            if (d.getDay() !== 0 && !isHoliday) total++;
+            if (d.getDay() === 5 && !isHoliday) total++;
         }
         return total;
     }, [selectedMonth, holidays]);
-    const targetPerStudent = infaqTargetOverride || (monthSchoolDays * infaqRate);
+    const effectiveInfaqDays = infaqTargetDays ?? monthSchoolDays;
+    const targetPerStudent = infaqTargetOverride || (effectiveInfaqDays * infaqRate);
 
     const studentRows = React.useMemo(() => filteredStudents.map(s => {
         const studentTx = monthTransactions.filter(t => t.studentId === s.id);
@@ -6810,7 +6842,7 @@ function InfaqJumatView({
                 <div className="card cursor-pointer hover:border-accent transition-all group" onClick={openInfaqSettings}>
                     <p className="stat-label flex items-center gap-1">Nominal Infaq <Settings size={10} className="group-hover:text-accent" /></p>
                     <p className="stat-value text-purple-600">{formatCurrency(infaqRate)}</p>
-                    <p className="text-[9px] text-slate-400 mt-1">{infaqTargetOverride ? `Override: ${formatCurrency(infaqTargetOverride)}` : `${monthSchoolDays} hari × Rp ${infaqRate.toLocaleString('id-ID')}`}</p>
+                    <p className="text-[9px] text-slate-400 mt-1">{infaqTargetOverride ? `Override: ${formatCurrency(infaqTargetOverride)}` : `${effectiveInfaqDays} hari × Rp ${infaqRate.toLocaleString('id-ID')}`}</p>
                 </div>
             </div>
 
@@ -6843,7 +6875,7 @@ function InfaqJumatView({
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target Harian: {formatCurrency(infaqRate)}</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: {effectiveInfaqDays} hari × {formatCurrency(infaqRate)}</p>
                                 </div>
                                 <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                                     row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
@@ -7205,7 +7237,7 @@ function InfaqJumatView({
                                         <thead className="sticky top-0 bg-white z-10">
                                             <tr className="border-b-2 border-purple-200">
                                                 <th className="text-left py-3 px-2 text-[10px] font-black uppercase text-slate-500">Bulan</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-20">Hari Kerja</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-20">Hari Jumat</th>
                                                 <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Nominal Infaq</th>
                                                 <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-36">Override Target</th>
                                                 <th className="text-right py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Target/Siswa</th>
@@ -7213,8 +7245,8 @@ function InfaqJumatView({
                                         </thead>
                                         <tbody>
                                             {infaqMonths.map(m => {
-                                                const entry = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, override: '' };
-                                                const days = getSchoolDaysForMonth(m);
+                                                const entry = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
+                                                const days = entry.targetDays !== '' ? Number(entry.targetDays) : getSchoolDaysForMonth(m);
                                                 const target = entry.override ? Number(entry.override) : days * entry.rate;
                                                 const isActive = m === selectedMonth;
                                                 return (
@@ -7223,13 +7255,22 @@ function InfaqJumatView({
                                                             <span className={`font-bold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>{monthLabel(m)}</span>
                                                             {isActive && <span className="ml-2 text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black">AKTIF</span>}
                                                         </td>
-                                                        <td className="py-2.5 px-2 text-center font-mono text-slate-500">{days}</td>
+                                                        <td className="py-2.5 px-2">
+                                                            <input
+                                                                type="number"
+                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+                                                                value={entry.targetDays}
+                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), targetDays: e.target.value } }))}
+                                                                placeholder={String(getSchoolDaysForMonth(m))}
+                                                                min={0}
+                                                            />
+                                                        </td>
                                                         <td className="py-2.5 px-2">
                                                             <input
                                                                 type="number"
                                                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
                                                                 value={entry.rate}
-                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...prev[m], rate: Number(e.target.value) } }))}
+                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), rate: Number(e.target.value) } }))}
                                                                 min={0}
                                                             />
                                                         </td>
@@ -7238,7 +7279,7 @@ function InfaqJumatView({
                                                                 type="number"
                                                                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
                                                                 value={entry.override}
-                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...prev[m], override: e.target.value } }))}
+                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), override: e.target.value } }))}
                                                                 placeholder="—"
                                                                 min={0}
                                                             />
@@ -7255,8 +7296,9 @@ function InfaqJumatView({
                                                 <td colSpan={4} className="py-3 px-2 text-right text-[10px] font-black uppercase text-purple-500">Total Target/Siswa (Setahun):</td>
                                                 <td className="py-3 px-2 text-right font-black text-purple-700 text-base">
                                                     {formatCurrency(infaqMonths.reduce((sum, m) => {
-                                                        const e = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, override: '' };
-                                                        return sum + (e.override ? Number(e.override) : getSchoolDaysForMonth(m) * e.rate);
+                                                        const e = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
+                                                        const days = e.targetDays !== '' ? Number(e.targetDays) : getSchoolDaysForMonth(m);
+                                                        return sum + (e.override ? Number(e.override) : days * e.rate);
                                                     }, 0))}
                                                 </td>
                                             </tr>
