@@ -5422,7 +5422,50 @@ function GemariView({
     const [gemariRate, setGemariRate] = useState(DEFAULT_GEMARI_RATE);
     const [gemariTargetOverride, setGemariTargetOverride] = useState<number | null>(null);
     const [showGemariSettings, setShowGemariSettings] = useState(false);
-    const [settingsForm, setSettingsForm] = useState({ rate: DEFAULT_GEMARI_RATE, override: '' as string });
+
+    // Table-based settings: map of month -> { rate, override }
+    const currentYear = new Date().getFullYear();
+    const [settingsRangeStart, setSettingsRangeStart] = useState(`${currentYear - 1}-07`);
+    const [settingsRangeEnd, setSettingsRangeEnd] = useState(`${currentYear}-06`);
+    const [settingsTable, setSettingsTable] = useState<Record<string, { rate: number; override: string }>>({});
+    const [settingsBulkRate, setSettingsBulkRate] = useState(DEFAULT_GEMARI_RATE);
+    const [settingsLoading, setSettingsLoading] = useState(false);
+
+    // Generate months in range
+    const getMonthsInRange = (start: string, end: string) => {
+        const months: string[] = [];
+        const [sy, sm] = start.split('-').map(Number);
+        const [ey, em] = end.split('-').map(Number);
+        let y = sy, m = sm;
+        while (y < ey || (y === ey && m <= em)) {
+            months.push(`${y}-${String(m).padStart(2, '0')}`);
+            m++;
+            if (m > 12) { m = 1; y++; }
+        }
+        return months;
+    };
+
+    const settingsMonths = React.useMemo(() => getMonthsInRange(settingsRangeStart, settingsRangeEnd), [settingsRangeStart, settingsRangeEnd]);
+
+    const monthLabel = (m: string) => {
+        const [y, mo] = m.split('-').map(Number);
+        return new Date(y, mo - 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    };
+
+    const getSchoolDaysForMonth = (monthStr: string) => {
+        const [y, m] = monthStr.split('-').map(Number);
+        if (!y || !m) return 0;
+        const daysInMonth = new Date(y, m, 0).getDate();
+        let total = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(y, m - 1, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
+            if (d.getDay() !== 0 && !isHoliday) total++;
+        }
+        return total;
+    };
+
     const [form, setForm] = useState({
         studentId: '',
         transactionType: 'deposit' as 'deposit' | 'withdrawal',
@@ -5431,7 +5474,7 @@ function GemariView({
         notes: ''
     });
 
-    // Load monthly gemari settings from Firestore
+    // Load monthly gemari settings from Firestore (for the active month)
     React.useEffect(() => {
         if (!selectedMonth) return;
         (async () => {
@@ -5453,19 +5496,62 @@ function GemariView({
         })();
     }, [selectedMonth]);
 
-    const handleSaveGemariSettings = async () => {
-        const rate = Number(settingsForm.rate) || DEFAULT_GEMARI_RATE;
-        const override = settingsForm.override ? Number(settingsForm.override) : null;
-        const settingsRef = doc(db, 'gemariSettings', selectedMonth);
-        await setDoc(settingsRef, {
-            rate,
-            targetOverride: override || null,
-            month: selectedMonth,
-            updatedAt: new Date().toISOString()
-        });
-        setGemariRate(rate);
-        setGemariTargetOverride(override);
+    // Load all settings for the table range
+    const loadSettingsTable = async () => {
+        setSettingsLoading(true);
+        const table: Record<string, { rate: number; override: string }> = {};
+        for (const m of settingsMonths) {
+            try {
+                const snap = await getDoc(doc(db, 'gemariSettings', m));
+                if (snap.exists()) {
+                    const d = snap.data();
+                    table[m] = { rate: Number(d.rate) || DEFAULT_GEMARI_RATE, override: d.targetOverride ? String(d.targetOverride) : '' };
+                } else {
+                    table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+                }
+            } catch {
+                table[m] = { rate: DEFAULT_GEMARI_RATE, override: '' };
+            }
+        }
+        setSettingsTable(table);
+        setSettingsLoading(false);
+    };
+
+    const openGemariSettings = () => {
+        setShowGemariSettings(true);
+        loadSettingsTable();
+    };
+
+    const handleSaveAllSettings = async () => {
+        setSettingsLoading(true);
+        for (const m of settingsMonths) {
+            const entry = settingsTable[m];
+            if (!entry) continue;
+            const rate = Number(entry.rate) || DEFAULT_GEMARI_RATE;
+            const override = entry.override ? Number(entry.override) : null;
+            await setDoc(doc(db, 'gemariSettings', m), {
+                rate,
+                targetOverride: override || null,
+                month: m,
+                updatedAt: new Date().toISOString()
+            });
+        }
+        // Reload the active month's settings
+        const active = settingsTable[selectedMonth];
+        if (active) {
+            setGemariRate(Number(active.rate) || DEFAULT_GEMARI_RATE);
+            setGemariTargetOverride(active.override ? Number(active.override) : null);
+        }
+        setSettingsLoading(false);
         setShowGemariSettings(false);
+    };
+
+    const handleBulkFillRate = () => {
+        const updated = { ...settingsTable };
+        for (const m of settingsMonths) {
+            updated[m] = { ...updated[m], rate: settingsBulkRate };
+        }
+        setSettingsTable(updated);
     };
 
     const getStudentName = (id: string) => {
@@ -5717,7 +5803,7 @@ function GemariView({
                     <p className="stat-label">Status Partisipasi</p>
                     <p className="text-sm font-black text-slate-700">{countSudah} Lunas / {countKurang} Nyicil / {countBelum} Belum</p>
                 </div>
-                <div className="card cursor-pointer hover:border-accent transition-all group" onClick={() => { setSettingsForm({ rate: gemariRate, override: gemariTargetOverride ? String(gemariTargetOverride) : '' }); setShowGemariSettings(true); }}>
+                <div className="card cursor-pointer hover:border-accent transition-all group" onClick={openGemariSettings}>
                     <p className="stat-label flex items-center gap-1">Tarif Harian <Settings size={10} className="group-hover:text-accent" /></p>
                     <p className="stat-value text-purple-600">{formatCurrency(gemariRate)}</p>
                     <p className="text-[9px] text-slate-400 mt-1">{gemariTargetOverride ? `Override: ${formatCurrency(gemariTargetOverride)}` : `${monthSchoolDays} hari × Rp ${gemariRate.toLocaleString('id-ID')}`}</p>
@@ -6061,75 +6147,127 @@ function GemariView({
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 20 }}
-                            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-border relative overflow-hidden"
+                            className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-border relative overflow-hidden max-h-[90vh] flex flex-col"
                         >
                             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-400" />
-                            <div className="flex justify-between items-center mb-6">
+                            <div className="flex justify-between items-center mb-5">
                                 <div>
-                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">Pengaturan Target</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Periode: {selectedMonth}</p>
+                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">Pengaturan Target GEMARI</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Konfigurasi tarif harian per bulan</p>
                                 </div>
                                 <button onClick={() => setShowGemariSettings(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
                                     <X size={20} />
                                 </button>
                             </div>
 
-                            <div className="space-y-5">
+                            {/* Range picker */}
+                            <div className="flex flex-wrap gap-4 items-end mb-4 pb-4 border-b border-border">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tarif Harian Per Siswa (Rp)</label>
-                                    <input
-                                        type="number"
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-purple-500 focus:bg-white transition-all text-lg"
-                                        value={settingsForm.rate}
-                                        onChange={e => setSettingsForm(prev => ({ ...prev, rate: Number(e.target.value) }))}
-                                        min={0}
-                                    />
-                                    <p className="text-[9px] text-slate-400 ml-1">Target = {monthSchoolDays} hari kerja × Rp {Number(settingsForm.rate).toLocaleString('id-ID')} = <strong>Rp {(monthSchoolDays * Number(settingsForm.rate)).toLocaleString('id-ID')}</strong></p>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Mulai</label>
+                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={settingsRangeStart} onChange={e => { setSettingsRangeStart(e.target.value); }} />
                                 </div>
-
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Override Total Target (Opsional)</label>
-                                    <input
-                                        type="number"
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-purple-500 focus:bg-white transition-all"
-                                        value={settingsForm.override}
-                                        onChange={e => setSettingsForm(prev => ({ ...prev, override: e.target.value }))}
-                                        placeholder="Kosongkan jika pakai hitungan harian"
-                                        min={0}
-                                    />
-                                    <p className="text-[9px] text-slate-400 ml-1">Jika diisi, nilai ini akan menggantikan hitungan (hari kerja × tarif).</p>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Sampai</label>
+                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={settingsRangeEnd} onChange={e => { setSettingsRangeEnd(e.target.value); }} />
                                 </div>
-
-                                <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 text-sm">
-                                    <p className="text-[10px] font-black uppercase text-purple-500 mb-2">Ringkasan Target</p>
-                                    <div className="flex justify-between font-bold text-slate-700">
-                                        <span>Target/Siswa:</span>
-                                        <span className="text-purple-600">
-                                            {formatCurrency(settingsForm.override ? Number(settingsForm.override) : (monthSchoolDays * Number(settingsForm.rate)))}
-                                        </span>
+                                <button onClick={loadSettingsTable} className="btn-small !bg-purple-100 text-purple-700 hover:!bg-purple-200 font-bold">
+                                    Muat Data
+                                </button>
+                                <div className="flex-1" />
+                                <div className="flex items-end gap-2">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Isi Semua</label>
+                                        <input type="number" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none w-28 focus:border-purple-500" value={settingsBulkRate} onChange={e => setSettingsBulkRate(Number(e.target.value))} min={0} />
                                     </div>
-                                    <div className="flex justify-between font-bold text-slate-700 mt-1">
-                                        <span>Target Seluruh Kelas ({filteredStudents.length} siswa):</span>
-                                        <span className="text-purple-600">
-                                            {formatCurrency((settingsForm.override ? Number(settingsForm.override) : (monthSchoolDays * Number(settingsForm.rate))) * filteredStudents.length)}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-3 mt-4">
-                                    <button 
-                                        onClick={() => setShowGemariSettings(false)} 
-                                        className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
-                                    >
-                                        Batal
-                                    </button>
-                                    <button 
-                                        onClick={handleSaveGemariSettings} 
-                                        className="flex-[3] py-4 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 active:scale-95 transition-all"
-                                    >
-                                        Simpan Pengaturan
+                                    <button onClick={handleBulkFillRate} className="btn-small !bg-purple-600 text-white hover:!bg-purple-700 font-bold">
+                                        Terapkan
                                     </button>
                                 </div>
+                            </div>
+
+                            {/* Table */}
+                            <div className="overflow-y-auto flex-1 -mx-2 px-2">
+                                {settingsLoading ? (
+                                    <div className="text-center py-16 text-slate-400 italic">Memuat data pengaturan...</div>
+                                ) : (
+                                    <table className="w-full text-sm border-collapse">
+                                        <thead className="sticky top-0 bg-white z-10">
+                                            <tr className="border-b-2 border-purple-200">
+                                                <th className="text-left py-3 px-2 text-[10px] font-black uppercase text-slate-500">Bulan</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-20">Hari Kerja</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Tarif Harian</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-36">Override Target</th>
+                                                <th className="text-right py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Target/Siswa</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {settingsMonths.map(m => {
+                                                const entry = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, override: '' };
+                                                const days = getSchoolDaysForMonth(m);
+                                                const target = entry.override ? Number(entry.override) : days * entry.rate;
+                                                const isActive = m === selectedMonth;
+                                                return (
+                                                    <tr key={m} className={`border-b border-slate-100 transition-all ${isActive ? 'bg-purple-50/50 ring-1 ring-purple-200' : 'hover:bg-slate-50'}`}>
+                                                        <td className="py-2.5 px-2">
+                                                            <span className={`font-bold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>{monthLabel(m)}</span>
+                                                            {isActive && <span className="ml-2 text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black">AKTIF</span>}
+                                                        </td>
+                                                        <td className="py-2.5 px-2 text-center font-mono text-slate-500">{days}</td>
+                                                        <td className="py-2.5 px-2">
+                                                            <input
+                                                                type="number"
+                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+                                                                value={entry.rate}
+                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...prev[m], rate: Number(e.target.value) } }))}
+                                                                min={0}
+                                                            />
+                                                        </td>
+                                                        <td className="py-2.5 px-2">
+                                                            <input
+                                                                type="number"
+                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+                                                                value={entry.override}
+                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...prev[m], override: e.target.value } }))}
+                                                                placeholder="—"
+                                                                min={0}
+                                                            />
+                                                        </td>
+                                                        <td className="py-2.5 px-2 text-right font-black text-purple-600">
+                                                            {formatCurrency(target)}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot className="border-t-2 border-purple-200 bg-purple-50/30">
+                                            <tr>
+                                                <td colSpan={4} className="py-3 px-2 text-right text-[10px] font-black uppercase text-purple-500">Total Target/Siswa (Setahun):</td>
+                                                <td className="py-3 px-2 text-right font-black text-purple-700 text-base">
+                                                    {formatCurrency(settingsMonths.reduce((sum, m) => {
+                                                        const e = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, override: '' };
+                                                        return sum + (e.override ? Number(e.override) : getSchoolDaysForMonth(m) * e.rate);
+                                                    }, 0))}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                )}
+                            </div>
+
+                            <div className="flex gap-3 mt-5 pt-4 border-t border-border">
+                                <button 
+                                    onClick={() => setShowGemariSettings(false)} 
+                                    className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    onClick={handleSaveAllSettings} 
+                                    disabled={settingsLoading}
+                                    className="flex-[3] py-3 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                    {settingsLoading ? 'Menyimpan...' : 'Simpan Semua Pengaturan'}
+                                </button>
                             </div>
                         </motion.div>
                     </div>
