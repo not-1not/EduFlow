@@ -249,6 +249,17 @@ VALUES ('1', 'admin-uid', 'admin@sekolah.id', 'Super Admin', 'admin', '2025-01-0
 ON CONFLICT (id) DO NOTHING;
 
 -- Insert Default Settings
-INSERT INTO settings (id, "appName", "schoolName", "schoolAddress", "themeColor")
-VALUES ('default', 'EduFlow', 'Sekolah Contoh', 'Jl. Merdeka No. 1', '#3b82f6')
+INSERT INTO settings (id, "appName", "schoolName", "schoolAddress", "themeColor", features)
+VALUES (
+    'default',
+    'EduFlow',
+    'Sekolah Contoh',
+    'Jl. Merdeka No. 1',
+    '#3b82f6',
+    '{"enableSavings": true, "enableClassCash": true, "enableInfaq": true, "enableAcademic": true, "enablePayments": true, "enableAttendance": true}'::jsonb
+)
 ON CONFLICT (id) DO NOTHING;
+
+UPDATE settings
+SET features = COALESCE(features, '{}'::jsonb) || '{"enableInfaq": true}'::jsonb
+WHERE features IS NULL OR NOT (features ? 'enableInfaq');

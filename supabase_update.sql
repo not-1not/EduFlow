@@ -218,6 +218,10 @@ INSERT INTO settings (id, "appName", "schoolName", "schoolAddress", "themeColor"
 VALUES ('default', 'EduFlow', 'Sekolah Contoh', 'Jl. Merdeka No. 1', '#3b82f6')
 ON CONFLICT (id) DO NOTHING;
 
+UPDATE settings
+SET features = COALESCE(features, '{}'::jsonb) || '{"enableInfaq": true}'::jsonb
+WHERE features IS NULL OR NOT (features ? 'enableInfaq');
+
 -- Chat Messages Table (Admin <-> Siswa + Broadcast)
 CREATE TABLE IF NOT EXISTS "chatMessages" (
     id TEXT PRIMARY KEY,

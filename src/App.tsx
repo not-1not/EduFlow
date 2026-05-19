@@ -170,6 +170,23 @@ type ClassCashWriteEntry = {
     transactionType?: 'deposit' | 'withdrawal';
 };
 
+const DEFAULT_APP_FEATURES: Required<NonNullable<AppSettings['features']>> = {
+    enableSavings: true,
+    enableClassCash: true,
+    enableInfaq: true,
+    enableAcademic: true,
+    enablePayments: true,
+    enableAttendance: true
+};
+
+const withDefaultFeatures = (settings: AppSettings): AppSettings => ({
+    ...settings,
+    features: {
+        ...DEFAULT_APP_FEATURES,
+        ...(settings.features || {})
+    }
+});
+
 const getPeriodMonth = (dateValue: string) => String(dateValue || '').slice(0, 7);
 const CLASSCASH_EDIT_KEY_SEPARATOR = '::';
 const currentYear = new Date().getFullYear();
@@ -471,7 +488,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
 
                 // Settings still apply (theme, visibility)
                 const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-                if (settingsDoc.exists()) setAppSettings(settingsDoc.data() as AppSettings);
+                if (settingsDoc.exists()) setAppSettings(withDefaultFeatures(settingsDoc.data() as AppSettings));
 
                 return;
             }
@@ -577,7 +594,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 settingsDoc = await getDoc(doc(db, 'settings', 'default'));
             }
             if (settingsDoc.exists()) {
-                const settingsData = settingsDoc.data() as AppSettings;
+                const settingsData = withDefaultFeatures(settingsDoc.data() as AppSettings);
                 setAppSettings(settingsData);
                 if (settingsData.themeColor) {
                     document.documentElement.style.setProperty('--color-accent', settingsData.themeColor);
@@ -589,13 +606,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     schoolAddress: 'Jl. Pendidikan No 1',
                     headmasterName: 'Bapak Kepala Sekolah',
                     themeColor: '#3b82f6',
-                    features: {
-                        enableSavings: true,
-                        enableClassCash: true,
-                        enableAcademic: true,
-                        enablePayments: true,
-                        enableAttendance: true
-                    }
+                    features: DEFAULT_APP_FEATURES
                 };
                 setAppSettings(defaultSettings);
             }
@@ -730,7 +741,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
             case 'users':
                 return <UsersManagementView students={students} classes={classes} />;
             case 'settings':
-                return <SettingsView settings={appSettings || { appName: '', schoolName: '', schoolAddress: '', headmasterName: '', themeColor: '#3B82F6', features: { enableSavings: true, enableClassCash: true, enableAcademic: true, enablePayments: true, enableAttendance: true } }} onSettingsSaved={fetchData} />;
+                return <SettingsView settings={appSettings || { appName: '', schoolName: '', schoolAddress: '', headmasterName: '', themeColor: '#3B82F6', features: DEFAULT_APP_FEATURES }} onSettingsSaved={fetchData} />;
             default:
                 return <DashboardView
                     classes={classes}
@@ -852,7 +863,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         />
                     )}
 
-                    {role === 'admin' && !isSidebarCollapsed && (appSettings?.features?.enableAttendance || appSettings?.features?.enablePayments || appSettings?.features?.enableSavings) && (
+                    {role === 'admin' && !isSidebarCollapsed && (appSettings?.features?.enableAttendance || appSettings?.features?.enablePayments || appSettings?.features?.enableSavings || appSettings?.features?.enableClassCash || appSettings?.features?.enableInfaq) && (
                         <div className="px-4 pt-4 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Administrasi</div>
                     )}
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableAttendance) && (
@@ -974,7 +985,8 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                                                      currentView === 'payments' ? 'Pembayaran Uang Sekolah' :
                                                          currentView === 'savings' ? 'Tabungan Siswa' :
                                                              currentView === 'attendance' ? 'Presensi Siswa' :
-                                                                 currentView === 'gemari' ? 'GEMARI' : 'Pengaturan'}
+                                                             currentView === 'gemari' ? 'GEMARI' :
+                                                                 currentView === 'infaqJumat' ? 'INFAQ Jumat' : 'Pengaturan'}
                          </h1>
                         <div className="hidden sm:block h-4 w-px bg-border flex-shrink-0"></div>
                         <div className="hidden sm:block">
@@ -5570,6 +5582,7 @@ function GemariView({
             setSettingsSavingError('Supabase belum dikonfigurasi. Cek file .env');
             return;
         }
+        const sb = supabase;
         setSettingsLoading(true);
         setSettingsSavingError('');
         const rows: any[] = settingsMonths.map(m => {
@@ -5583,7 +5596,7 @@ function GemariView({
         const saveUp = async () => {
             try {
                 if (rows.length > 0) {
-                    const { error } = await supabase.from('gemariSettings').upsert(rows, { onConflict: 'month' });
+                    const { error } = await sb.from('gemariSettings').upsert(rows, { onConflict: 'month' });
                     if (error) throw error;
                 }
                 // Update in-memory live rate from the just-saved table
@@ -6504,6 +6517,7 @@ function InfaqJumatView({
             setInfaqSavingError('Supabase belum dikonfigurasi. Cek file .env');
             return;
         }
+        const sb = supabase;
         setInfaqLoading(true);
         setInfaqSavingError('');
         const rows: any[] = infaqMonths.map(m => {
@@ -6517,7 +6531,7 @@ function InfaqJumatView({
         const saveUp = async () => {
             try {
                 if (rows.length > 0) {
-                    const { error } = await supabase.from('infaqSettings').upsert(rows, { onConflict: 'month' });
+                    const { error } = await sb.from('infaqSettings').upsert(rows, { onConflict: 'month' });
                     if (error) throw error;
                 }
                 // Update in-memory live rate from the just-saved table
@@ -7669,7 +7683,15 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
     const [loading, setLoading] = useState(false);
     const [text, setText] = useState('');
 
+    useEffect(() => {
+        if (!selectedStudentId && studentsForSelect[0]?.id) {
+            setSelectedStudentId(studentsForSelect[0].id);
+        }
+    }, [selectedStudentId, studentsForSelect]);
+
     const threadId = mode === 'broadcast' ? CHAT_BROADCAST_THREAD_ID : (selectedStudentId ? getDirectChatThreadId(selectedStudentId) : '');
+    const targetStudent = students.find(s => s.id === selectedStudentId);
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     const fetchThread = async () => {
         if (!threadId) return setMessages([]);
@@ -7709,15 +7731,12 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
         fetchThread();
     };
 
-    const targetStudent = students.find(s => s.id === selectedStudentId);
-    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
-
     return (
         <div className="p-6 h-full flex flex-col gap-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
                 <div>
                     <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
-                    <p className="text-sm text-text-secondary">Komunikasi admin dengan siswa (1:1) atau broadcast</p>
+                    <p className="text-sm text-text-secondary">Komunikasi admin dengan siswa atau broadcast.</p>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={() => setMode('direct')} className={`btn-small ${mode === 'direct' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Chat Siswa</button>
@@ -7748,10 +7767,6 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
                             <div className="text-[10px] text-slate-500">Thread: {CHAT_BROADCAST_THREAD_ID}</div>
                         </div>
                     )}
-
-                    <div className="mt-auto text-[10px] text-slate-500 leading-relaxed">
-                        Tips: gunakan broadcast untuk pengumuman umum, gunakan chat siswa untuk komunikasi pribadi.
-                    </div>
                 </div>
 
                 <div className="card !p-0 lg:col-span-2 flex flex-col min-h-0">
@@ -7763,424 +7778,151 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
                             <div className="text-[10px] text-slate-400 truncate">{threadId || '-'}</div>
                         </div>
                         <button onClick={fetchThread} className="btn-small bg-slate-100 hover:bg-slate-200 text-slate-700">Refresh</button>
-</div>
-
-                            {settingsSavingError && (
-                                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] text-red-600 font-bold whitespace-pre-line">
-                                    {settingsSavingError}
-                                </div>
-                            )}
-
-                            <div className="overflow-y-auto flex-1 -mx-2 px-2">
-                                {settingsLoading ? (
-                                    <div className="text-center py-16 text-slate-400 italic">Memuat data pengaturan...</div>
-                                ) : (
-                                        <table className="w-full text-sm border-collapse">
-                                    <thead>
-                                        <tr className="bg-slate-50">
-                                            <th rowSpan={2} className="border border-border p-2 w-12 text-center text-[10px] font-black">NO</th>
-                                            <th rowSpan={2} className="border border-border p-2 text-left text-[10px] font-black sticky left-0 bg-slate-50 z-10 min-w-[180px]">MATA PELAJARAN</th>
-                                            <th colSpan={2} className="border border-border p-1 text-center bg-blue-50/30 text-[10px] font-black">KELAS 4</th>
-                                            <th colSpan={2} className="border border-border p-1 text-center bg-emerald-50/30 text-[10px] font-black">KELAS 5</th>
-                                            <th className="border border-border p-1 text-center bg-amber-50/30 text-[10px] font-black tracking-tight">KELAS 6</th>
-                                        </tr>
-                                        <tr className="bg-slate-50/50">
-                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
-                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 2</th>
-                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
-                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 2</th>
-                                            <th className="border border-border p-1 text-center w-16 text-[9px] font-bold">SEM 1</th>
-                                        </tr>
-                                    </thead>
-                                        {(() => {
-                                            const getColTot = (k: 's41'|'s42'|'s51'|'s52'|'s61') => {
-                                                let s = 0, c = 0;
-                                                academicConfig.subjects.forEach(sub => {
-                                                    const v = Number(record.rapot?.[sub.id]?.[k]);
-                                                    if (!isNaN(v) && v > 0) { s += v; c++; }
-                                                });
-                                                return { sum: s, avg: c > 0 ? (s/c).toFixed(1) : '-' };
-                                            };
-                                            const t41 = getColTot('s41'); const t42 = getColTot('s42'); const t51 = getColTot('s51'); const t52 = getColTot('s52'); const t61 = getColTot('s61');
-                                            
-                                            return (
-                                                <>
-                                                    {academicConfig.subjects.map((sub, idx) => {
-                                                        const g = record.rapot?.[sub.id] || { s41: '', s42: '', s51: '', s52: '', s61: '' };
-                                                        return (
-                                                            <tr key={sub.id} className="hover:bg-slate-50 border-b border-border">
-                                                                <td className="p-2 border-r border-border text-center font-mono text-[10px] text-slate-400">{idx + 1}</td>
-                                                                <td className="p-2 border-r border-border font-bold text-xs sticky left-0 bg-white z-10">{sub.name}</td>
-                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s41} onChange={(v: any) => handleUpdateGrade(sub.id, 's41', v)} /></td>
-                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s42} onChange={(v: any) => handleUpdateGrade(sub.id, 's42', v)} /></td>
-                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s51} onChange={(v: any) => handleUpdateGrade(sub.id, 's51', v)} /></td>
-                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s52} onChange={(v: any) => handleUpdateGrade(sub.id, 's52', v)} /></td>
-                                                                <td className="p-0 border-r border-border"><GradeInput value={g.s61} onChange={(v: any) => handleUpdateGrade(sub.id, 's61', v)} /></td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                    {academicConfig.subjects.length > 0 && (
-                                                        <>
-                                                            <tr className="bg-slate-50/80 hover:bg-slate-50 transition-colors border-y-2 border-slate-200">
-                                                                <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Jumlah Total</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-600">{t41.sum || '-'}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-600">{t42.sum || '-'}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-600">{t51.sum || '-'}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-600">{t52.sum || '-'}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-amber-600">{t61.sum || '-'}</td>
-                                                            </tr>
-                                                            <tr className="bg-slate-100/50 hover:bg-slate-100 transition-colors border-b border-border">
-                                                                <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Rata-Rata Kelas</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-800">{t41.avg}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-blue-800">{t42.avg}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-800">{t51.avg}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-emerald-800">{t52.avg}</td>
-                                                                <td className="p-2 border-r border-border text-center font-mono font-black text-amber-800">{t61.avg}</td>
-                                                            </tr>
-                                                        </>
-                                                    )}
-                                                </>
-                                            );
-                                        })()}
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Modal Atur Mata Pelajaran (Berlaku Semua Siswa) */}
-                        <AnimatePresence>
-                            {showSubjectModal && (
-                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-                                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card w-full max-w-2xl max-h-[80vh] flex flex-col p-0 shadow-2xl">
-                                        <div className="p-6 border-b border-border flex justify-between items-center bg-slate-50">
-                                            <div>
-                                                <h3 className="text-lg font-black uppercase">Pengaturan Mata Pelajaran</h3>
-                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Berlaku untuk semua siswa (2 Kelas)</p>
-                                            </div>
-                                            <button onClick={() => setShowSubjectModal(false)} className="p-2 hover:bg-slate-200 rounded-lg"><X size={20} /></button>
-                                        </div>
-                                        <div className="p-6 overflow-y-auto space-y-3 flex-1">
-                                            {tempSubjects.map((s, i) => (
-                                                <div key={i} className="flex gap-2 group animate-in fade-in slide-in-from-top-1">
-                                                    <div className="flex items-center justify-center w-10 text-[10px] font-bold text-slate-400 font-mono bg-slate-50 rounded-lg border border-border">{i + 1}</div>
-                                                    <input 
-                                                        type="text" 
-                                                        className="flex-1 p-3 bg-white border border-border rounded-lg outline-none font-bold text-sm focus:border-accent shadow-sm" 
-                                                        value={s.name} 
-                                                        onChange={e => {
-                                                            const n = [...tempSubjects];
-                                                            n[i] = { ...n[i], name: e.target.value };
-                                                            setTempSubjects(n);
-                                                        }}
-                                                        placeholder="Ketik nama mata pelajaran..."
-                                                    />
-                                                    <button onClick={() => setTempSubjects(tempSubjects.filter((_, idx) => idx !== i))} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={18} /></button>
-                                                </div>
-                                            ))}
-                                            <button 
-                                                onClick={() => setTempSubjects([...tempSubjects, { id: `s${Date.now()}`, name: '' }])} 
-                                                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-accent hover:text-accent transition-all flex items-center justify-center gap-2 font-bold text-xs"
-                                            >
-                                                <Plus size={16} /> Tambah Mapel Baru
-                                            </button>
-                                        </div>
-                                        <div className="p-6 border-t border-border bg-slate-50 flex justify-end gap-3 rounded-b-2xl">
-                                            <button onClick={() => setShowSubjectModal(false)} className="px-6 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-white transition-all">Batal</button>
-                                            <button onClick={handleSaveSubjects} className="btn-primary px-8 py-3 rounded-xl shadow-lg shadow-blue-500/20">Simpan Perubahan</button>
-                                        </div>
-                                    </motion.div>
-                                </div>
-                            )}
-                        </AnimatePresence>
-                        
-                        <AnimatePresence>
-                            {showIjazahModal && (
-                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-                                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card w-full max-w-2xl max-h-[80vh] flex flex-col p-0 shadow-2xl">
-                                        <div className="p-6 border-b border-border flex justify-between items-center bg-slate-50">
-                                            <div>
-                                                <h3 className="text-lg font-black uppercase text-amber-900">Pengaturan Mapel Ijazah</h3>
-                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Berlaku global untuk semua siswa</p>
-                                            </div>
-                                            <button onClick={() => setShowIjazahModal(false)} className="p-2 hover:bg-slate-200 rounded-lg"><X size={20} /></button>
-                                        </div>
-                                        <div className="p-6 overflow-y-auto space-y-3 flex-1 text-amber-900">
-                                            {tempIjazahSubjects.map((s, i) => (
-                                                <div key={i} className="flex gap-2 group animate-in fade-in slide-in-from-top-1">
-                                                    <div className="flex items-center justify-center w-10 text-[10px] font-bold text-slate-400 font-mono bg-slate-50 rounded-lg border border-border">{i + 1}</div>
-                                                    <input 
-                                                        type="text" 
-                                                        className="flex-1 p-3 bg-white border border-border rounded-lg outline-none font-bold text-sm focus:border-amber-500 shadow-sm" 
-                                                        value={s.name} 
-                                                        onChange={e => {
-                                                            const n = [...tempIjazahSubjects];
-                                                            n[i] = { ...n[i], name: e.target.value };
-                                                            setTempIjazahSubjects(n);
-                                                        }}
-                                                        placeholder="Ketik nama mata pelajaran ijazah..."
-                                                    />
-                                                    <button onClick={() => setTempIjazahSubjects(tempIjazahSubjects.filter((_, idx) => idx !== i))} className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={18} /></button>
-                                                </div>
-                                            ))}
-                                            <button 
-                                                onClick={() => setTempIjazahSubjects([...tempIjazahSubjects, { id: `ij${Date.now()}`, name: '' }])} 
-                                                className="w-full py-3 border-2 border-dashed border-amber-200 rounded-xl text-amber-400 hover:border-amber-500 hover:text-amber-500 transition-all flex items-center justify-center gap-2 font-bold text-xs"
-                                            >
-                                                <Plus size={16} /> Tambah Mapel Ijazah Baru
-                                            </button>
-                                        </div>
-                                        <div className="p-6 border-t border-border bg-slate-50 flex justify-end gap-3 rounded-b-2xl">
-                                            <button onClick={() => setShowIjazahModal(false)} className="px-6 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-white transition-all">Batal</button>
-                                            <button onClick={handleSaveIjazahSubjects} className="px-8 py-3 bg-amber-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20 hover:bg-amber-700 transition-all">Simpan Mapel Ijazah</button>
-                                        </div>
-                                    </motion.div>
-                                </div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* Pencapaian / Prestasi */}
-                        <div className="card space-y-4">
-                            <div className="flex justify-between items-center bg-violet-50/50 p-4 -mx-6 -mt-6 border-b border-violet-100 mb-4">
-                                <h3 className="font-black text-violet-900 flex items-center gap-2"><ArrowUpRight size={18} /> DATA PRESTASI</h3>
-                                <button onClick={handleAddPrestasi} className="btn-small bg-violet-100 text-violet-700 hover:bg-violet-200 flex items-center gap-1">
-                                    <Plus size={14} /> Tambah Prestasi
-                                </button>
-                            </div>
-                            {(!record.prestasi || record.prestasi.length === 0) ? (
-                                <p className="text-sm text-slate-400 italic text-center py-4">Belum ada data prestasi.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {record.prestasi.map((p: any, i: number) => (
-                                        <div key={p.id} className="flex gap-2 items-center">
-                                            <input type="text" className="flex-1 p-2 bg-slate-50 border border-border rounded outline-none font-bold text-sm" placeholder="Nama Prestasi" value={p.name} onChange={e => handleUpdatePrestasi(i, 'name', e.target.value)} />
-                                            <select className="w-32 p-2 bg-slate-50 border border-border rounded outline-none text-sm" value={p.level} onChange={e => handleUpdatePrestasi(i, 'level', e.target.value)}>
-                                                <option value="Sekolah">Sekolah</option>
-                                                <option value="Kecamatan">Kecamatan</option>
-                                                <option value="Kabupaten">Kabupaten</option>
-                                                <option value="Provinsi">Provinsi</option>
-                                                <option value="Nasional">Nasional</option>
-                                                <option value="Internasional">Internasional</option>
-                                            </select>
-                                            <input type="text" className="w-20 p-2 bg-slate-50 border border-border rounded outline-none text-sm text-center" placeholder="Tahun" value={p.year} onChange={e => handleUpdatePrestasi(i, 'year', e.target.value)} />
-                                            <div className="w-24">
-                                                <input type="number" step="0.01" min="0" className={`w-full p-2 bg-slate-50 border rounded outline-none text-sm text-center ${Number(p.poin) < 0 ? 'border-red-500 text-red-500' : 'border-border'}`} placeholder="Poin" value={p.poin ?? ''} onChange={e => handleUpdatePrestasi(i, 'poin', e.target.value)} />
-                                            </div>
-                                            <button onClick={() => handleRemovePrestasi(i)} className="p-2 text-red-400 hover:bg-red-50 rounded"><Trash2 size={16} /></button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Ijazah */}
-                        <div className="card space-y-4">
-                            <div className="flex justify-between items-center bg-amber-50/50 p-4 -mx-6 -mt-6 border-b border-amber-100 mb-4 flex-wrap gap-2">
-                                <div>
-                                    <h3 className="font-black text-amber-900 flex items-center gap-2"><FileText size={18} /> PENILAIAN IJAZAH</h3>
-                                    <p className="text-[10px] text-amber-700 mt-1 uppercase tracking-widest font-bold">Total: <span className="font-black">{ijazahTotal}</span> | Rata-rata: <span className="font-black">{ijazahAverage}</span></p>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button onClick={handleOpenIjazahModal} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2 font-bold">
-                                        <Edit size={14} /> Atur Mapel Ijazah
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="table-container shadow-sm p-4 print:p-0">
-                                <table className="w-full text-sm data-table">
-                                    <thead>
-                                        <tr>
-                                            <th className="border border-border p-2 w-16 text-center text-xs">NO</th>
-                                            <th className="border border-border p-2 text-xs">MATA PELAJARAN</th>
-                                            <th className="border border-border p-2 w-24 text-center text-blue-600 text-[10px] font-black uppercase">Pengetahuan</th>
-                                            <th className="border border-border p-2 w-24 text-center text-emerald-600 text-[10px] font-black uppercase">Keterampilan</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {ijazahConfig.subjects.length === 0 ? (
-                                            <tr><td colSpan={4} className="py-8 text-center text-slate-400 italic font-medium">Data mata pelajaran ijazah belum dikonfigurasi.</td></tr>
-                                        ) : (() => {
-                                            let sP = 0, cP = 0, sK = 0, cK = 0;
-                                            ijazahConfig.subjects.forEach(sub => {
-                                                const iz = record.ijazah?.[sub.id];
-                                                const vP = Number(iz?.grade_p);
-                                                const vK = Number(iz?.grade_k);
-                                                if (!isNaN(vP) && vP > 0) { sP += vP; cP++; }
-                                                if (!isNaN(vK) && vK > 0) { sK += vK; cK++; }
-                                            });
-                                            const avgP = cP > 0 ? (sP / cP).toFixed(1) : '-';
-                                            const avgK = cK > 0 ? (sK / cK).toFixed(1) : '-';
-
-                                            return (
-                                                <>
-                                                    {ijazahConfig.subjects.map((sub, idx) => {
-                                                        const iz = record.ijazah?.[sub.id] || { grade_p: '', grade_k: '' };
-                                                        return (
-                                                            <tr key={sub.id} className="hover:bg-slate-50/50 border-b border-border">
-                                                                <td className="p-2 border-r border-border text-center font-mono text-xs text-slate-400">{idx + 1}</td>
-                                                                <td className="p-4 border-r border-border">
-                                                                    <div className="font-bold text-sm text-slate-700">{sub.name || `Mapel ${idx + 1}`}</div>
-                                                                    <div className="text-[9px] text-slate-400 font-mono uppercase tracking-tighter">ID: {sub.id}</div>
-                                                                </td>
-                                                                <td className="p-1 border-r border-border">
-                                                                    <GradeInput value={iz.grade_p} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_p', v)} />
-                                                                </td>
-                                                                <td className="p-1 border-border">
-                                                                    <GradeInput value={iz.grade_k} onChange={(v: any) => handleUpdateIjazah(sub.id, 'grade_k', v)} />
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                    <tr className="bg-slate-50/80 hover:bg-slate-50 transition-colors border-y-2 border-slate-200">
-                                                        <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Jumlah Penilaian</td>
-                                                        <td className="p-2 border-r border-border text-center font-mono font-black text-blue-600">{sP || '-'}</td>
-                                                        <td className="p-2 border-border text-center font-mono font-black text-emerald-600">{sK || '-'}</td>
-                                                    </tr>
-                                                    <tr className="bg-slate-100/50 hover:bg-slate-100 transition-colors border-b border-border">
-                                                        <td colSpan={2} className="p-3 border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Rata-Rata</td>
-                                                        <td className="p-2 border-r border-border text-center font-mono font-black text-blue-800">{avgP}</td>
-                                                        <td className="p-2 border-border text-center font-mono font-black text-emerald-800">{avgK}</td>
-                                                    </tr>
-                                                </>
-                                            );
-                                        })()}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* TKA Mass Edit Modal */}
-                        <AnimatePresence>
-                            {showTkaMassModal && (
-                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-                                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="card w-full max-w-3xl max-h-[85vh] flex flex-col p-0 shadow-2xl overflow-hidden">
-                                        <div className="p-6 border-b border-border flex justify-between items-center bg-slate-50">
-                                            <div>
-                                                <h3 className="text-lg font-black uppercase text-purple-900 flex items-center gap-2">
-                                                    <Users size={20} /> Input Massal TKA Kelas {selectedClass?.name || ''}
-                                                </h3>
-                                                <p className="text-[10px] font-bold text-slate-500 mt-1">Input nilai Tes Kemampuan Akademik (TKA) secara serentak</p>
-                                            </div>
-                                            <button onClick={() => setShowTkaMassModal(false)} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500"><X size={20} /></button>
-                                        </div>
-                                        
-                                        <div className="px-6 mx-auto w-full py-3 bg-purple-50/50 border-b border-border flex flex-wrap gap-2 justify-between items-center">
-                                            <button onClick={handleDownloadTkaTemplate} className="btn-small bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-2">
-                                                <Download size={14} /> Template Excel
-                                            </button>
-                                            <label className="btn-small bg-slate-800 text-white hover:bg-slate-900 cursor-pointer flex items-center gap-2 shadow-sm">
-                                                <Upload size={14} /> Import TKA
-                                                <input type="file" accept=".csv" className="hidden" onChange={handleImportTkaCSV} />
-                                            </label>
-                                        </div>
-
-                                        <div className="overflow-y-auto flex-1 bg-white">
-                                            <table className="w-full text-sm">
-                                                <thead className="bg-slate-50 sticky top-0 shadow-sm z-10">
-                                                    <tr>
-                                                        <th className="py-3 px-4 text-left text-xs font-black text-slate-500 w-16">NO</th>
-                                                        <th className="py-3 px-4 text-left text-xs font-black text-slate-500">NAMA SISWA</th>
-                                                        <th className="py-3 px-4 text-right text-xs font-black text-slate-500 w-32">NILAI TKA</th>
-                                                        <th className="py-3 px-4 text-center text-xs font-black text-slate-500 w-16"></th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100">
-                                                    {sortStudentsForSelect(filteredStudents).map((stu, i) => (
-                                                        <tr key={stu.id} className="hover:bg-slate-50 transition-colors">
-                                                            <td className="py-3 px-4 font-mono text-xs text-slate-400">{i + 1}</td>
-                                                            <td className="py-3 px-4 font-bold text-slate-700 text-sm">{stu.name || 'Siswa'}</td>
-                                                            <td className="py-2 px-4">
-                                                                <input
-                                                                    type="number"
-                                                                    min="0" max="100" step="0.1"
-                                                                    className={`w-full p-2 border ${Number(massTkaData[stu.id] || 0) < 0 || Number(massTkaData[stu.id] || 0) > 100 ? 'border-red-400 bg-red-50 text-red-700' : 'border-border bg-white'} rounded-lg text-right font-black text-purple-700 outline-none focus:border-purple-500`}
-                                                                    placeholder="0-100"
-                                                                    value={massTkaData[stu.id] ?? ''}
-                                                                    onChange={(e) => setMassTkaData({ ...massTkaData, [stu.id]: e.target.value })}
-                                                                />
-                                                            </td>
-                                                            <td className="py-2 px-4 text-center">
-                                                                <button
-                                                                    onClick={() => setMassTkaData({ ...massTkaData, [stu.id]: '' })}
-                                                                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                                    title="Hapus Nilai TKA"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                            {filteredStudents.length === 0 && (
-                                                <div className="py-12 text-center text-slate-500 font-bold italic">Tidak ada siswa di kelas ini.</div>
-                                            )}
-                                        </div>
-                                        
-                                        <div className="p-6 border-t border-border bg-slate-50 flex items-center justify-between mt-auto">
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{filteredStudents.length} Siswa tertampil</p>
-                                            <div className="flex gap-3">
-                                                <button onClick={() => setShowTkaMassModal(false)} className="px-6 py-2 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors">Batal</button>
-                                                <button onClick={handleSaveMassTka} className="btn-primary px-8 py-3 rounded-xl shadow-lg shadow-purple-500/30 flex items-center gap-2">
-                                                    <Save size={16} /> Simpan Data Kelas
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                </div>
-                            )}
-                        </AnimatePresence>
                     </div>
 
-                    <div className="xl:col-span-1 space-y-6">
-                        {/* Kalkulasi Nilai SMP */}
-                        <div className="card space-y-4 bg-emerald-50/50 border-emerald-100">
-                            <h3 className="font-black text-emerald-900 border-b border-emerald-100 pb-3 uppercase tracking-tighter flex items-center gap-2">
-                                <Calculator size={18} /> Kalkulasi Nilai Daftar SMP
-                            </h3>
-
-                            <div className="space-y-3 pt-2">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-sm font-bold text-slate-700">Rata-rata Rapot (5 Sem)</p>
-                                    <p className="font-mono font-black text-slate-900">{avgRapot.toFixed(2)}</p>
-                                </div>
-
-                                <div className="flex items-center justify-between">
-                                    <p className="text-sm font-bold text-slate-700">Nilai TKA</p>
-                                    <div className="w-24">
-                                        <GradeInput value={record.tka} onChange={(v: any) => setRecord({ ...record, tka: v })} placeholder="0-100" />
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/30">
+                        {loading ? (
+                            <div className="text-center py-12 text-slate-400 italic">Memuat pesan...</div>
+                        ) : messages.length === 0 ? (
+                            <div className="text-center py-12 text-slate-400 italic">Belum ada pesan.</div>
+                        ) : messages.map((message) => {
+                            const mine = message.senderRole === 'admin';
+                            return (
+                                <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? 'bg-slate-900 text-white' : 'bg-white border border-border text-slate-700'}`}>
+                                        <p className="whitespace-pre-wrap">{message.message}</p>
+                                        <p className={`text-[10px] mt-2 ${mine ? 'text-slate-300' : 'text-slate-400'}`}>{new Date(message.createdAt).toLocaleString('id-ID')}</p>
                                     </div>
                                 </div>
+                            );
+                        })}
+                    </div>
 
-                                <div className="flex items-center justify-between border-b pb-4">
-                                    <p className="text-sm font-bold text-slate-700">Total Poin Prestasi</p>
-                                    <p className="font-mono font-black text-slate-900">+{prestasiSum.toFixed(2)}</p>
-                                </div>
-
-                                <div className="pt-2">
-                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Pengaturan Bobot (%)</p>
-                                    <div className="flex gap-4">
-                                        <div className="flex-1 space-y-1">
-                                            <label className="text-[10px] text-slate-500 font-bold">Rapot</label>
-                                            <input type="number" className="w-full p-2 rounded border outline-none font-mono text-sm text-center" value={weights.rapot} onChange={e => setWeights({ ...weights, rapot: Number(e.target.value) })} />
-                                        </div>
-                                        <div className="flex-1 space-y-1">
-                                            <label className="text-[10px] text-slate-500 font-bold">TKA</label>
-                                            <input type="number" className="w-full p-2 rounded border outline-none font-mono text-sm text-center" value={weights.tka} onChange={e => setWeights({ ...weights, tka: Number(e.target.value) })} />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-emerald-600 text-white p-4 rounded-xl mt-6 relative overflow-hidden">
-                                    <div className="absolute -right-4 -bottom-4 opacity-10">
-                                        <Calculator size={100} />
-                                    </div>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200 mb-1 relative z-10">Total Nilai Akhir PPDB</p>
-                                    <p className="text-4xl font-black font-mono relative z-10">{finalSmpScore.toFixed(2)}</p>
-                                </div>
-                            </div>
-                        </div>
+                    <div className="p-4 border-t border-border bg-white flex gap-2">
+                        <textarea
+                            className="flex-1 min-h-[44px] max-h-28 p-3 rounded-xl border border-border outline-none text-sm resize-none focus:border-accent"
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            placeholder="Tulis pesan..."
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                        />
+                        <button onClick={handleSend} className="btn-primary px-4 flex items-center gap-2" disabled={!threadId || !text.trim()}>
+                            <Send size={16} /> Kirim
+                        </button>
                     </div>
                 </div>
-            )}
+            </div>
+        </div>
+    );
+}
+
+function StudentMessagesView({ user, studentId }: { user: any; students: Student[]; studentId: string }) {
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [text, setText] = useState('');
+    const threadId = studentId ? getDirectChatThreadId(studentId) : '';
+
+    const fetchThread = async () => {
+        if (!threadId) return setMessages([]);
+        try {
+            setLoading(true);
+            const [directSnap, broadcastSnap] = await Promise.all([
+                getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', threadId), orderBy('createdAt', 'asc'))),
+                getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', CHAT_BROADCAST_THREAD_ID), orderBy('createdAt', 'asc')))
+            ]);
+            const rows = [...directSnap.docs, ...broadcastSnap.docs]
+                .map((d: any) => ({ id: d.id, ...d.data() } as ChatMessage))
+                .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+            setMessages(rows);
+        } catch (e) {
+            console.error('Error fetching student chatMessages:', e);
+            setMessages([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchThread();
+    }, [threadId]);
+
+    const handleSend = async () => {
+        const msg = text.trim();
+        if (!msg || !threadId) return;
+        await addDoc(collection(db, 'chatMessages'), {
+            threadId,
+            studentId,
+            kind: 'direct',
+            senderRole: 'student',
+            senderUserId: user?.uid || user?.id || null,
+            message: msg,
+            createdAt: new Date().toISOString()
+        });
+        setText('');
+        fetchThread();
+    };
+
+    return (
+        <div className="p-6 h-full flex flex-col gap-4">
+            <div>
+                <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
+                <p className="text-sm text-text-secondary">Komunikasi dengan admin sekolah.</p>
+            </div>
+            <div className="card !p-0 flex-1 min-h-0 flex flex-col overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/30">
+                    {loading ? (
+                        <div className="text-center py-12 text-slate-400 italic">Memuat pesan...</div>
+                    ) : messages.length === 0 ? (
+                        <div className="text-center py-12 text-slate-400 italic">Belum ada pesan.</div>
+                    ) : messages.map((message) => {
+                        const mine = message.senderRole === 'student';
+                        return (
+                            <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? 'bg-slate-900 text-white' : 'bg-white border border-border text-slate-700'}`}>
+                                    {message.kind === 'broadcast' && <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-1">Broadcast</p>}
+                                    <p className="whitespace-pre-wrap">{message.message}</p>
+                                    <p className={`text-[10px] mt-2 ${mine ? 'text-slate-300' : 'text-slate-400'}`}>{new Date(message.createdAt).toLocaleString('id-ID')}</p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+                <div className="p-4 border-t border-border bg-white flex gap-2">
+                    <textarea
+                        className="flex-1 min-h-[44px] max-h-28 p-3 rounded-xl border border-border outline-none text-sm resize-none focus:border-accent"
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        placeholder="Tulis pesan..."
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSend();
+                            }
+                        }}
+                    />
+                    <button onClick={handleSend} className="btn-primary px-4 flex items-center gap-2" disabled={!threadId || !text.trim()}>
+                        <Send size={16} /> Kirim
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function AcademicView({ students, classes }: { students: Student[]; classes: Class[] }) {
+    return (
+        <div className="p-6 h-full">
+            <div className="card space-y-3">
+                <h2 className="text-2xl font-black tracking-tighter uppercase">Akademik & Ijazah</h2>
+                <p className="text-sm text-text-secondary">
+                    Modul akademik belum memiliki komponen aktif di file aplikasi ini. Data siswa tersedia: {students.length}, kelas: {classes.length}.
+                </p>
+            </div>
         </div>
     );
 }
@@ -9296,7 +9038,7 @@ function StudentDashboardView({
 }
 
 function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, onSettingsSaved: () => void }) {
-    const [formData, setFormData] = useState<AppSettings>(settings);
+    const [formData, setFormData] = useState<AppSettings>(withDefaultFeatures(settings));
     const [saving, setSaving] = useState(false);
 
     const colors = [
@@ -9321,7 +9063,8 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
         setFormData({
             ...formData,
             features: {
-                ...(formData.features || { enableSavings: true, enableClassCash: true, enableAcademic: true, enablePayments: true, enableAttendance: true }),
+                ...DEFAULT_APP_FEATURES,
+                ...(formData.features || {}),
                 [feature]: !(formData.features?.[feature] ?? true)
             }
         });
@@ -9426,6 +9169,7 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
                                 { key: 'enablePayments', label: 'Manajemen Pembayaran', icon: <CreditCard size={16} /> },
                                 { key: 'enableSavings', label: 'Tabungan Siswa', icon: <Wallet size={16} /> },
                                 { key: 'enableClassCash', label: 'GEMARI', icon: <Coins size={16} /> },
+                                { key: 'enableInfaq', label: 'INFAQ Jumat', icon: <Sparkles size={16} /> },
                                 { key: 'enableAcademic', label: 'Akademik & Ijazah', icon: <FileSpreadsheet size={16} /> },
                             ].map(feature => (
                                 <div key={feature.key} className="flex items-center justify-between p-3 border border-border rounded-xl bg-slate-50/50">
