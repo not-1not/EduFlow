@@ -5573,6 +5573,42 @@ function GemariView({
         onRefresh();
     };
 
+    const handleDeleteStudentGemari = async (studentId: string, studentName: string) => {
+        const studentTx = monthTransactions.filter(t => t.studentId === studentId);
+        if (studentTx.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
+        if (!confirm(`Hapus semua ${studentTx.length} transaksi GEMARI milik ${studentName} pada bulan ini?`)) return;
+        const entries = studentTx.map(tx => ({
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'gemari' as const,
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }));
+        await persistClassCashEntries(entries);
+        setSelectedTxIds(new Set());
+        onRefresh();
+    };
+
+    const handleDeleteAllGemari = async () => {
+        const target = ledgerRows;
+        if (target.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
+        if (!confirm(`Hapus SEMUA ${target.length} transaksi yang sedang ditampilkan?\n\nAksi ini TIDAK BISA dibatalkan.`)) return;
+        const entries = target.map((tx: any) => ({
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'gemari' as const,
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }));
+        await persistClassCashEntries(entries);
+        setSelectedTxIds(new Set());
+        onRefresh();
+    };
+
     // Calculate Ledger Rows with Running Balance
     const ledgerRows = React.useMemo(() => {
         const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
@@ -5718,6 +5754,13 @@ function GemariView({
                                 >
                                     Detail
                                 </button>
+                                <button
+                                    onClick={() => handleDeleteStudentGemari(row.student.id, row.student.name)}
+                                    className="btn-small !py-2 text-[10px] bg-red-50 text-red-500 border-none shadow-none hover:bg-red-100"
+                                    title={`Hapus semua data GEMARI ${row.student.name}`}
+                                >
+                                    <Trash2 size={12} />
+                                </button>
                             </div>
                         </div>
                     ))}
@@ -5753,6 +5796,12 @@ function GemariView({
                                 className="btn-small !bg-red-500 text-white flex items-center gap-2"
                             >
                                 <Minus size={14} /> Pengeluaran
+                            </button>
+                            <button 
+                                onClick={handleDeleteAllGemari} 
+                                className="btn-small !bg-red-50 text-red-600 border border-red-200 hover:!bg-red-100 flex items-center gap-2"
+                            >
+                                <Trash2 size={14} /> Hapus Semua
                             </button>
                         </div>
                     </div>
@@ -6040,6 +6089,27 @@ function SavingsView({
         onRefresh();
     };
 
+    const handleDeleteStudentSavings = async (studentId: string, studentName: string) => {
+        const studentTx = transactions.filter(t => t.studentId === studentId);
+        if (studentTx.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
+        if (!confirm(`Hapus semua ${studentTx.length} transaksi tabungan milik ${studentName}?`)) return;
+        for (const tx of studentTx) {
+            await deleteDoc(doc(db, 'savingsTransactions', tx.id));
+        }
+        onRefresh();
+    };
+
+    const handleDeleteAllSavings = async () => {
+        const target = transactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
+        if (target.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
+        const label = selectedStudentId ? students.find(s => s.id === selectedStudentId)?.name || 'siswa' : 'SEMUA siswa';
+        if (!confirm(`Hapus SEMUA ${target.length} transaksi tabungan ${label}?\n\nAksi ini TIDAK BISA dibatalkan.`)) return;
+        for (const tx of target) {
+            await deleteDoc(doc(db, 'savingsTransactions', tx.id));
+        }
+        onRefresh();
+    };
+
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     };
@@ -6103,6 +6173,12 @@ function SavingsView({
                     <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
                         <Plus size={16} /> Transaksi Baru
                     </button>
+                    <button 
+                        onClick={handleDeleteAllSavings} 
+                        className="btn-small !bg-red-50 text-red-600 border border-red-200 hover:!bg-red-100 flex items-center gap-2"
+                    >
+                        <Trash2 size={14} /> Hapus Semua
+                    </button>
                 </div>
             </div>
 
@@ -6144,6 +6220,16 @@ function SavingsView({
                                     className="flex-1 btn-small py-2 text-xs"
                                 >
                                     Riwayat
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteStudentSavings(s.id, s.name);
+                                    }}
+                                    className="btn-small py-2 text-xs bg-red-50 text-red-500 border-none shadow-none hover:bg-red-100"
+                                    title={`Hapus semua tabungan ${s.name}`}
+                                >
+                                    <Trash2 size={12} />
                                 </button>
                             </div>
                         </div>
