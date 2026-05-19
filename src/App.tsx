@@ -5410,7 +5410,7 @@ function GemariView({
     sortedData: any,
     SortableTH: any
 }) {
-    const GEMARI_RATE = 500;
+    const DEFAULT_GEMARI_RATE = 500;
     const todayStr = new Date().toISOString().split('T')[0];
     const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
@@ -5419,6 +5419,10 @@ function GemariView({
     const [showForm, setShowForm] = useState(false);
     const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
     const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+    const [gemariRate, setGemariRate] = useState(DEFAULT_GEMARI_RATE);
+    const [gemariTargetOverride, setGemariTargetOverride] = useState<number | null>(null);
+    const [showGemariSettings, setShowGemariSettings] = useState(false);
+    const [settingsForm, setSettingsForm] = useState({ rate: DEFAULT_GEMARI_RATE, override: '' as string });
     const [form, setForm] = useState({
         studentId: '',
         transactionType: 'deposit' as 'deposit' | 'withdrawal',
@@ -5426,6 +5430,43 @@ function GemariView({
         date: todayStr,
         notes: ''
     });
+
+    // Load monthly gemari settings from Firestore
+    React.useEffect(() => {
+        if (!selectedMonth) return;
+        (async () => {
+            try {
+                const settingsRef = doc(db, 'gemariSettings', selectedMonth);
+                const snap = await getDoc(settingsRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    setGemariRate(Number(data.rate) || DEFAULT_GEMARI_RATE);
+                    setGemariTargetOverride(data.targetOverride ? Number(data.targetOverride) : null);
+                } else {
+                    setGemariRate(DEFAULT_GEMARI_RATE);
+                    setGemariTargetOverride(null);
+                }
+            } catch {
+                setGemariRate(DEFAULT_GEMARI_RATE);
+                setGemariTargetOverride(null);
+            }
+        })();
+    }, [selectedMonth]);
+
+    const handleSaveGemariSettings = async () => {
+        const rate = Number(settingsForm.rate) || DEFAULT_GEMARI_RATE;
+        const override = settingsForm.override ? Number(settingsForm.override) : null;
+        const settingsRef = doc(db, 'gemariSettings', selectedMonth);
+        await setDoc(settingsRef, {
+            rate,
+            targetOverride: override || null,
+            month: selectedMonth,
+            updatedAt: new Date().toISOString()
+        });
+        setGemariRate(rate);
+        setGemariTargetOverride(override);
+        setShowGemariSettings(false);
+    };
 
     const getStudentName = (id: string) => {
         const s = students.find(x => x.id === id);
@@ -5454,7 +5495,7 @@ function GemariView({
         }
         return total;
     }, [selectedMonth, holidays]);
-    const targetPerStudent = monthSchoolDays * GEMARI_RATE;
+    const targetPerStudent = gemariTargetOverride || (monthSchoolDays * gemariRate);
 
     const studentRows = React.useMemo(() => filteredStudents.map(s => {
         const studentTx = monthTransactions.filter(t => t.studentId === s.id);
@@ -5659,7 +5700,7 @@ function GemariView({
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 no-print">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 no-print">
                 <div className="card">
                     <p className="stat-label">Total Target Kelas</p>
                     <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
@@ -5675,6 +5716,11 @@ function GemariView({
                 <div className="card">
                     <p className="stat-label">Status Partisipasi</p>
                     <p className="text-sm font-black text-slate-700">{countSudah} Lunas / {countKurang} Nyicil / {countBelum} Belum</p>
+                </div>
+                <div className="card cursor-pointer hover:border-accent transition-all group" onClick={() => { setSettingsForm({ rate: gemariRate, override: gemariTargetOverride ? String(gemariTargetOverride) : '' }); setShowGemariSettings(true); }}>
+                    <p className="stat-label flex items-center gap-1">Tarif Harian <Settings size={10} className="group-hover:text-accent" /></p>
+                    <p className="stat-value text-purple-600">{formatCurrency(gemariRate)}</p>
+                    <p className="text-[9px] text-slate-400 mt-1">{gemariTargetOverride ? `Override: ${formatCurrency(gemariTargetOverride)}` : `${monthSchoolDays} hari × Rp ${gemariRate.toLocaleString('id-ID')}`}</p>
                 </div>
             </div>
 
@@ -5707,7 +5753,7 @@ function GemariView({
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target Harian: Rp 500</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target Harian: {formatCurrency(gemariRate)}</p>
                                 </div>
                                 <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                                     row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
@@ -6002,6 +6048,88 @@ function GemariView({
                                 >
                                     {editingTx ? 'Update Data' : 'Simpan Transaksi'}
                                 </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showGemariSettings && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-border relative overflow-hidden"
+                        >
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-400" />
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">Pengaturan Target</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Periode: {selectedMonth}</p>
+                                </div>
+                                <button onClick={() => setShowGemariSettings(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-5">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tarif Harian Per Siswa (Rp)</label>
+                                    <input
+                                        type="number"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-purple-500 focus:bg-white transition-all text-lg"
+                                        value={settingsForm.rate}
+                                        onChange={e => setSettingsForm(prev => ({ ...prev, rate: Number(e.target.value) }))}
+                                        min={0}
+                                    />
+                                    <p className="text-[9px] text-slate-400 ml-1">Target = {monthSchoolDays} hari kerja × Rp {Number(settingsForm.rate).toLocaleString('id-ID')} = <strong>Rp {(monthSchoolDays * Number(settingsForm.rate)).toLocaleString('id-ID')}</strong></p>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Override Total Target (Opsional)</label>
+                                    <input
+                                        type="number"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-purple-500 focus:bg-white transition-all"
+                                        value={settingsForm.override}
+                                        onChange={e => setSettingsForm(prev => ({ ...prev, override: e.target.value }))}
+                                        placeholder="Kosongkan jika pakai hitungan harian"
+                                        min={0}
+                                    />
+                                    <p className="text-[9px] text-slate-400 ml-1">Jika diisi, nilai ini akan menggantikan hitungan (hari kerja × tarif).</p>
+                                </div>
+
+                                <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 text-sm">
+                                    <p className="text-[10px] font-black uppercase text-purple-500 mb-2">Ringkasan Target</p>
+                                    <div className="flex justify-between font-bold text-slate-700">
+                                        <span>Target/Siswa:</span>
+                                        <span className="text-purple-600">
+                                            {formatCurrency(settingsForm.override ? Number(settingsForm.override) : (monthSchoolDays * Number(settingsForm.rate)))}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between font-bold text-slate-700 mt-1">
+                                        <span>Target Seluruh Kelas ({filteredStudents.length} siswa):</span>
+                                        <span className="text-purple-600">
+                                            {formatCurrency((settingsForm.override ? Number(settingsForm.override) : (monthSchoolDays * Number(settingsForm.rate))) * filteredStudents.length)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 mt-4">
+                                    <button 
+                                        onClick={() => setShowGemariSettings(false)} 
+                                        className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button 
+                                        onClick={handleSaveGemariSettings} 
+                                        className="flex-[3] py-4 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 active:scale-95 transition-all"
+                                    >
+                                        Simpan Pengaturan
+                                    </button>
+                                </div>
                             </div>
                         </motion.div>
                     </div>
