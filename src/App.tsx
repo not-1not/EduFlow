@@ -57,11 +57,12 @@ import {
     Zap,
     Palette,
     TrendingDown,
-    MessageSquare,
-    Send,
-    LogOut,
-    Minus
-} from 'lucide-react';
+     MessageSquare,
+     Send,
+     LogOut,
+     Sparkles,
+     Minus
+ } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase, syncSheetRecords } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings, ChatMessage } from './types';
@@ -690,6 +691,16 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     onOpenPrint={() => setShowPrintModal(true)}
                     {...commonProps}
                 />;
+            case 'infaqJumat':
+                return <InfaqJumatView
+                    classes={classes}
+                    students={students}
+                    transactions={classCash}
+                    holidays={holidays}
+                    onRefresh={fetchData}
+                    onOpenPrint={() => setShowPrintModal(true)}
+                    {...commonProps}
+                />;
             case 'grades':
                 return <GradesView students={students} subjects={subjects} materials={materials} grades={grades} classes={classes} onRefresh={fetchData} onOpenPrint={() => setShowPrintModal(true)} {...commonProps} />;
             case 'subjects':
@@ -878,6 +889,15 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             active={currentView === 'gemari'}
                             collapsed={isSidebarCollapsed}
                             onClick={() => { setCurrentView('gemari'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                        />
+                    )}
+                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableInfaq) && (
+                        <NavItem
+                            icon={<Sparkles size={20} />}
+                            label="INFAQ Jumat"
+                            active={currentView === 'infaqJumat'}
+                            collapsed={isSidebarCollapsed}
+                            onClick={() => { setCurrentView('infaqJumat'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableAcademic) && (
@@ -6320,6 +6340,939 @@ function GemariView({
     );
 }
 
+
+function InfaqJumatView({
+    classes,
+    students,
+    transactions,
+    holidays,
+    onRefresh,
+    onOpenPrint,
+    onSort,
+    currentSort,
+    sortedData,
+    SortableTH
+}: {
+    classes: Class[],
+    students: Student[],
+    transactions: ClassCashTransaction[],
+    holidays: Holiday[],
+    onRefresh: () => void,
+    onOpenPrint: () => void,
+    onSort: (k: string) => void,
+    currentSort: any,
+    sortedData: any,
+    SortableTH: any
+}) {
+    const DEFAULT_INFAQ_RATE = 1000;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
+    const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
+    const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+    const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [showForm, setShowForm] = useState(false);
+    const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
+    const [selectedInfaqIds, setSelectedInfaqIds] = useState<Set<string>>(new Set());
+    const [infaqRate, setInfaqRate] = useState(DEFAULT_INFAQ_RATE);
+    const [infaqTargetOverride, setInfaqTargetOverride] = useState<number | null>(null);
+    const [showInfaqSettings, setShowInfaqSettings] = useState(false);
+
+    // Table-based settings: map of month -> { rate, override }
+    const currentYear = new Date().getFullYear();
+    const [infaqRangeStart, setInfaqRangeStart] = useState(`${currentYear - 1}-07`);
+    const [infaqRangeEnd, setInfaqRangeEnd] = useState(`${currentYear}-06`);
+    const [infaqTable, setInfaqTable] = useState<Record<string, { rate: number; override: string }>>({});
+    const [infaqBulkRate, setInfaqBulkRate] = useState(DEFAULT_INFAQ_RATE);
+    const [infaqLoading, setInfaqLoading] = useState(false);
+
+    // Generate months in range
+    const getMonthsInRange = (start: string, end: string) => {
+        const months: string[] = [];
+        const [sy, sm] = start.split('-').map(Number);
+        const [ey, em] = end.split('-').map(Number);
+        let y = sy, m = sm;
+        while (y < ey || (y === ey && m <= em)) {
+            months.push(`${y}-${String(m).padStart(2, '0')}`);
+            m++;
+            if (m > 12) { m = 1; y++; }
+        }
+        return months;
+    };
+
+    const infaqMonths = React.useMemo(() => getMonthsInRange(infaqRangeStart, infaqRangeEnd), [infaqRangeStart, infaqRangeEnd]);
+
+    const monthLabel = (m: string) => {
+        const [y, mo] = m.split('-').map(Number);
+        return new Date(y, mo - 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    };
+
+    const getSchoolDaysForMonth = (monthStr: string) => {
+        const [y, m] = monthStr.split('-').map(Number);
+        if (!y || !m) return 0;
+        const daysInMonth = new Date(y, m, 0).getDate();
+        let total = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(y, m - 1, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
+            if (d.getDay() !== 0 && !isHoliday) total++;
+        }
+        return total;
+    };
+
+    const [form, setForm] = useState({
+        studentId: '',
+        transactionType: 'deposit' as 'deposit' | 'withdrawal',
+        amount: 0,
+        date: todayStr,
+        notes: ''
+    });
+
+    // Load monthly infaq settings from Supabase (for the active month)
+    React.useEffect(() => {
+        if (!selectedMonth) return;
+        (async () => {
+            try {
+                const settingsRef = doc(db, 'infaqSettings', selectedMonth);
+                const snap = await getDoc(settingsRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    setInfaqRate(Number(data.rate) || DEFAULT_INFAQ_RATE);
+                    setInfaqTargetOverride(data.targetOverride ? Number(data.targetOverride) : null);
+                } else {
+                    setInfaqRate(DEFAULT_INFAQ_RATE);
+                    setInfaqTargetOverride(null);
+                }
+            } catch {
+                setInfaqRate(DEFAULT_INFAQ_RATE);
+                setInfaqTargetOverride(null);
+            }
+        })();
+    }, [selectedMonth]);
+
+    // Load all settings for the table range (single batch query)
+    const loadInfaqSettings = async () => {
+        setInfaqLoading(true);
+        setInfaqSavingError('');
+        const table: Record<string, { rate: number; override: string }> = {};
+
+        const fetchSettings = () => supabase!
+            .from('infaqSettings')
+            .select('month, rate, "targetOverride"')
+            .in('month', infaqMonths);
+
+        try {
+            const { data, error } = await Promise.race([
+                fetchSettings(),
+                new Promise<never>((_, rej) => setTimeout(() => rej(new Error(
+                    'Koneksi terlalu lama (>15 dtk). Periksa sambungan internet atau tabel infaqSettings belum dibuat di Supabase.'
+                )), 15000))
+            ]);
+            if (error) throw error;
+            if (data && data.length > 0) {
+                const rows = data as any[];
+                const found = new Set(rows.map((r: any) => r.month));
+                for (const m of infaqMonths) {
+                    if (found.has(m)) {
+                        const r = rows.find((x: any) => x.month === m)!;
+                        table[m] = { rate: Number(r.rate) || DEFAULT_INFAQ_RATE, override: r.targetOverride ? String(r.targetOverride) : '' };
+                    } else {
+                        table[m] = { rate: DEFAULT_INFAQ_RATE, override: '' };
+                    }
+                }
+            } else {
+                for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, override: '' };
+            }
+        } catch (err: any) {
+            console.error('Gagal memuat pengaturan INFAQ Jumat:', err);
+            for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, override: '' };
+            setInfaqSavingError(err?.message || String(err));
+        }
+        setInfaqTable(table);
+        setInfaqLoading(false);
+    };
+
+    const openInfaqSettings = () => {
+        setShowInfaqSettings(true);
+        loadInfaqSettings();
+    };
+
+    const [infaqSavingError, setInfaqSavingError] = useState('');
+
+    const handleSaveAllInfaqSettings = () => {
+        if (!supabase || !supabase.from) {
+            setInfaqSavingError('Supabase belum dikonfigurasi. Cek file .env');
+            return;
+        }
+        setInfaqLoading(true);
+        setInfaqSavingError('');
+        const rows: any[] = infaqMonths.map(m => {
+            const entry = infaqTable[m];
+            if (!entry) return null;
+            const rate = Number(entry.rate) || DEFAULT_INFAQ_RATE;
+            const override = entry.override ? Number(entry.override) : null;
+            return { month: m, rate, targetOverride: override, updatedAt: new Date().toISOString() };
+        }).filter(Boolean);
+
+        const saveUp = async () => {
+            try {
+                if (rows.length > 0) {
+                    const { error } = await supabase.from('infaqSettings').upsert(rows, { onConflict: 'month' });
+                    if (error) throw error;
+                }
+                // Update in-memory live rate from the just-saved table
+                const active = infaqTable[selectedMonth];
+                if (active) {
+                    setInfaqRate(Number(active.rate) || DEFAULT_INFAQ_RATE);
+                    setInfaqTargetOverride(active.override ? Number(active.override) : null);
+                }
+            } catch (err: any) {
+                console.error('Gagal menyimpan pengaturan INFAQ Jumat:', err);
+                setInfaqSavingError(`Gagal menyimpan: ${err?.message || err}`);
+            } finally {
+                setInfaqLoading(false);
+            }
+        };
+        void saveUp();
+    };
+
+    const handleBulkFillInfaqRate = () => {
+        const updated = { ...infaqTable };
+        for (const m of infaqMonths) {
+            updated[m] = { ...updated[m], rate: infaqBulkRate };
+        }
+        setInfaqTable(updated);
+    };
+
+    const getStudentName = (id: string) => {
+        const s = students.find(x => x.id === id);
+        return s?.name || (s as any)?.displayName || (s as any)?.fullName || (s as any)?.nama || 'Umum / Kolektif';
+    };
+    const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+    
+    const selectedClass = React.useMemo(() => classes.find(c => c.id === selectedClassId), [classes, selectedClassId]);
+    const filteredStudents = React.useMemo(() => students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId)), [students, selectedClassId]);
+    
+    // Transactions for the selected month and class
+    const monthTransactions = React.useMemo(() => transactions
+        .filter(t => t.type === 'infaq' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth))
+        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedMonth]);
+
+    const monthSchoolDays = React.useMemo(() => {
+        const [y, m] = selectedMonth.split('-').map(Number);
+        if (!y || !m) return 0;
+        const daysInMonth = new Date(y, m, 0).getDate();
+        let total = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(y, m - 1, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
+            if (d.getDay() !== 0 && !isHoliday) total++;
+        }
+        return total;
+    }, [selectedMonth, holidays]);
+    const targetPerStudent = infaqTargetOverride || (monthSchoolDays * infaqRate);
+
+    const studentRows = React.useMemo(() => filteredStudents.map(s => {
+        const studentTx = monthTransactions.filter(t => t.studentId === s.id);
+        const paid = studentTx.reduce((sum, t) => sum + (t.transactionType === 'withdrawal' ? -Number(t.amount || 0) : Number(t.amount || 0)), 0);
+        const kurang = Math.max(0, targetPerStudent - paid);
+        const status = paid >= targetPerStudent && paid > 0 ? 'sudah_bayar' : paid <= 0 ? 'belum_bayar' : 'keKurangan';
+        return {
+            student: s,
+            paid,
+            kurang,
+            status,
+            txCount: studentTx.length
+        };
+    }).sort((a, b) => {
+        const order: Record<string, number> = { kurang_bayar: 0, belum_bayar: 1, sudah_bayar: 2 };
+        return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
+    }), [filteredStudents, monthTransactions, targetPerStudent]);
+
+    const totalPaid = studentRows.reduce((sum, row) => sum + row.paid, 0);
+    const totalTarget = targetPerStudent * filteredStudents.length;
+    const totalKekurangan = studentRows.reduce((sum, row) => sum + row.kurang, 0);
+    const countSudah = studentRows.filter(row => row.status === 'sudah_bayar').length;
+    const countBelum = studentRows.filter(row => row.status === 'belum_bayar').length;
+    const countKekurangan = studentRows.filter(row => row.status === 'keKurangan').length;
+
+    useEffect(() => {
+        if (!classes.length) return;
+        if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
+            setSelectedClassId(classes[0].id);
+        }
+    }, [classes, selectedClassId]);
+
+    const resetForm = () => setForm({
+        studentId: '',
+        transactionType: 'deposit',
+        amount: 0,
+        date: todayStr,
+        notes: ''
+    });
+
+    const openEdit = (tx: ClassCashTransaction) => {
+        setEditingTx(tx);
+        setForm({
+            studentId: tx.studentId || '',
+            transactionType: tx.transactionType || 'deposit',
+            amount: Math.abs(Number(tx.amount) || 0),
+            date: tx.date,
+            notes: tx.notes || ''
+        });
+        setShowForm(true);
+    };
+
+    const handleSaveTx = async () => {
+        if (!form.amount || form.amount <= 0) return alert('Nominal harus lebih dari 0');
+        const targetClassId = editingTx?.classId || selectedClassId;
+
+        if (editingTx) {
+            await persistClassCashEntries([{
+                classId: editingTx.classId,
+                studentId: editingTx.studentId || '',
+                type: 'infaq',
+                transactionType: editingTx.transactionType || 'deposit',
+                amount: -1,
+                date: editingTx.date,
+                notes: editingTx.notes
+            }]);
+        }
+
+        await persistClassCashEntries([{
+            classId: targetClassId,
+            studentId: form.studentId || '',
+            type: 'infaq',
+            transactionType: form.transactionType,
+            amount: form.amount,
+            date: form.date,
+            notes: form.notes || undefined
+        }]);
+        setShowForm(false);
+        setEditingTx(null);
+        resetForm();
+        onRefresh();
+    };
+
+    const handleDeleteTx = async (tx: ClassCashTransaction) => {
+        if (!confirm('Hapus transaksi ini?')) return;
+        await persistClassCashEntries([{
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'infaq',
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }]);
+        if (editingTx?.id === tx.id) setEditingTx(null);
+        onRefresh();
+    };
+
+    const handleBulkDeleteInfaq = async () => {
+        if (selectedInfaqIds.size === 0) return;
+        if (!confirm(`Hapus ${selectedInfaqIds.size} transaksi terpilih?`)) return;
+
+        const txsToDelete = monthTransactions.filter(t => selectedInfaqIds.has(t.id));
+        const entries = txsToDelete.map(tx => ({
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'infaq' as const,
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }));
+        
+        await persistClassCashEntries(entries);
+        setSelectedInfaqIds(new Set());
+        onRefresh();
+    };
+
+    const handleDeleteStudentInfaq = async (studentId: string, studentName: string) => {
+        const studentTx = monthTransactions.filter(t => t.studentId === studentId);
+        if (studentTx.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
+        if (!confirm(`Hapus semua ${studentTx.length} transaksi INFAQ milik ${studentName} pada bulan ini?`)) return;
+        const entries = studentTx.map(tx => ({
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'infaq' as const,
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }));
+        await persistClassCashEntries(entries);
+        setSelectedInfaqIds(new Set());
+        onRefresh();
+    };
+
+    const handleDeleteAllInfaq = async () => {
+        const target = ledgerRows;
+        if (target.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
+        if (!confirm(`Hapus SEMUA ${target.length} transaksi yang sedang ditampilkan?\n\nAksi ini TIDAK BISA dibatalkan.`)) return;
+        const entries = target.map((tx: any) => ({
+            classId: tx.classId,
+            studentId: tx.studentId || '',
+            type: 'infaq' as const,
+            transactionType: tx.transactionType || 'deposit',
+            amount: -1,
+            date: tx.date,
+            notes: tx.notes
+        }));
+        await persistClassCashEntries(entries);
+        setSelectedInfaqIds(new Set());
+        onRefresh();
+    };
+
+    // Calculate Ledger Rows with Running Balance
+    const ledgerRows = React.useMemo(() => {
+        const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
+        let runningBalance = 0;
+        return base.map(t => {
+            const debet = t.transactionType === 'deposit' ? Number(t.amount || 0) : 0;
+            const kredit = t.transactionType === 'withdrawal' ? Number(t.amount || 0) : 0;
+            runningBalance += (debet - kredit);
+            return {
+                ...t,
+                student: students.find(s => s.id === t.studentId),
+                debet,
+                kredit,
+                saldo: runningBalance
+            };
+        });
+    }, [monthTransactions, selectedStudentId, students]);
+
+    return (
+        <div className="space-y-6 print-container">
+            <div className="print-header">
+                <h1 className="text-2xl font-black uppercase tracking-tighter">INFAQ JUMAT SISWA</h1>
+                <p className="text-xs font-bold text-slate-500">Buku Transaksi Infaq: {selectedClass?.name} - {selectedMonth}</p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+                <div>
+                    <h2 className="text-2xl font-black tracking-tighter uppercase italic">INFAQ JUMAT</h2>
+                    <p className="text-xs text-text-secondary font-bold">Monitor pembayaran infaq Jumat siswa secara transparan</p>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                    <select
+                        className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
+                        value={selectedClassId}
+                        onChange={e => setSelectedClassId(e.target.value)}
+                    >
+                        {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
+                    </select>
+                    <input
+                        type="month"
+                        className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
+                        value={selectedMonth}
+                        onChange={e => setSelectedMonth(e.target.value)}
+                    />
+                    <button onClick={() => { resetForm(); setEditingTx(null); setShowForm(true); }} className="btn-primary flex items-center gap-2">
+                        <Plus size={16} /> Input Manual
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 no-print">
+                <div className="card">
+                    <p className="stat-label">Total Target Infaq</p>
+                    <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
+                </div>
+                <div className="card">
+                    <p className="stat-label">Total Terbayar</p>
+                    <p className="stat-value text-emerald-600">{formatCurrency(totalPaid)}</p>
+                </div>
+                <div className="card">
+                    <p className="stat-label">Kekurangan</p>
+                    <p className="stat-value text-red-500">{formatCurrency(totalKekurangan)}</p>
+                </div>
+                <div className="card">
+                    <p className="stat-label">Status Terbayar</p>
+                    <p className="text-sm font-black text-slate-700">{countSudah} Lunas / {countKekurangan} Nyicil / {countBelum} Belum</p>
+                </div>
+                <div className="card cursor-pointer hover:border-accent transition-all group" onClick={openInfaqSettings}>
+                    <p className="stat-label flex items-center gap-1">Nominal Infaq <Settings size={10} className="group-hover:text-accent" /></p>
+                    <p className="stat-value text-purple-600">{formatCurrency(infaqRate)}</p>
+                    <p className="text-[9px] text-slate-400 mt-1">{infaqTargetOverride ? `Override: ${formatCurrency(infaqTargetOverride)}` : `${monthSchoolDays} hari × Rp ${infaqRate.toLocaleString('id-ID')}`}</p>
+                </div>
+            </div>
+
+            <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
+                <div className="flex gap-8">
+                    <button
+                        onClick={() => setActiveTab('overview')}
+                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'overview' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
+                    >
+                        Ringkasan Siswa
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('ledger')}
+                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'ledger' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
+                    >
+                        Buku Transaksi
+                    </button>
+                </div>
+                <button onClick={onOpenPrint} className="btn-small !bg-slate-700 flex items-center gap-2">
+                    <Printer size={14} /> Cetak Laporan
+                </button>
+            </div>
+
+            {activeTab === 'overview' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {studentRows.length === 0 ? (
+                        <div className="card p-10 text-center text-slate-400 italic">Belum ada siswa pada kelas ini.</div>
+                    ) : studentRows.map(row => (
+                        <div key={row.student.id} className="card space-y-4 group hover:border-accent transition-all">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target Harian: {formatCurrency(infaqRate)}</p>
+                                </div>
+                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                    row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
+                                    row.status === 'keKurangan' ? 'bg-amber-100 text-amber-700' :
+                                    'bg-red-100 text-red-700'
+                                }`}>
+                                    {row.status === 'sudah_bayar' ? 'Lunas' : row.status === 'keKurangan' ? 'Kekurangan' : 'Belum'}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Target</p>
+                                    <p className="font-black">{formatCurrency(targetPerStudent)}</p>
+                                </div>
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Terbayar</p>
+                                    <p className="font-black text-emerald-600">{formatCurrency(row.paid)}</p>
+                                </div>
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Kekurangan</p>
+                                    <p className="font-black text-red-500">{formatCurrency(row.kurang)}</p>
+                                </div>
+                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Frek Input</p>
+                                    <p className="font-black">{row.txCount} Kali</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setForm({ ...form, studentId: row.student.id, transactionType: 'deposit' });
+                                        setShowForm(true);
+                                    }}
+                                    className="flex-1 btn-primary !py-2 text-[10px]"
+                                >
+                                    Input / Edit
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setSelectedStudentId(row.student.id);
+                                        setActiveTab('ledger');
+                                    }}
+                                    className="flex-1 btn-small !py-2 text-[10px] bg-slate-100 text-slate-600 shadow-none border-none hover:bg-slate-200"
+                                >
+                                    Detail
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteStudentInfaq(row.student.id, row.student.name)}
+                                    className="btn-small !py-2 text-[10px] bg-red-50 text-red-500 border-none shadow-none hover:bg-red-100"
+                                    title={`Hapus semua data INFAQ ${row.student.name}`}
+                                >
+                                    <Trash2 size={12} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="flex flex-col md:flex-row gap-4 no-print items-end justify-between bg-slate-50 p-4 rounded-2xl border border-border">
+                        <div className="flex gap-4 items-end flex-wrap">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary ml-1">Cari Siswa</label>
+                                <select
+                                    className="bg-white border border-border rounded-lg px-4 py-2 text-sm outline-none font-bold min-w-[200px]"
+                                    value={selectedStudentId}
+                                    onChange={e => setSelectedStudentId(e.target.value)}
+                                >
+                                    <option value="">Seluruh Kelas</option>
+                                    {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
+                            {selectedStudentId && (
+                                <button onClick={() => setSelectedStudentId('')} className="text-xs font-bold text-accent hover:underline mb-2">Hapus Filter</button>
+                            )}
+                        </div>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'deposit' })); setShowForm(true); }} 
+                                className="btn-small !bg-emerald-600 text-white flex items-center gap-2"
+                            >
+                                <Plus size={14} /> Pemasukan
+                            </button>
+                            <button 
+                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'withdrawal' })); setShowForm(true); }} 
+                                className="btn-small !bg-red-500 text-white flex items-center gap-2"
+                            >
+                                <Minus size={14} /> Pengeluaran
+                            </button>
+                            <button 
+                                onClick={handleDeleteAllInfaq} 
+                                className="btn-small !bg-red-50 text-red-600 border border-red-200 hover:!bg-red-100 flex items-center gap-2"
+                            >
+                                <Trash2 size={14} /> Hapus Semua
+                            </button>
+                        </div>
+                    </div>
+
+                    {selectedInfaqIds.size > 0 && (
+                        <div className="bg-red-50 border border-red-100 p-3 mb-4 rounded-xl flex justify-between items-center no-print">
+                            <span className="text-sm font-bold text-red-800">{selectedInfaqIds.size} transaksi terpilih</span>
+                            <button onClick={handleBulkDeleteInfaq} className="btn-small bg-red-500 text-white hover:bg-red-600 flex items-center gap-2 shadow-sm shadow-red-500/20">
+                                <Trash2 size={14} /> Hapus Terpilih
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="table-container shadow-sm overflow-x-auto">
+                        <table className="data-table">
+                            <thead className="bg-slate-900 text-white">
+                                <tr>
+                                    <th className="w-10 !text-white border-none py-3 px-4">
+                                        <input 
+                                            type="checkbox" 
+                                            className="rounded cursor-pointer w-4 h-4 accent-red-500 focus:ring-red-500 border-white/20 bg-white/10" 
+                                            checked={ledgerRows.length > 0 && selectedInfaqIds.size === ledgerRows.length}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedInfaqIds(new Set(ledgerRows.map((t: any) => t.id)));
+                                                } else {
+                                                    setSelectedInfaqIds(new Set());
+                                                }
+                                            }}
+                                        />
+                                    </th>
+                                    <th className="!text-white border-none">TGL</th>
+                                    <th className="!text-white border-none">SISWA / KETERANGAN</th>
+                                    <th className="!text-white border-none text-right">MASUK (D)</th>
+                                    <th className="!text-white border-none text-right">KELUAR (K)</th>
+                                    <th className="!text-white border-none text-right">SALDO</th>
+                                    <th className="no-print !text-white border-none">AKSI</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {ledgerRows.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="text-center py-20 text-slate-400 italic">Belum ada catatan transaksi untuk periode ini.</td>
+                                    </tr>
+                                ) : (
+                                    ledgerRows.map((t: any) => (
+                                        <tr key={t.id} className={`transition-all border-b border-slate-100 ${selectedInfaqIds.has(t.id) ? 'bg-red-50/50' : 'hover:bg-blue-50/50'}`}>
+                                            <td className="text-center py-3 px-4">
+                                                <input 
+                                                    type="checkbox"
+                                                    className="w-4 h-4 text-red-500 rounded border-slate-300 focus:ring-red-500 cursor-pointer accent-red-500"
+                                                    checked={selectedInfaqIds.has(t.id)}
+                                                    onChange={(e) => {
+                                                        const newSet = new Set(selectedInfaqIds);
+                                                        if (e.target.checked) newSet.add(t.id);
+                                                        else newSet.delete(t.id);
+                                                        setSelectedInfaqIds(newSet);
+                                                    }}
+                                                />
+                                            </td>
+                                            <td className="font-mono text-xs whitespace-nowrap">{t.date}</td>
+                                            <td className="py-3">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-slate-700">{t.student?.name || 'UMUM / KOLEKTIF'}</span>
+                                                    <span className="text-[10px] text-slate-400 italic">{t.notes || '- no notes -'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="text-right font-bold text-emerald-600">
+                                                {t.debet > 0 ? formatCurrency(t.debet) : '-'}
+                                            </td>
+                                            <td className="text-right font-bold text-red-500">
+                                                {t.kredit > 0 ? formatCurrency(t.kredit) : '-'}
+                                            </td>
+                                            <td className="text-right font-black bg-slate-50/50">
+                                                {formatCurrency(t.saldo)}
+                                            </td>
+                                            <td className="no-print">
+                                                <div className="flex gap-1 justify-center">
+                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-100 rounded text-blue-600 transition-all">
+                                                        <Edit size={12} />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteTx(t)} className="p-1.5 hover:bg-red-100 rounded text-red-500 transition-all">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                            {ledgerRows.length > 0 && (
+                                <tfoot className="bg-slate-50 font-black">
+                                    <tr>
+                                        <td colSpan={3} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total Periode Ini</td>
+                                        <td className="text-right text-emerald-600">{formatCurrency(ledgerRows.reduce((a, b) => a + b.debet, 0))}</td>
+                                        <td className="text-right text-red-500">{formatCurrency(ledgerRows.reduce((a, b) => a + b.kredit, 0))}</td>
+                                        <td className="text-right bg-slate-100">{formatCurrency(ledgerRows[ledgerRows.length - 1].saldo)}</td>
+                                        <td className="no-print"></td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            <AnimatePresence>
+                {showForm && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-border relative overflow-hidden"
+                        >
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-accent to-blue-400" />
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">{editingTx ? 'Ubah Catatan' : 'Input Transaksi'}</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modul Infaq Jumat</p>
+                                </div>
+                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nama Siswa</label>
+                                    <select
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
+                                        value={form.studentId}
+                                        onChange={e => setForm(prev => ({ ...prev, studentId: e.target.value }))}
+                                    >
+                                        <option value="">-- UMUM / KOLEKTIF --</option>
+                                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tipe</label>
+                                        <select
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
+                                            value={form.transactionType}
+                                            onChange={e => setForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
+                                        >
+                                            <option value="deposit">Pemasukan (D)</option>
+                                            <option value="withdrawal">Pengeluaran (K)</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal</label>
+                                        <input
+                                            type="date"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
+                                            value={form.date}
+                                            onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nominal (Rp)</label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-10 outline-none font-black text-lg text-accent focus:border-accent focus:bg-white transition-all"
+                                            value={form.amount}
+                                            onChange={e => setForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
+                                        />
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">Rp</div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Keterangan / Catatan</label>
+                                    <textarea
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-sm min-h-[80px] focus:border-accent focus:bg-white transition-all"
+                                        value={form.notes}
+                                        onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
+                                        placeholder="Tuliskan alasan atau sumber dana..."
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 mt-8">
+                                <button 
+                                    onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} 
+                                    className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    onClick={handleSaveTx} 
+                                    className="flex-3 py-4 bg-slate-900 text-yellow-400 rounded-2xl font-black uppercase text-xs shadow-xl shadow-slate-200 active:scale-95 transition-all"
+                                >
+                                    {editingTx ? 'Update Data' : 'Simpan Transaksi'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showInfaqSettings && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-border relative overflow-hidden max-h-[90vh] flex flex-col"
+                        >
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-400" />
+                            <div className="flex justify-between items-center mb-5">
+                                <div>
+                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">Pengaturan Target INFAQ Jumat</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Konfigurasi nominal infaq per bulan</p>
+                                </div>
+                                <button onClick={() => setShowInfaqSettings(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Range picker */}
+                            <div className="flex flex-wrap gap-4 items-end mb-4 pb-4 border-b border-border">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Mulai</label>
+                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={infaqRangeStart} onChange={e => { setInfaqRangeStart(e.target.value); }} />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Sampai</label>
+                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={infaqRangeEnd} onChange={e => { setInfaqRangeEnd(e.target.value); }} />
+                                </div>
+                                <button onClick={loadInfaqSettings} className="btn-small !bg-purple-100 text-purple-700 hover:!bg-purple-200 font-bold">
+                                    Muat Data
+                                </button>
+                                <div className="flex-1" />
+                                <div className="flex items-end gap-2">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Isi Semua</label>
+                                        <input type="number" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none w-28 focus:border-purple-500" value={infaqBulkRate} onChange={e => setInfaqBulkRate(Number(e.target.value))} min={0} />
+                                    </div>
+                                    <button onClick={handleBulkFillInfaqRate} className="btn-small !bg-purple-600 text-white hover:!bg-purple-700 font-bold">
+                                        Terapkan
+                                    </button>
+                                </div>
+                            </div>
+
+                            {infaqSavingError && (
+                                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] text-red-600 font-bold whitespace-pre-line flex items-start justify-between gap-3">
+                                    <span>{infaqSavingError}</span>
+                                    <button onClick={() => setInfaqSavingError('')} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
+                                </div>
+                            )}
+
+                            {/* Table */}
+                            <div className="overflow-y-auto flex-1 -mx-2 px-2">
+                                {infaqLoading ? (
+                                    <div className="text-center py-16 text-slate-400 italic">Memuat data pengaturan...</div>
+                                ) : (
+                                    <table className="w-full text-sm border-collapse">
+                                        <thead className="sticky top-0 bg-white z-10">
+                                            <tr className="border-b-2 border-purple-200">
+                                                <th className="text-left py-3 px-2 text-[10px] font-black uppercase text-slate-500">Bulan</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-20">Hari Kerja</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Nominal Infaq</th>
+                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-36">Override Target</th>
+                                                <th className="text-right py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Target/Siswa</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {infaqMonths.map(m => {
+                                                const entry = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, override: '' };
+                                                const days = getSchoolDaysForMonth(m);
+                                                const target = entry.override ? Number(entry.override) : days * entry.rate;
+                                                const isActive = m === selectedMonth;
+                                                return (
+                                                    <tr key={m} className={`border-b border-slate-100 transition-all ${isActive ? 'bg-purple-50/50 ring-1 ring-purple-200' : 'hover:bg-slate-50'}`}>
+                                                        <td className="py-2.5 px-2">
+                                                            <span className={`font-bold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>{monthLabel(m)}</span>
+                                                            {isActive && <span className="ml-2 text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black">AKTIF</span>}
+                                                        </td>
+                                                        <td className="py-2.5 px-2 text-center font-mono text-slate-500">{days}</td>
+                                                        <td className="py-2.5 px-2">
+                                                            <input
+                                                                type="number"
+                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+                                                                value={entry.rate}
+                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...prev[m], rate: Number(e.target.value) } }))}
+                                                                min={0}
+                                                            />
+                                                        </td>
+                                                        <td className="py-2.5 px-2">
+                                                            <input
+                                                                type="number"
+                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
+                                                                value={entry.override}
+                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...prev[m], override: e.target.value } }))}
+                                                                placeholder="—"
+                                                                min={0}
+                                                            />
+                                                        </td>
+                                                        <td className="py-2.5 px-2 text-right font-black text-purple-600">
+                                                            {formatCurrency(target)}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot className="border-t-2 border-purple-200 bg-purple-50/30">
+                                            <tr>
+                                                <td colSpan={4} className="py-3 px-2 text-right text-[10px] font-black uppercase text-purple-500">Total Target/Siswa (Setahun):</td>
+                                                <td className="py-3 px-2 text-right font-black text-purple-700 text-base">
+                                                    {formatCurrency(infaqMonths.reduce((sum, m) => {
+                                                        const e = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, override: '' };
+                                                        return sum + (e.override ? Number(e.override) : getSchoolDaysForMonth(m) * e.rate);
+                                                    }, 0))}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                )}
+                            </div>
+
+                            <div className="flex gap-3 mt-5 pt-4 border-t border-border">
+                                <button 
+                                    onClick={() => setShowInfaqSettings(false)} 
+                                    className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    onClick={handleSaveAllInfaqSettings} 
+                                    disabled={infaqLoading}
+                                    className="flex-[3] py-3 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                    {infaqLoading ? 'Menyimpan...' : 'Simpan Semua Pengaturan'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
 function SavingsView({
     students,
     classes,

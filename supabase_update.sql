@@ -187,6 +187,14 @@ CREATE TABLE IF NOT EXISTS "gemariSettings" (
     "updatedAt" TEXT
 );
 
+-- 14b. infaqSettings Table
+CREATE TABLE IF NOT EXISTS "infaqSettings" (
+    month TEXT PRIMARY KEY,
+    rate NUMERIC NOT NULL DEFAULT 1000,
+    "targetOverride" NUMERIC,
+    "updatedAt" TEXT
+);
+
 CREATE TABLE IF NOT EXISTS "academicRecords" (
     id TEXT PRIMARY KEY,
     "studentId" TEXT,

@@ -186,6 +186,7 @@ export interface AppSettings {
     features?: {
         enableSavings?: boolean;
         enableClassCash?: boolean;
+        enableInfaq?: boolean;
         enableAcademic?: boolean;
         enablePayments?: boolean;
         enableAttendance?: boolean;
@@ -281,6 +282,7 @@ export type View =
      | 'payments'
      | 'savings'
      | 'gemari'
+     | 'infaqJumat'
      | 'academic'
      | 'users';
 
