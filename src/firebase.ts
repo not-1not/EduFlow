@@ -165,7 +165,13 @@ export const getDoc = async (document: any) => {
     
     console.log("Fetching single doc:", tableName, docId);
     
-    const { data, error } = await supabase.from(tableName).select('*').eq('id', docId).single();
+    let { data, error } = await supabase.from(tableName).select('*').eq('id', docId).single();
+
+    if ((error || !data) && ['gemariSettings', 'infaqSettings'].includes(tableName) && docId) {
+        const byMonth = await supabase.from(tableName).select('*').eq('month', docId).single();
+        data = byMonth.data;
+        error = byMonth.error;
+    }
     
     if (error || !data) {
         return {

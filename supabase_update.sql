@@ -199,6 +199,10 @@ CREATE TABLE IF NOT EXISTS "infaqSettings" (
 
 ALTER TABLE "gemariSettings" ADD COLUMN IF NOT EXISTS "targetDays" NUMERIC;
 ALTER TABLE "infaqSettings" ADD COLUMN IF NOT EXISTS "targetDays" NUMERIC;
+ALTER TABLE "gemariSettings" ADD COLUMN IF NOT EXISTS "targetOverride" NUMERIC;
+ALTER TABLE "infaqSettings" ADD COLUMN IF NOT EXISTS "targetOverride" NUMERIC;
+ALTER TABLE "gemariSettings" ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE "infaqSettings" ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 
 CREATE TABLE IF NOT EXISTS "academicRecords" (
     id TEXT PRIMARY KEY,

@@ -5676,7 +5676,7 @@ function GemariView({
             txCount: studentTx.length
         };
     }).sort((a, b) => {
-        const order: Record<string, number> = { kurang_bayar: 0, belum_bayar: 1, sudah_bayar: 2 };
+        const order: Record<string, number> = { keKurangan: 0, belum_bayar: 1, sudah_bayar: 2 };
         return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
     }), [filteredStudents, monthTransactions, targetPerStudent]);
 
@@ -6494,10 +6494,30 @@ function InfaqJumatView({
         setInfaqSavingError('');
         const table: Record<string, { rate: number; targetDays: string; override: string }> = {};
 
-        const fetchSettings = () => supabase!
-            .from('infaqSettings')
-            .select('month, rate, "targetDays", "targetOverride"')
-            .in('month', infaqMonths);
+        const isMissingInfaqSettingsColumn = (err: any) => {
+            const message = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`;
+            return /infaqSettings\.(targetDays|targetOverride|targetdays|targetoverride)/i.test(message)
+                || /column .* does not exist/i.test(message);
+        };
+
+        const fetchSettings = async () => {
+            const camel = await supabase!
+                .from('infaqSettings')
+                .select('month, rate, "targetDays", "targetOverride"')
+                .in('month', infaqMonths);
+            if (!camel.error || !isMissingInfaqSettingsColumn(camel.error)) return camel;
+
+            const lower = await supabase!
+                .from('infaqSettings')
+                .select('month, rate, targetdays, targetoverride')
+                .in('month', infaqMonths);
+            if (!lower.error || !isMissingInfaqSettingsColumn(lower.error)) return lower;
+
+            return supabase!
+                .from('infaqSettings')
+                .select('month, rate')
+                .in('month', infaqMonths);
+        };
 
         try {
             const { data, error } = await Promise.race([
@@ -6513,10 +6533,12 @@ function InfaqJumatView({
                 for (const m of infaqMonths) {
                     if (found.has(m)) {
                         const r = rows.find((x: any) => x.month === m)!;
+                        const rowTargetDays = r.targetDays ?? r.targetdays;
+                        const rowTargetOverride = r.targetOverride ?? r.targetoverride;
                         table[m] = {
                             rate: Number(r.rate) || DEFAULT_INFAQ_RATE,
-                            targetDays: r.targetDays !== null && r.targetDays !== undefined ? String(r.targetDays) : '',
-                            override: r.targetOverride ? String(r.targetOverride) : ''
+                            targetDays: rowTargetDays !== null && rowTargetDays !== undefined ? String(rowTargetDays) : '',
+                            override: rowTargetOverride ? String(rowTargetOverride) : ''
                         };
                     } else {
                         table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
@@ -6561,8 +6583,32 @@ function InfaqJumatView({
         const saveUp = async () => {
             try {
                 if (rows.length > 0) {
-                    const { error } = await sb.from('infaqSettings').upsert(rows, { onConflict: 'month' });
-                    if (error) throw error;
+                    const isMissingInfaqSettingsColumn = (err: any) => {
+                        const message = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`;
+                        return /infaqSettings\.(targetDays|targetOverride|targetdays|targetoverride)/i.test(message)
+                            || /column .* does not exist/i.test(message);
+                    };
+
+                    const saveCamel = await sb.from('infaqSettings').upsert(rows, { onConflict: 'month' });
+                    if (saveCamel.error && isMissingInfaqSettingsColumn(saveCamel.error)) {
+                        const lowercaseRows = rows.map(({ targetDays, targetOverride, updatedAt, ...rest }) => ({
+                            ...rest,
+                            targetdays: targetDays,
+                            targetoverride: targetOverride,
+                            updatedat: updatedAt
+                        }));
+                        const saveLower = await sb.from('infaqSettings').upsert(lowercaseRows, { onConflict: 'month' });
+                        if (saveLower.error && isMissingInfaqSettingsColumn(saveLower.error)) {
+                            const basicRows = rows.map(({ targetDays: _targetDays, targetOverride: _targetOverride, ...rest }) => rest);
+                            const saveBasic = await sb.from('infaqSettings').upsert(basicRows, { onConflict: 'month' });
+                            if (saveBasic.error) throw saveBasic.error;
+                            setInfaqSavingError('Nominal tersimpan, tetapi kolom targetDays/targetOverride belum ada di tabel infaqSettings. Jalankan migration Supabase untuk menyimpan target hari dan override.');
+                        } else if (saveLower.error) {
+                            throw saveLower.error;
+                        }
+                    } else if (saveCamel.error) {
+                        throw saveCamel.error;
+                    }
                 }
                 // Update in-memory live rate from the just-saved table
                 const active = infaqTable[selectedMonth];
@@ -6632,7 +6678,7 @@ function InfaqJumatView({
             txCount: studentTx.length
         };
     }).sort((a, b) => {
-        const order: Record<string, number> = { kurang_bayar: 0, belum_bayar: 1, sudah_bayar: 2 };
+        const order: Record<string, number> = { keKurangan: 0, belum_bayar: 1, sudah_bayar: 2 };
         return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
     }), [filteredStudents, monthTransactions, targetPerStudent]);
 
