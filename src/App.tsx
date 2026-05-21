@@ -5444,7 +5444,7 @@ function GemariView({
 }) {
     const DEFAULT_GEMARI_RATE = 500;
     const todayStr = new Date().toISOString().split('T')[0];
-    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('bulk');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -5930,13 +5930,10 @@ function GemariView({
                         value={selectedMonth}
                         onChange={e => setSelectedMonth(e.target.value)}
                     />
-                    <button onClick={() => { resetForm(); setEditingTx(null); setShowForm(true); }} className="btn-primary flex items-center gap-2">
-                        <Plus size={16} /> Input Manual
-                    </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 no-print">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 no-print">
                 <div className="card">
                     <p className="stat-label">Total Target Kelas</p>
                     <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
@@ -5949,30 +5946,15 @@ function GemariView({
                     <p className="stat-label">Sisa Kekurangan</p>
                     <p className="stat-value text-red-500">{formatCurrency(totalKurang)}</p>
                 </div>
-                <div className="card">
-                    <p className="stat-label">Status Partisipasi</p>
-                    <p className="text-sm font-black text-slate-700">{countSudah} Lunas / {countKurang} Nyicil / {countBelum} Belum</p>
-                </div>
-                <div className="card cursor-pointer hover:border-accent transition-all group" onClick={openGemariSettings}>
-                    <p className="stat-label flex items-center gap-1">Tarif Harian <Settings size={10} className="group-hover:text-accent" /></p>
-                    <p className="stat-value text-purple-600">{formatCurrency(gemariRate)}</p>
-                    <p className="text-[9px] text-slate-400 mt-1">{gemariTargetOverride ? `Override: ${formatCurrency(gemariTargetOverride)}` : `${effectiveGemariDays} hari × Rp ${gemariRate.toLocaleString('id-ID')}`}</p>
-                </div>
             </div>
 
             <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
                 <div className="flex gap-8">
                     <button
-                        onClick={() => setActiveTab('overview')}
-                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'overview' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
-                    >
-                        Ringkasan Siswa
-                    </button>
-                    <button
                         onClick={() => setActiveTab('bulk')}
                         className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'bulk' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
                     >
-                        Input Massal
+                        Tabel Pembayaran
                     </button>
                     <button
                         onClick={() => setActiveTab('ledger')}
@@ -6081,7 +6063,7 @@ function GemariView({
                             <button onClick={() => fillBulkAmounts('kurang')} className="btn-small bg-amber-100 text-amber-700 shadow-none">Isi Kekurangan</button>
                             <button onClick={() => fillBulkAmounts('clear')} className="btn-small bg-slate-100 text-slate-600 shadow-none">Kosongkan</button>
                             <button onClick={handleSaveBulkGemari} disabled={bulkSaving} className="btn-small !bg-emerald-600 text-white flex items-center gap-2 disabled:opacity-50">
-                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan Massal'}
+                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan ke Supabase'}
                             </button>
                         </div>
                     </div>
@@ -6090,31 +6072,26 @@ function GemariView({
                         <table className="data-table">
                             <thead className="bg-slate-900 text-white">
                                 <tr>
-                                    <th className="!text-white border-none">NO</th>
-                                    <th className="!text-white border-none text-left">SISWA</th>
-                                    <th className="!text-white border-none text-right">TARGET</th>
-                                    <th className="!text-white border-none text-right">TERBAYAR SAAT INI</th>
-                                    <th className="!text-white border-none text-right">INPUT BARU</th>
-                                    <th className="!text-white border-none text-right">SISA SETELAH INPUT</th>
+                                    <th className="!text-white border-none text-left">NAMA SISWA</th>
+                                    <th className="!text-white border-none text-right">TARGET BAYAR</th>
+                                    <th className="!text-white border-none text-right">INPUT BAYAR</th>
+                                    <th className="!text-white border-none text-right">KEKURANGAN BAYAR</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {studentRows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
+                                        <td colSpan={4} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
                                     </tr>
-                                ) : studentRows.map((row, index) => {
+                                ) : studentRows.map(row => {
                                     const newAmount = Number(bulkAmounts[row.student.id] || 0);
                                     const remaining = Math.max(0, targetPerStudent - newAmount);
                                     return (
                                         <tr key={row.student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
-                                            <td className="font-mono text-xs text-slate-400">{index + 1}</td>
                                             <td className="py-3">
                                                 <div className="font-bold text-slate-700">{row.student.name}</div>
-                                                <div className="text-[10px] uppercase tracking-widest text-slate-400">NIS: {(row.student as any).nis || '-'}</div>
                                             </td>
                                             <td className="text-right font-black">{formatCurrency(targetPerStudent)}</td>
-                                            <td className="text-right font-bold text-emerald-600">{formatCurrency(row.paid)}</td>
                                             <td className="text-right">
                                                 <input
                                                     type="number"
@@ -6135,9 +6112,8 @@ function GemariView({
                             {studentRows.length > 0 && (
                                 <tfoot className="bg-slate-50 font-black">
                                     <tr>
-                                        <td colSpan={2} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
+                                        <td className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
                                         <td className="text-right">{formatCurrency(totalTarget)}</td>
-                                        <td className="text-right text-emerald-600">{formatCurrency(totalPaid)}</td>
                                         <td className="text-right text-accent">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Number(bulkAmounts[s.id] || 0), 0))}</td>
                                         <td className="text-right text-red-500">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Math.max(0, targetPerStudent - Number(bulkAmounts[s.id] || 0)), 0))}</td>
                                     </tr>
@@ -6569,7 +6545,7 @@ function InfaqJumatView({
 }) {
     const DEFAULT_INFAQ_RATE = 1000;
     const todayStr = new Date().toISOString().split('T')[0];
-    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('bulk');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -7101,13 +7077,10 @@ function InfaqJumatView({
                         value={selectedMonth}
                         onChange={e => setSelectedMonth(e.target.value)}
                     />
-                    <button onClick={() => { resetForm(); setEditingTx(null); setShowForm(true); }} className="btn-primary flex items-center gap-2">
-                        <Plus size={16} /> Input Manual
-                    </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 no-print">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 no-print">
                 <div className="card">
                     <p className="stat-label">Total Target Infaq</p>
                     <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
@@ -7120,11 +7093,7 @@ function InfaqJumatView({
                     <p className="stat-label">Kekurangan</p>
                     <p className="stat-value text-red-500">{formatCurrency(totalKekurangan)}</p>
                 </div>
-                <div className="card">
-                    <p className="stat-label">Status Terbayar</p>
-                    <p className="text-sm font-black text-slate-700">{countSudah} Lunas / {countKekurangan} Nyicil / {countBelum} Belum</p>
-                </div>
-                <div className="card cursor-pointer hover:border-accent transition-all group" onClick={openInfaqSettings}>
+                <div className="hidden">
                     <p className="stat-label flex items-center gap-1">Nominal Infaq <Settings size={10} className="group-hover:text-accent" /></p>
                     <p className="stat-value text-purple-600">{formatCurrency(infaqRate)}</p>
                     <p className="text-[9px] text-slate-400 mt-1">{infaqTargetOverride ? `Override: ${formatCurrency(infaqTargetOverride)}` : `${effectiveInfaqDays} hari × Rp ${infaqRate.toLocaleString('id-ID')}`}</p>
@@ -7134,16 +7103,10 @@ function InfaqJumatView({
             <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
                 <div className="flex gap-8">
                     <button
-                        onClick={() => setActiveTab('overview')}
-                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'overview' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
-                    >
-                        Ringkasan Siswa
-                    </button>
-                    <button
                         onClick={() => setActiveTab('bulk')}
                         className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'bulk' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
                     >
-                        Input Massal
+                        Tabel Pembayaran
                     </button>
                     <button
                         onClick={() => setActiveTab('ledger')}
@@ -7252,7 +7215,7 @@ function InfaqJumatView({
                             <button onClick={() => fillBulkAmounts('kurang')} className="btn-small bg-amber-100 text-amber-700 shadow-none">Isi Kekurangan</button>
                             <button onClick={() => fillBulkAmounts('clear')} className="btn-small bg-slate-100 text-slate-600 shadow-none">Kosongkan</button>
                             <button onClick={handleSaveBulkInfaq} disabled={bulkSaving} className="btn-small !bg-emerald-600 text-white flex items-center gap-2 disabled:opacity-50">
-                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan Massal'}
+                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan ke Supabase'}
                             </button>
                         </div>
                     </div>
@@ -7261,31 +7224,26 @@ function InfaqJumatView({
                         <table className="data-table">
                             <thead className="bg-slate-900 text-white">
                                 <tr>
-                                    <th className="!text-white border-none">NO</th>
-                                    <th className="!text-white border-none text-left">SISWA</th>
-                                    <th className="!text-white border-none text-right">TARGET</th>
-                                    <th className="!text-white border-none text-right">TERBAYAR SAAT INI</th>
-                                    <th className="!text-white border-none text-right">INPUT BARU</th>
-                                    <th className="!text-white border-none text-right">SISA SETELAH INPUT</th>
+                                    <th className="!text-white border-none text-left">NAMA SISWA</th>
+                                    <th className="!text-white border-none text-right">TARGET BAYAR</th>
+                                    <th className="!text-white border-none text-right">INPUT BAYAR</th>
+                                    <th className="!text-white border-none text-right">KEKURANGAN BAYAR</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {studentRows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
+                                        <td colSpan={4} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
                                     </tr>
-                                ) : studentRows.map((row, index) => {
+                                ) : studentRows.map(row => {
                                     const newAmount = Number(bulkAmounts[row.student.id] || 0);
                                     const remaining = Math.max(0, targetPerStudent - newAmount);
                                     return (
                                         <tr key={row.student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
-                                            <td className="font-mono text-xs text-slate-400">{index + 1}</td>
                                             <td className="py-3">
                                                 <div className="font-bold text-slate-700">{row.student.name}</div>
-                                                <div className="text-[10px] uppercase tracking-widest text-slate-400">NIS: {(row.student as any).nis || '-'}</div>
                                             </td>
                                             <td className="text-right font-black">{formatCurrency(targetPerStudent)}</td>
-                                            <td className="text-right font-bold text-emerald-600">{formatCurrency(row.paid)}</td>
                                             <td className="text-right">
                                                 <input
                                                     type="number"
@@ -7306,9 +7264,8 @@ function InfaqJumatView({
                             {studentRows.length > 0 && (
                                 <tfoot className="bg-slate-50 font-black">
                                     <tr>
-                                        <td colSpan={2} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
+                                        <td className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
                                         <td className="text-right">{formatCurrency(totalTarget)}</td>
-                                        <td className="text-right text-emerald-600">{formatCurrency(totalPaid)}</td>
                                         <td className="text-right text-accent">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Number(bulkAmounts[s.id] || 0), 0))}</td>
                                         <td className="text-right text-red-500">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Math.max(0, targetPerStudent - Number(bulkAmounts[s.id] || 0)), 0))}</td>
                                     </tr>
