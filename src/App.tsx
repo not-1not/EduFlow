@@ -5444,7 +5444,7 @@ function GemariView({
 }) {
     const DEFAULT_GEMARI_RATE = 500;
     const todayStr = new Date().toISOString().split('T')[0];
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('overview');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -5455,6 +5455,10 @@ function GemariView({
     const [gemariTargetOverride, setGemariTargetOverride] = useState<number | null>(null);
     const [gemariTargetDays, setGemariTargetDays] = useState<number | null>(null);
     const [showGemariSettings, setShowGemariSettings] = useState(false);
+    const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
+    const [bulkDate, setBulkDate] = useState(todayStr);
+    const [bulkNotes, setBulkNotes] = useState('');
+    const [bulkSaving, setBulkSaving] = useState(false);
 
     // Table-based settings: map of month -> { rate, targetDays, override }
     const currentYear = new Date().getFullYear();
@@ -5688,6 +5692,12 @@ function GemariView({
     const countKurang = studentRows.filter(row => row.status === 'kurang_bayar').length;
 
     useEffect(() => {
+        setBulkAmounts(Object.fromEntries(studentRows.map(row => [row.student.id, row.paid > 0 ? String(row.paid) : ''])));
+        setBulkNotes(`Rekap GEMARI ${selectedMonth}`);
+        setBulkDate(`${selectedMonth}-01`);
+    }, [studentRows, selectedMonth]);
+
+    useEffect(() => {
         if (!classes.length) return;
         if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
             setSelectedClassId(classes[0].id);
@@ -5816,6 +5826,66 @@ function GemariView({
         onRefresh();
     };
 
+    const handleBulkAmountChange = (studentId: string, value: string) => {
+        setBulkAmounts(prev => ({ ...prev, [studentId]: value }));
+    };
+
+    const fillBulkAmounts = (mode: 'target' | 'kurang' | 'clear') => {
+        if (mode === 'clear') {
+            setBulkAmounts(Object.fromEntries(filteredStudents.map(s => [s.id, ''])));
+            return;
+        }
+
+        setBulkAmounts(Object.fromEntries(studentRows.map(row => {
+            const amount = mode === 'target' ? targetPerStudent : row.kurang;
+            return [row.student.id, amount > 0 ? String(amount) : ''];
+        })));
+    };
+
+    const handleSaveBulkGemari = async () => {
+        if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
+        if (!bulkDate || !bulkDate.startsWith(selectedMonth)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
+
+        const invalidRow = filteredStudents.find(s => Number(bulkAmounts[s.id] || 0) < 0);
+        if (invalidRow) return alert(`Nominal ${invalidRow.name} tidak boleh negatif.`);
+
+        const existingStudentTx = monthTransactions.filter(t => t.studentId && filteredStudents.some(s => s.id === t.studentId));
+        const newEntries = filteredStudents
+            .map(s => ({
+                classId: selectedClassId,
+                studentId: s.id,
+                type: 'gemari' as const,
+                transactionType: 'deposit' as const,
+                amount: Number(bulkAmounts[s.id] || 0),
+                date: bulkDate,
+                notes: bulkNotes || `Rekap GEMARI ${selectedMonth}`
+            }))
+            .filter(entry => entry.amount > 0);
+
+        if (existingStudentTx.length > 0) {
+            const ok = confirm(`Simpan input massal GEMARI untuk ${filteredStudents.length} siswa?\n\nTransaksi GEMARI per siswa pada bulan ${selectedMonth} akan diganti dengan data tabel ini.`);
+            if (!ok) return;
+        }
+
+        setBulkSaving(true);
+        try {
+            const deleteEntries = existingStudentTx.map(tx => ({
+                classId: tx.classId,
+                studentId: tx.studentId || '',
+                type: 'gemari' as const,
+                transactionType: tx.transactionType || 'deposit',
+                amount: -1,
+                date: tx.date,
+                notes: tx.notes
+            }));
+
+            await persistClassCashEntries([...deleteEntries, ...newEntries]);
+            onRefresh();
+        } finally {
+            setBulkSaving(false);
+        }
+    };
+
     // Calculate Ledger Rows with Running Balance
     const ledgerRows = React.useMemo(() => {
         const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
@@ -5899,6 +5969,12 @@ function GemariView({
                         Ringkasan Siswa
                     </button>
                     <button
+                        onClick={() => setActiveTab('bulk')}
+                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'bulk' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
+                    >
+                        Input Massal
+                    </button>
+                    <button
                         onClick={() => setActiveTab('ledger')}
                         className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'ledger' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
                     >
@@ -5976,6 +6052,99 @@ function GemariView({
                             </div>
                         </div>
                     ))}
+                </div>
+            ) : activeTab === 'bulk' ? (
+                <div className="space-y-4">
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-border no-print flex flex-col lg:flex-row gap-4 justify-between lg:items-end">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal Input</label>
+                                <input
+                                    type="date"
+                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                                    value={bulkDate}
+                                    onChange={e => setBulkDate(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Catatan</label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                                    value={bulkNotes}
+                                    onChange={e => setBulkNotes(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => fillBulkAmounts('target')} className="btn-small bg-slate-900 text-yellow-400">Isi Target</button>
+                            <button onClick={() => fillBulkAmounts('kurang')} className="btn-small bg-amber-100 text-amber-700 shadow-none">Isi Kekurangan</button>
+                            <button onClick={() => fillBulkAmounts('clear')} className="btn-small bg-slate-100 text-slate-600 shadow-none">Kosongkan</button>
+                            <button onClick={handleSaveBulkGemari} disabled={bulkSaving} className="btn-small !bg-emerald-600 text-white flex items-center gap-2 disabled:opacity-50">
+                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan Massal'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="table-container shadow-sm overflow-x-auto">
+                        <table className="data-table">
+                            <thead className="bg-slate-900 text-white">
+                                <tr>
+                                    <th className="!text-white border-none">NO</th>
+                                    <th className="!text-white border-none text-left">SISWA</th>
+                                    <th className="!text-white border-none text-right">TARGET</th>
+                                    <th className="!text-white border-none text-right">TERBAYAR SAAT INI</th>
+                                    <th className="!text-white border-none text-right">INPUT BARU</th>
+                                    <th className="!text-white border-none text-right">SISA SETELAH INPUT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {studentRows.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
+                                    </tr>
+                                ) : studentRows.map((row, index) => {
+                                    const newAmount = Number(bulkAmounts[row.student.id] || 0);
+                                    const remaining = Math.max(0, targetPerStudent - newAmount);
+                                    return (
+                                        <tr key={row.student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
+                                            <td className="font-mono text-xs text-slate-400">{index + 1}</td>
+                                            <td className="py-3">
+                                                <div className="font-bold text-slate-700">{row.student.name}</div>
+                                                <div className="text-[10px] uppercase tracking-widest text-slate-400">NIS: {(row.student as any).nis || '-'}</div>
+                                            </td>
+                                            <td className="text-right font-black">{formatCurrency(targetPerStudent)}</td>
+                                            <td className="text-right font-bold text-emerald-600">{formatCurrency(row.paid)}</td>
+                                            <td className="text-right">
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    className="w-36 max-w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-right font-black outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                                                    value={bulkAmounts[row.student.id] ?? ''}
+                                                    onChange={e => handleBulkAmountChange(row.student.id, e.target.value)}
+                                                    placeholder="0"
+                                                />
+                                            </td>
+                                            <td className={`text-right font-black ${remaining > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                                {formatCurrency(remaining)}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            {studentRows.length > 0 && (
+                                <tfoot className="bg-slate-50 font-black">
+                                    <tr>
+                                        <td colSpan={2} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
+                                        <td className="text-right">{formatCurrency(totalTarget)}</td>
+                                        <td className="text-right text-emerald-600">{formatCurrency(totalPaid)}</td>
+                                        <td className="text-right text-accent">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Number(bulkAmounts[s.id] || 0), 0))}</td>
+                                        <td className="text-right text-red-500">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Math.max(0, targetPerStudent - Number(bulkAmounts[s.id] || 0)), 0))}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
                 </div>
             ) : (
                 <div className="space-y-4">
@@ -6400,7 +6569,7 @@ function InfaqJumatView({
 }) {
     const DEFAULT_INFAQ_RATE = 1000;
     const todayStr = new Date().toISOString().split('T')[0];
-    const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('overview');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -6411,6 +6580,10 @@ function InfaqJumatView({
     const [infaqTargetOverride, setInfaqTargetOverride] = useState<number | null>(null);
     const [infaqTargetDays, setInfaqTargetDays] = useState<number | null>(null);
     const [showInfaqSettings, setShowInfaqSettings] = useState(false);
+    const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
+    const [bulkDate, setBulkDate] = useState(todayStr);
+    const [bulkNotes, setBulkNotes] = useState('');
+    const [bulkSaving, setBulkSaving] = useState(false);
 
     // Table-based settings: map of month -> { rate, targetDays, override }
     const currentYear = new Date().getFullYear();
@@ -6690,6 +6863,12 @@ function InfaqJumatView({
     const countKekurangan = studentRows.filter(row => row.status === 'keKurangan').length;
 
     useEffect(() => {
+        setBulkAmounts(Object.fromEntries(studentRows.map(row => [row.student.id, row.paid > 0 ? String(row.paid) : ''])));
+        setBulkNotes(`Rekap INFAQ Jumat ${selectedMonth}`);
+        setBulkDate(`${selectedMonth}-01`);
+    }, [studentRows, selectedMonth]);
+
+    useEffect(() => {
         if (!classes.length) return;
         if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
             setSelectedClassId(classes[0].id);
@@ -6818,6 +6997,66 @@ function InfaqJumatView({
         onRefresh();
     };
 
+    const handleBulkAmountChange = (studentId: string, value: string) => {
+        setBulkAmounts(prev => ({ ...prev, [studentId]: value }));
+    };
+
+    const fillBulkAmounts = (mode: 'target' | 'kurang' | 'clear') => {
+        if (mode === 'clear') {
+            setBulkAmounts(Object.fromEntries(filteredStudents.map(s => [s.id, ''])));
+            return;
+        }
+
+        setBulkAmounts(Object.fromEntries(studentRows.map(row => {
+            const amount = mode === 'target' ? targetPerStudent : row.kurang;
+            return [row.student.id, amount > 0 ? String(amount) : ''];
+        })));
+    };
+
+    const handleSaveBulkInfaq = async () => {
+        if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
+        if (!bulkDate || !bulkDate.startsWith(selectedMonth)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
+
+        const invalidRow = filteredStudents.find(s => Number(bulkAmounts[s.id] || 0) < 0);
+        if (invalidRow) return alert(`Nominal ${invalidRow.name} tidak boleh negatif.`);
+
+        const existingStudentTx = monthTransactions.filter(t => t.studentId && filteredStudents.some(s => s.id === t.studentId));
+        const newEntries = filteredStudents
+            .map(s => ({
+                classId: selectedClassId,
+                studentId: s.id,
+                type: 'infaq' as const,
+                transactionType: 'deposit' as const,
+                amount: Number(bulkAmounts[s.id] || 0),
+                date: bulkDate,
+                notes: bulkNotes || `Rekap INFAQ Jumat ${selectedMonth}`
+            }))
+            .filter(entry => entry.amount > 0);
+
+        if (existingStudentTx.length > 0) {
+            const ok = confirm(`Simpan input massal INFAQ Jumat untuk ${filteredStudents.length} siswa?\n\nTransaksi INFAQ per siswa pada bulan ${selectedMonth} akan diganti dengan data tabel ini.`);
+            if (!ok) return;
+        }
+
+        setBulkSaving(true);
+        try {
+            const deleteEntries = existingStudentTx.map(tx => ({
+                classId: tx.classId,
+                studentId: tx.studentId || '',
+                type: 'infaq' as const,
+                transactionType: tx.transactionType || 'deposit',
+                amount: -1,
+                date: tx.date,
+                notes: tx.notes
+            }));
+
+            await persistClassCashEntries([...deleteEntries, ...newEntries]);
+            onRefresh();
+        } finally {
+            setBulkSaving(false);
+        }
+    };
+
     // Calculate Ledger Rows with Running Balance
     const ledgerRows = React.useMemo(() => {
         const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
@@ -6901,6 +7140,12 @@ function InfaqJumatView({
                         Ringkasan Siswa
                     </button>
                     <button
+                        onClick={() => setActiveTab('bulk')}
+                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'bulk' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
+                    >
+                        Input Massal
+                    </button>
+                    <button
                         onClick={() => setActiveTab('ledger')}
                         className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'ledger' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
                     >
@@ -6978,6 +7223,99 @@ function InfaqJumatView({
                             </div>
                         </div>
                     ))}
+                </div>
+            ) : activeTab === 'bulk' ? (
+                <div className="space-y-4">
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-border no-print flex flex-col lg:flex-row gap-4 justify-between lg:items-end">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal Input</label>
+                                <input
+                                    type="date"
+                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                                    value={bulkDate}
+                                    onChange={e => setBulkDate(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Catatan</label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                                    value={bulkNotes}
+                                    onChange={e => setBulkNotes(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => fillBulkAmounts('target')} className="btn-small bg-slate-900 text-yellow-400">Isi Target</button>
+                            <button onClick={() => fillBulkAmounts('kurang')} className="btn-small bg-amber-100 text-amber-700 shadow-none">Isi Kekurangan</button>
+                            <button onClick={() => fillBulkAmounts('clear')} className="btn-small bg-slate-100 text-slate-600 shadow-none">Kosongkan</button>
+                            <button onClick={handleSaveBulkInfaq} disabled={bulkSaving} className="btn-small !bg-emerald-600 text-white flex items-center gap-2 disabled:opacity-50">
+                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan Massal'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="table-container shadow-sm overflow-x-auto">
+                        <table className="data-table">
+                            <thead className="bg-slate-900 text-white">
+                                <tr>
+                                    <th className="!text-white border-none">NO</th>
+                                    <th className="!text-white border-none text-left">SISWA</th>
+                                    <th className="!text-white border-none text-right">TARGET</th>
+                                    <th className="!text-white border-none text-right">TERBAYAR SAAT INI</th>
+                                    <th className="!text-white border-none text-right">INPUT BARU</th>
+                                    <th className="!text-white border-none text-right">SISA SETELAH INPUT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {studentRows.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
+                                    </tr>
+                                ) : studentRows.map((row, index) => {
+                                    const newAmount = Number(bulkAmounts[row.student.id] || 0);
+                                    const remaining = Math.max(0, targetPerStudent - newAmount);
+                                    return (
+                                        <tr key={row.student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
+                                            <td className="font-mono text-xs text-slate-400">{index + 1}</td>
+                                            <td className="py-3">
+                                                <div className="font-bold text-slate-700">{row.student.name}</div>
+                                                <div className="text-[10px] uppercase tracking-widest text-slate-400">NIS: {(row.student as any).nis || '-'}</div>
+                                            </td>
+                                            <td className="text-right font-black">{formatCurrency(targetPerStudent)}</td>
+                                            <td className="text-right font-bold text-emerald-600">{formatCurrency(row.paid)}</td>
+                                            <td className="text-right">
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    className="w-36 max-w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-right font-black outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                                                    value={bulkAmounts[row.student.id] ?? ''}
+                                                    onChange={e => handleBulkAmountChange(row.student.id, e.target.value)}
+                                                    placeholder="0"
+                                                />
+                                            </td>
+                                            <td className={`text-right font-black ${remaining > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                                {formatCurrency(remaining)}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            {studentRows.length > 0 && (
+                                <tfoot className="bg-slate-50 font-black">
+                                    <tr>
+                                        <td colSpan={2} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
+                                        <td className="text-right">{formatCurrency(totalTarget)}</td>
+                                        <td className="text-right text-emerald-600">{formatCurrency(totalPaid)}</td>
+                                        <td className="text-right text-accent">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Number(bulkAmounts[s.id] || 0), 0))}</td>
+                                        <td className="text-right text-red-500">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Math.max(0, targetPerStudent - Number(bulkAmounts[s.id] || 0)), 0))}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
                 </div>
             ) : (
                 <div className="space-y-4">
