@@ -3222,7 +3222,7 @@ function AttendanceView({
     const [activeTab, setActiveTab] = useState<'daily' | 'monthly'>('daily');
     const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
     const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [selectedYear, setSelectedYear] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
     const classStudents = students.filter(s => s.classId === selectedClassId);
     const currentHoliday = holidays.find(h => h.date === selectedDate);
@@ -3308,7 +3308,7 @@ function AttendanceView({
         <div className="space-y-6 print-container">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">LAPORAN PRESENSI SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Kelas: {classes.find(c => c.id === selectedClassId)?.name || '-'} | Periode: {activeTab === 'daily' ? selectedDate : selectedMonth}</p>
+                <p className="text-xs font-bold text-slate-500">Kelas: {classes.find(c => c.id === selectedClassId)?.name || '-'} | Periode: {activeTab === 'daily' ? selectedDate : selectedYear}</p>
             </div>
 
             <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
@@ -3370,8 +3370,8 @@ function AttendanceView({
                             pattern="\d{4}-\d{2}"
                             title="Format: YYYY-MM"
                             className="w-full bg-white border border-border rounded-xl p-3 outline-none font-bold"
-                            value={selectedMonth}
-                            onChange={e => setSelectedMonth(e.target.value)}
+                            value={selectedYear}
+                            onChange={e => setSelectedYear(e.target.value)}
                         />
                     </div>
                 )}
@@ -3437,7 +3437,7 @@ function AttendanceView({
                 ) : (
                     <MonthlyAttendanceView
                         students={classStudents}
-                        month={selectedMonth}
+                        month={selectedYear}
                         attendanceRecords={attendanceRecords}
                         classId={selectedClassId}
                         holidays={holidays}
@@ -5446,17 +5446,15 @@ function GemariView({
     const todayStr = new Date().toISOString().split('T')[0];
     const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('bulk');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
-    const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [selectedStudentId, setSelectedStudentId] = useState('');
     const [showForm, setShowForm] = useState(false);
     const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
     const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
-    const [gemariRate, setGemariRate] = useState(DEFAULT_GEMARI_RATE);
-    const [gemariTargetOverride, setGemariTargetOverride] = useState<number | null>(null);
-    const [gemariTargetDays, setGemariTargetDays] = useState<number | null>(null);
+    const [annualTarget, setAnnualTarget] = useState<number>(0);
     const [showGemariSettings, setShowGemariSettings] = useState(false);
     const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
-    const [bulkDate, setBulkDate] = useState(todayStr);
+    const [bulkDate, setBulkDate] = useState(`${selectedYear}-01-01`);
     const [bulkNotes, setBulkNotes] = useState('');
     const [bulkSaving, setBulkSaving] = useState(false);
 
@@ -5513,28 +5511,28 @@ function GemariView({
 
     // Load monthly gemari settings from Firestore (for the active month)
     React.useEffect(() => {
-        if (!selectedMonth) return;
+        if (!selectedYear) return;
         (async () => {
             try {
-                const settingsRef = doc(db, 'gemariSettings', selectedMonth);
+                const settingsRef = doc(db, 'gemariSettings', selectedYear);
                 const snap = await getDoc(settingsRef);
                 if (snap.exists()) {
                     const data = snap.data();
-                    setGemariRate(Number(data.rate) || DEFAULT_GEMARI_RATE);
-                    setGemariTargetOverride(data.targetOverride ? Number(data.targetOverride) : null);
-                    setGemariTargetDays(data.targetDays !== null && data.targetDays !== undefined ? Number(data.targetDays) : null);
+                    
+                    
+                    
                 } else {
-                    setGemariRate(DEFAULT_GEMARI_RATE);
-                    setGemariTargetOverride(null);
-                    setGemariTargetDays(null);
+                    
+                    
+                    
                 }
             } catch {
-                setGemariRate(DEFAULT_GEMARI_RATE);
-                setGemariTargetOverride(null);
-                setGemariTargetDays(null);
+                
+                
+                
             }
         })();
-    }, [selectedMonth]);
+    }, [selectedYear]);
 
     // Load all settings for the table range (single batch query)
     const loadSettingsTable = async () => {
@@ -5613,11 +5611,11 @@ function GemariView({
                     if (error) throw error;
                 }
                 // Update in-memory live rate from the just-saved table
-                const active = settingsTable[selectedMonth];
+                const active = settingsTable[selectedYear];
                 if (active) {
-                    setGemariRate(Number(active.rate) || DEFAULT_GEMARI_RATE);
-                    setGemariTargetOverride(active.override ? Number(active.override) : null);
-                    setGemariTargetDays(active.targetDays !== '' ? Number(active.targetDays) : null);
+                    
+                    
+                    
                 }
             } catch (err: any) {
                 console.error('Gagal menyimpan pengaturan GEMARI:', err);
@@ -5629,14 +5627,7 @@ function GemariView({
         void saveUp();
     };
 
-    const handleBulkFillRate = () => {
-        const updated = { ...settingsTable };
-        for (const m of settingsMonths) {
-            updated[m] = { ...(updated[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), rate: settingsBulkRate };
-        }
-        setSettingsTable(updated);
-    };
-
+    
     const getStudentName = (id: string) => {
         const s = students.find(x => x.id === id);
         return s?.name || (s as any)?.displayName || (s as any)?.fullName || (s as any)?.nama || 'Umum / Kolektif';
@@ -5648,24 +5639,10 @@ function GemariView({
     
     // Transactions for the selected month and class
     const monthTransactions = React.useMemo(() => transactions
-        .filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth))
-        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedMonth]);
+        .filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedYear))
+        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedYear]);
 
-    const monthSchoolDays = React.useMemo(() => {
-        const [y, m] = selectedMonth.split('-').map(Number);
-        if (!y || !m) return 0;
-        const daysInMonth = new Date(y, m, 0).getDate();
-        let total = 0;
-        for (let day = 1; day <= daysInMonth; day++) {
-            const d = new Date(y, m - 1, day);
-            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
-            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
-            if (d.getDay() !== 0 && !isHoliday) total++;
-        }
-        return total;
-    }, [selectedMonth, holidays]);
-    const effectiveGemariDays = gemariTargetDays ?? monthSchoolDays;
-    const targetPerStudent = gemariTargetOverride || (effectiveGemariDays * gemariRate);
+    const targetPerStudent = annualTarget;
 
     const studentRows = React.useMemo(() => filteredStudents.map(s => {
         const studentTx = monthTransactions.filter(t => t.studentId === s.id);
@@ -5693,9 +5670,9 @@ function GemariView({
 
     useEffect(() => {
         setBulkAmounts(Object.fromEntries(studentRows.map(row => [row.student.id, row.paid > 0 ? String(row.paid) : ''])));
-        setBulkNotes(`Rekap GEMARI ${selectedMonth}`);
-        setBulkDate(`${selectedMonth}-01`);
-    }, [studentRows, selectedMonth]);
+        setBulkNotes(`Rekap GEMARI ${selectedYear}`);
+        setBulkDate(`${selectedYear}-01`);
+    }, [studentRows, selectedYear]);
 
     useEffect(() => {
         if (!classes.length) return;
@@ -5844,7 +5821,7 @@ function GemariView({
 
     const handleSaveBulkGemari = async () => {
         if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
-        if (!bulkDate || !bulkDate.startsWith(selectedMonth)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
+        if (!bulkDate || !bulkDate.startsWith(selectedYear)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
 
         const invalidRow = filteredStudents.find(s => Number(bulkAmounts[s.id] || 0) < 0);
         if (invalidRow) return alert(`Nominal ${invalidRow.name} tidak boleh negatif.`);
@@ -5858,12 +5835,12 @@ function GemariView({
                 transactionType: 'deposit' as const,
                 amount: Number(bulkAmounts[s.id] || 0),
                 date: bulkDate,
-                notes: bulkNotes || `Rekap GEMARI ${selectedMonth}`
+                notes: bulkNotes || `Rekap GEMARI ${selectedYear}`
             }))
             .filter(entry => entry.amount > 0);
 
         if (existingStudentTx.length > 0) {
-            const ok = confirm(`Simpan input massal GEMARI untuk ${filteredStudents.length} siswa?\n\nTransaksi GEMARI per siswa pada bulan ${selectedMonth} akan diganti dengan data tabel ini.`);
+            const ok = confirm(`Simpan input massal GEMARI untuk ${filteredStudents.length} siswa?\n\nTransaksi GEMARI per siswa pada bulan ${selectedYear} akan diganti dengan data tabel ini.`);
             if (!ok) return;
         }
 
@@ -5908,7 +5885,7 @@ function GemariView({
         <div className="space-y-6 print-container">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">GEMARI SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Buku Transaksi: {selectedClass?.name} - {selectedMonth}</p>
+                <p className="text-xs font-bold text-slate-500">Buku Transaksi: {selectedClass?.name} - Tahun {selectedYear}</p>
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
@@ -5924,11 +5901,10 @@ function GemariView({
                     >
                         {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
                     </select>
-                    <input
-                        type="month"
+                    <input type="number" min="2000" max="2100"
                         className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
-                        value={selectedMonth}
-                        onChange={e => setSelectedMonth(e.target.value)}
+                        value={selectedYear}
+                        onChange={e => setSelectedYear(e.target.value)}
                     />
                 </div>
             </div>
@@ -5977,7 +5953,7 @@ function GemariView({
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: {effectiveGemariDays} hari × {formatCurrency(gemariRate)}</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: 1 Tahun</p>
                                 </div>
                                 <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                                     row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
@@ -6385,130 +6361,35 @@ function GemariView({
                                 </button>
                             </div>
 
-                            {/* Range picker */}
-                            <div className="flex flex-wrap gap-4 items-end mb-4 pb-4 border-b border-border">
+                            
+                            <div className="space-y-4 mb-6 relative z-10">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Mulai</label>
-                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={settingsRangeStart} onChange={e => { setSettingsRangeStart(e.target.value); }} />
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Target 1 Tahun (Rp) - Periode {selectedYear}</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-lg font-black text-purple-700 outline-none focus:border-purple-500" 
+                                        value={annualTarget} 
+                                        onChange={e => setAnnualTarget(parseInt(e.target.value) || 0)} 
+                                    />
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Sampai</label>
-                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={settingsRangeEnd} onChange={e => { setSettingsRangeEnd(e.target.value); }} />
-                                </div>
-                                <button onClick={loadSettingsTable} className="btn-small !bg-purple-100 text-purple-700 hover:!bg-purple-200 font-bold">
-                                    Muat Data
-                                </button>
-                                <div className="flex-1" />
-                                <div className="flex items-end gap-2">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Isi Semua</label>
-                                        <input type="number" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none w-28 focus:border-purple-500" value={settingsBulkRate} onChange={e => setSettingsBulkRate(Number(e.target.value))} min={0} />
-                                    </div>
-                                    <button onClick={handleBulkFillRate} className="btn-small !bg-purple-600 text-white hover:!bg-purple-700 font-bold">
-                                        Terapkan
-                                    </button>
-                                </div>
-                            </div>
-
-                            {settingsSavingError && (
-                                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] text-red-600 font-bold whitespace-pre-line flex items-start justify-between gap-3">
-                                    <span>{settingsSavingError}</span>
-                                    <button onClick={() => setSettingsSavingError('')} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
-                                </div>
-                            )}
-
-                            {/* Table */}
-                            <div className="overflow-y-auto flex-1 -mx-2 px-2">
-                                {settingsLoading ? (
-                                    <div className="text-center py-16 text-slate-400 italic">Memuat data pengaturan...</div>
-                                ) : (
-                                    <table className="w-full text-sm border-collapse">
-                                        <thead className="sticky top-0 bg-white z-10">
-                                            <tr className="border-b-2 border-purple-200">
-                                                <th className="text-left py-3 px-2 text-[10px] font-black uppercase text-slate-500">Bulan</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-20">Hari Kerja</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Tarif Harian</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-36">Override Target</th>
-                                                <th className="text-right py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Target/Siswa</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {settingsMonths.map(m => {
-                                                const entry = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
-                                                const days = entry.targetDays !== '' ? Number(entry.targetDays) : getSchoolDaysForMonth(m);
-                                                const target = entry.override ? Number(entry.override) : days * entry.rate;
-                                                const isActive = m === selectedMonth;
-                                                return (
-                                                    <tr key={m} className={`border-b border-slate-100 transition-all ${isActive ? 'bg-purple-50/50 ring-1 ring-purple-200' : 'hover:bg-slate-50'}`}>
-                                                        <td className="py-2.5 px-2">
-                                                            <span className={`font-bold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>{monthLabel(m)}</span>
-                                                            {isActive && <span className="ml-2 text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black">AKTIF</span>}
-                                                        </td>
-                                                        <td className="py-2.5 px-2">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-                                                                value={entry.targetDays}
-                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), targetDays: e.target.value } }))}
-                                                                placeholder={String(getSchoolDaysForMonth(m))}
-                                                                min={0}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2.5 px-2">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-                                                                value={entry.rate}
-                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), rate: Number(e.target.value) } }))}
-                                                                min={0}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2.5 px-2">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-                                                                value={entry.override}
-                                                                onChange={e => setSettingsTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' }), override: e.target.value } }))}
-                                                                placeholder="—"
-                                                                min={0}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2.5 px-2 text-right font-black text-purple-600">
-                                                            {formatCurrency(target)}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                        <tfoot className="border-t-2 border-purple-200 bg-purple-50/30">
-                                            <tr>
-                                                <td colSpan={4} className="py-3 px-2 text-right text-[10px] font-black uppercase text-purple-500">Total Target/Siswa (Setahun):</td>
-                                                <td className="py-3 px-2 text-right font-black text-purple-700 text-base">
-                                                    {formatCurrency(settingsMonths.reduce((sum, m) => {
-                                                        const e = settingsTable[m] || { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
-                                                        const days = e.targetDays !== '' ? Number(e.targetDays) : getSchoolDaysForMonth(m);
-                                                        return sum + (e.override ? Number(e.override) : days * e.rate);
-                                                    }, 0))}
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                )}
-                            </div>
-
-                            <div className="flex gap-3 mt-5 pt-4 border-t border-border">
-                                <button 
-                                    onClick={() => setShowGemariSettings(false)} 
-                                    className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                <button
+                                    className="w-full btn-primary bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold uppercase tracking-widest text-xs"
+                                    onClick={async () => {
+                                        if(!supabase) return alert('Supabase tidak terkonfigurasi');
+                                        try {
+                                            await supabase.from('gemariSettings').upsert({
+                                                month: 'YEAR_' + selectedYear,
+                                                targetOverride: annualTarget,
+                                                updatedAt: new Date().toISOString() // Fixed syntax
+                                            }, { onConflict: 'month' });
+                                            alert('Target 1 Tahun berhasil disimpan');
+                                            setShowGemariSettings(false);
+                                        } catch (e: any) {
+                                            alert('Gagal simpan: ' + e.message);
+                                        }
+                                    }}
                                 >
-                                    Batal
-                                </button>
-                                <button 
-                                    onClick={handleSaveAllSettings} 
-                                    disabled={settingsLoading}
-                                    className="flex-[3] py-3 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 active:scale-95 transition-all disabled:opacity-50"
-                                >
-                                    {settingsLoading ? 'Menyimpan...' : 'Simpan Semua Pengaturan'}
+                                    Simpan Target Tahunan
                                 </button>
                             </div>
                         </motion.div>
@@ -6547,17 +6428,15 @@ function InfaqJumatView({
     const todayStr = new Date().toISOString().split('T')[0];
     const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('bulk');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
-    const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [selectedStudentId, setSelectedStudentId] = useState('');
     const [showForm, setShowForm] = useState(false);
     const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
     const [selectedInfaqIds, setSelectedInfaqIds] = useState<Set<string>>(new Set());
-    const [infaqRate, setInfaqRate] = useState(DEFAULT_INFAQ_RATE);
-    const [infaqTargetOverride, setInfaqTargetOverride] = useState<number | null>(null);
-    const [infaqTargetDays, setInfaqTargetDays] = useState<number | null>(null);
+    const [annualInfaqTarget, setAnnualInfaqTarget] = useState<number>(0);
     const [showInfaqSettings, setShowInfaqSettings] = useState(false);
     const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
-    const [bulkDate, setBulkDate] = useState(todayStr);
+    const [bulkDate, setBulkDate] = useState(`${selectedYear}-01-01`);
     const [bulkNotes, setBulkNotes] = useState('');
     const [bulkSaving, setBulkSaving] = useState(false);
 
@@ -6614,28 +6493,28 @@ function InfaqJumatView({
 
     // Load monthly infaq settings from Supabase (for the active month)
     React.useEffect(() => {
-        if (!selectedMonth) return;
+        if (!selectedYear) return;
         (async () => {
             try {
-                const settingsRef = doc(db, 'infaqSettings', selectedMonth);
+                const settingsRef = doc(db, 'infaqSettings', selectedYear);
                 const snap = await getDoc(settingsRef);
                 if (snap.exists()) {
                     const data = snap.data();
-                    setInfaqRate(Number(data.rate) || DEFAULT_INFAQ_RATE);
-                    setInfaqTargetOverride(data.targetOverride ? Number(data.targetOverride) : null);
-                    setInfaqTargetDays(data.targetDays !== null && data.targetDays !== undefined ? Number(data.targetDays) : null);
+                    
+                    
+                    
                 } else {
-                    setInfaqRate(DEFAULT_INFAQ_RATE);
-                    setInfaqTargetOverride(null);
-                    setInfaqTargetDays(null);
+                    
+                    
+                    
                 }
             } catch {
-                setInfaqRate(DEFAULT_INFAQ_RATE);
-                setInfaqTargetOverride(null);
-                setInfaqTargetDays(null);
+                
+                
+                
             }
         })();
-    }, [selectedMonth]);
+    }, [selectedYear]);
 
     // Load all settings for the table range (single batch query)
     const loadInfaqSettings = async () => {
@@ -6760,11 +6639,11 @@ function InfaqJumatView({
                     }
                 }
                 // Update in-memory live rate from the just-saved table
-                const active = infaqTable[selectedMonth];
+                const active = infaqTable[selectedYear];
                 if (active) {
-                    setInfaqRate(Number(active.rate) || DEFAULT_INFAQ_RATE);
-                    setInfaqTargetOverride(active.override ? Number(active.override) : null);
-                    setInfaqTargetDays(active.targetDays !== '' ? Number(active.targetDays) : null);
+                    
+                    
+                    
                 }
             } catch (err: any) {
                 console.error('Gagal menyimpan pengaturan INFAQ Jumat:', err);
@@ -6795,11 +6674,11 @@ function InfaqJumatView({
     
     // Transactions for the selected month and class
     const monthTransactions = React.useMemo(() => transactions
-        .filter(t => t.type === 'infaq' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedMonth))
-        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedMonth]);
+        .filter(t => t.type === 'infaq' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedYear))
+        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedYear]);
 
     const monthSchoolDays = React.useMemo(() => {
-        const [y, m] = selectedMonth.split('-').map(Number);
+        const [y, m] = selectedYear.split('-').map(Number);
         if (!y || !m) return 0;
         const daysInMonth = new Date(y, m, 0).getDate();
         let total = 0;
@@ -6810,9 +6689,8 @@ function InfaqJumatView({
             if (d.getDay() === 5 && !isHoliday) total++;
         }
         return total;
-    }, [selectedMonth, holidays]);
-    const effectiveInfaqDays = infaqTargetDays ?? monthSchoolDays;
-    const targetPerStudent = infaqTargetOverride || (effectiveInfaqDays * infaqRate);
+    }, [selectedYear, holidays]);
+    const targetPerStudent = annualInfaqTarget;
 
     const studentRows = React.useMemo(() => filteredStudents.map(s => {
         const studentTx = monthTransactions.filter(t => t.studentId === s.id);
@@ -6840,9 +6718,9 @@ function InfaqJumatView({
 
     useEffect(() => {
         setBulkAmounts(Object.fromEntries(studentRows.map(row => [row.student.id, row.paid > 0 ? String(row.paid) : ''])));
-        setBulkNotes(`Rekap INFAQ Jumat ${selectedMonth}`);
-        setBulkDate(`${selectedMonth}-01`);
-    }, [studentRows, selectedMonth]);
+        setBulkNotes(`Rekap INFAQ Jumat ${selectedYear}`);
+        setBulkDate(`${selectedYear}-01`);
+    }, [studentRows, selectedYear]);
 
     useEffect(() => {
         if (!classes.length) return;
@@ -6991,7 +6869,7 @@ function InfaqJumatView({
 
     const handleSaveBulkInfaq = async () => {
         if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
-        if (!bulkDate || !bulkDate.startsWith(selectedMonth)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
+        if (!bulkDate || !bulkDate.startsWith(selectedYear)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
 
         const invalidRow = filteredStudents.find(s => Number(bulkAmounts[s.id] || 0) < 0);
         if (invalidRow) return alert(`Nominal ${invalidRow.name} tidak boleh negatif.`);
@@ -7005,12 +6883,12 @@ function InfaqJumatView({
                 transactionType: 'deposit' as const,
                 amount: Number(bulkAmounts[s.id] || 0),
                 date: bulkDate,
-                notes: bulkNotes || `Rekap INFAQ Jumat ${selectedMonth}`
+                notes: bulkNotes || `Rekap INFAQ Jumat ${selectedYear}`
             }))
             .filter(entry => entry.amount > 0);
 
         if (existingStudentTx.length > 0) {
-            const ok = confirm(`Simpan input massal INFAQ Jumat untuk ${filteredStudents.length} siswa?\n\nTransaksi INFAQ per siswa pada bulan ${selectedMonth} akan diganti dengan data tabel ini.`);
+            const ok = confirm(`Simpan input massal INFAQ Jumat untuk ${filteredStudents.length} siswa?\n\nTransaksi INFAQ per siswa pada bulan ${selectedYear} akan diganti dengan data tabel ini.`);
             if (!ok) return;
         }
 
@@ -7055,7 +6933,7 @@ function InfaqJumatView({
         <div className="space-y-6 print-container">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">INFAQ JUMAT SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Buku Transaksi Infaq: {selectedClass?.name} - {selectedMonth}</p>
+                <p className="text-xs font-bold text-slate-500">Buku Transaksi: {selectedClass?.name} - Tahun {selectedYear}</p>
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
@@ -7071,11 +6949,10 @@ function InfaqJumatView({
                     >
                         {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
                     </select>
-                    <input
-                        type="month"
+                    <input type="number" min="2000" max="2100"
                         className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
-                        value={selectedMonth}
-                        onChange={e => setSelectedMonth(e.target.value)}
+                        value={selectedYear}
+                        onChange={e => setSelectedYear(e.target.value)}
                     />
                 </div>
             </div>
@@ -7095,8 +6972,8 @@ function InfaqJumatView({
                 </div>
                 <div className="hidden">
                     <p className="stat-label flex items-center gap-1">Nominal Infaq <Settings size={10} className="group-hover:text-accent" /></p>
-                    <p className="stat-value text-purple-600">{formatCurrency(infaqRate)}</p>
-                    <p className="text-[9px] text-slate-400 mt-1">{infaqTargetOverride ? `Override: ${formatCurrency(infaqTargetOverride)}` : `${effectiveInfaqDays} hari × Rp ${infaqRate.toLocaleString('id-ID')}`}</p>
+                    <p className="stat-value text-purple-600">{formatCurrency(0)}</p>
+                    <p className="text-[9px] text-slate-400 mt-1">""</p>
                 </div>
             </div>
 
@@ -7129,7 +7006,7 @@ function InfaqJumatView({
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: {effectiveInfaqDays} hari × {formatCurrency(infaqRate)}</p>
+                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: 1 Tahun</p>
                                 </div>
                                 <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                                     row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
@@ -7537,130 +7414,35 @@ function InfaqJumatView({
                                 </button>
                             </div>
 
-                            {/* Range picker */}
-                            <div className="flex flex-wrap gap-4 items-end mb-4 pb-4 border-b border-border">
+                            
+                            <div className="space-y-4 mb-6 relative z-10">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Mulai</label>
-                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={infaqRangeStart} onChange={e => { setInfaqRangeStart(e.target.value); }} />
+                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Target Infaq 1 Tahun (Rp) - Periode {selectedYear}</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-lg font-black text-emerald-700 outline-none focus:border-emerald-500" 
+                                        value={annualInfaqTarget} 
+                                        onChange={e => setAnnualInfaqTarget(parseInt(e.target.value) || 0)} 
+                                    />
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Sampai</label>
-                                    <input type="month" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-purple-500" value={infaqRangeEnd} onChange={e => { setInfaqRangeEnd(e.target.value); }} />
-                                </div>
-                                <button onClick={loadInfaqSettings} className="btn-small !bg-purple-100 text-purple-700 hover:!bg-purple-200 font-bold">
-                                    Muat Data
-                                </button>
-                                <div className="flex-1" />
-                                <div className="flex items-end gap-2">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Isi Semua</label>
-                                        <input type="number" className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none w-28 focus:border-purple-500" value={infaqBulkRate} onChange={e => setInfaqBulkRate(Number(e.target.value))} min={0} />
-                                    </div>
-                                    <button onClick={handleBulkFillInfaqRate} className="btn-small !bg-purple-600 text-white hover:!bg-purple-700 font-bold">
-                                        Terapkan
-                                    </button>
-                                </div>
-                            </div>
-
-                            {infaqSavingError && (
-                                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] text-red-600 font-bold whitespace-pre-line flex items-start justify-between gap-3">
-                                    <span>{infaqSavingError}</span>
-                                    <button onClick={() => setInfaqSavingError('')} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
-                                </div>
-                            )}
-
-                            {/* Table */}
-                            <div className="overflow-y-auto flex-1 -mx-2 px-2">
-                                {infaqLoading ? (
-                                    <div className="text-center py-16 text-slate-400 italic">Memuat data pengaturan...</div>
-                                ) : (
-                                    <table className="w-full text-sm border-collapse">
-                                        <thead className="sticky top-0 bg-white z-10">
-                                            <tr className="border-b-2 border-purple-200">
-                                                <th className="text-left py-3 px-2 text-[10px] font-black uppercase text-slate-500">Bulan</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-20">Hari Jumat</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Nominal Infaq</th>
-                                                <th className="text-center py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-36">Override Target</th>
-                                                <th className="text-right py-3 px-2 text-[10px] font-black uppercase text-slate-500 w-32">Target/Siswa</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {infaqMonths.map(m => {
-                                                const entry = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
-                                                const days = entry.targetDays !== '' ? Number(entry.targetDays) : getSchoolDaysForMonth(m);
-                                                const target = entry.override ? Number(entry.override) : days * entry.rate;
-                                                const isActive = m === selectedMonth;
-                                                return (
-                                                    <tr key={m} className={`border-b border-slate-100 transition-all ${isActive ? 'bg-purple-50/50 ring-1 ring-purple-200' : 'hover:bg-slate-50'}`}>
-                                                        <td className="py-2.5 px-2">
-                                                            <span className={`font-bold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>{monthLabel(m)}</span>
-                                                            {isActive && <span className="ml-2 text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black">AKTIF</span>}
-                                                        </td>
-                                                        <td className="py-2.5 px-2">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-                                                                value={entry.targetDays}
-                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), targetDays: e.target.value } }))}
-                                                                placeholder={String(getSchoolDaysForMonth(m))}
-                                                                min={0}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2.5 px-2">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-                                                                value={entry.rate}
-                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), rate: Number(e.target.value) } }))}
-                                                                min={0}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2.5 px-2">
-                                                            <input
-                                                                type="number"
-                                                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-center font-bold outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-200 transition-all"
-                                                                value={entry.override}
-                                                                onChange={e => setInfaqTable(prev => ({ ...prev, [m]: { ...(prev[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), override: e.target.value } }))}
-                                                                placeholder="—"
-                                                                min={0}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2.5 px-2 text-right font-black text-purple-600">
-                                                            {formatCurrency(target)}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                        <tfoot className="border-t-2 border-purple-200 bg-purple-50/30">
-                                            <tr>
-                                                <td colSpan={4} className="py-3 px-2 text-right text-[10px] font-black uppercase text-purple-500">Total Target/Siswa (Setahun):</td>
-                                                <td className="py-3 px-2 text-right font-black text-purple-700 text-base">
-                                                    {formatCurrency(infaqMonths.reduce((sum, m) => {
-                                                        const e = infaqTable[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
-                                                        const days = e.targetDays !== '' ? Number(e.targetDays) : getSchoolDaysForMonth(m);
-                                                        return sum + (e.override ? Number(e.override) : days * e.rate);
-                                                    }, 0))}
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                )}
-                            </div>
-
-                            <div className="flex gap-3 mt-5 pt-4 border-t border-border">
-                                <button 
-                                    onClick={() => setShowInfaqSettings(false)} 
-                                    className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                                <button
+                                    className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 py-3 rounded-xl font-bold uppercase tracking-widest text-xs"
+                                    onClick={async () => {
+                                        if(!supabase) return alert('Supabase tidak terkonfigurasi');
+                                        try {
+                                            await supabase.from('infaqSettings').upsert({
+                                                month: 'YEAR_' + selectedYear,
+                                                targetOverride: annualInfaqTarget,
+                                                updatedAt: new Date().toISOString()
+                                            }, { onConflict: 'month' });
+                                            alert('Target Infaq 1 Tahun berhasil disimpan');
+                                            setShowInfaqSettings(false);
+                                        } catch (e: any) {
+                                            alert('Gagal simpan: ' + e.message);
+                                        }
+                                    }}
                                 >
-                                    Batal
-                                </button>
-                                <button 
-                                    onClick={handleSaveAllInfaqSettings} 
-                                    disabled={infaqLoading}
-                                    className="flex-[3] py-3 bg-purple-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 active:scale-95 transition-all disabled:opacity-50"
-                                >
-                                    {infaqLoading ? 'Menyimpan...' : 'Simpan Semua Pengaturan'}
+                                    Simpan Target Tahunan
                                 </button>
                             </div>
                         </motion.div>
