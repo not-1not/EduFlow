@@ -652,7 +652,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
 
             {/* Sidebar */}
             <aside
-                className={`bg-sidebar-bg text-white flex flex-col h-full transition-all duration-300 ease-in-out z-40 fixed lg:static ${isSidebarCollapsed ? 'w-0 lg:w-[80px] -translate-x-full lg:translate-x-0' : 'w-[260px] translate-x-0'} border-r border-slate-800`}
+                className={`bg-sidebar-bg text-white flex flex-col h-full transition-all duration-300 ease-in-out z-40 fixed lg:static ${isSidebarCollapsed ? 'w-0 lg:w-20 -translate-x-full lg:translate-x-0' : 'w-[260px] translate-x-0'} border-r border-slate-800`}
             >
                 <div className={`logo h-[72px] flex items-center border-b border-slate-800 mb-6 flex-shrink-0 transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-between px-6'}`}>
                     {!isSidebarCollapsed ? (
@@ -8640,29 +8640,7 @@ function StudentDashboardView({
                     </motion.div>
                 )}
 
-                {displaySettings.showPayments && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="card space-y-4">
-                        <div className="flex items-center gap-2 text-blue-600 mb-2">
-                            <CreditCard size={18} />
-                            <h3 className="font-black text-sm uppercase tracking-tight">Administrasi</h3>
-                        </div>
-                        {myPayments.length > 0 ? (
-                            <div className="space-y-2">
-                                {myPayments.slice(0, 2).map(p => (
-                                    <div key={p.id} className="text-xs p-3 rounded-xl bg-blue-50/50 border border-blue-100">
-                                        <div className="font-bold truncate text-blue-800">{feeItems.find(f => f.id === p.feeItemId)?.name}</div>
-                                        <div className="flex justify-between mt-1 items-end">
-                                            <span className="text-slate-400 font-mono">{p.paymentDate}</span>
-                                            <span className="font-black text-blue-600">{formatCurrency(p.amountPaid)}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="py-4 text-center text-xs text-slate-400 font-medium">Belum ada riwayat bayar.</div>
-                        )}
-                    </motion.div>
-                )}
+
 
                 {(displaySettings.showSavings || displaySettings.showClassCash) && (
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="card md:col-span-2 lg:col-span-3 space-y-4">
@@ -8913,33 +8891,7 @@ function StudentDashboardView({
                                 </div>
                             )}
 
-                            <div className="pt-2 border-t border-blue-100 space-y-2">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Tagihan Tambahan (Gemari &amp; Infaq) ({monthStr})</div>
-                                <div className="bg-white rounded-xl p-3 border border-blue-100 space-y-2">
-                                    <div className="flex justify-between items-start gap-4">
-                                        <div className="min-w-0">
-                                            <div className="text-xs font-black text-slate-700">Kekurangan Gemari &amp; Infaq</div>
-                                            <div className="text-[10px] text-slate-400">Gemari: target {gemari.targetDays} hari{gemari.bebasDays ? ` (bebas ${gemari.bebasDays})` : ''} • dibayar {formatCurrency(gemari.paid)}</div>
-                                            <div className="text-[10px] text-slate-400">Infaq: target {infaq.targetDays} Jumat{infaq.bebasDays ? ` (bebas ${infaq.bebasDays})` : ''} • dibayar {formatCurrency(infaq.paid)}</div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-[10px] text-slate-400">Kurang</div>
-                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(Number(gemariInfaqCombined) || 0)}</div>
-                                        </div>
-                                    </div>
 
-                                    {gemariInfaqNote && (
-                                        <div className="text-[10px] font-bold text-slate-600 bg-slate-50 border border-border rounded-lg px-2.5 py-2">
-                                            {gemariInfaqNote}
-                                        </div>
-                                    )}
-
-                                    <div className="flex justify-between items-center pt-2 border-t border-border">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Tagihan Tambahan</div>
-                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency((Number(gemariInfaqCombined) || 0) + (Number(extraBillsTotal) || 0))}</div>
-                                    </div>
-                                </div>
-                            </div>
 
                             <div className="pt-2 border-t border-blue-100 space-y-2">
                                 <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Riwayat Pembayaran Terbaru</div>
