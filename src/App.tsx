@@ -4404,6 +4404,41 @@ function PaymentsView({
         onRefresh();
     };
 
+    const handleBayarLunas = async (studentId: string) => {
+        const totalDue = feeItems.reduce((acc, i) => acc + (i.category === 'wajib' ? i.amount : 0), 0);
+        const studentPayments = payments.filter(p => p.studentId === studentId);
+        const paid = studentPayments.reduce((acc, p) => acc + p.amountPaid, 0);
+        const shortfall = Math.max(0, totalDue - paid);
+
+        if (shortfall <= 0) {
+            alert('Siswa sudah lunas.');
+            return;
+        }
+
+        const ok = window.confirm(`Catat pembayaran lunas untuk siswa ini?\n\nKurang: ${formatCurrency(shortfall)}`);
+        if (!ok) return;
+
+        // Create payment entries for each mandatory fee item that hasn't been fully paid
+        const mandatoryFees = feeItems.filter(f => f.category === 'wajib');
+        for (const fee of mandatoryFees) {
+            const feePaid = studentPayments.filter(p => p.feeItemId === fee.id).reduce((acc, p) => acc + p.amountPaid, 0);
+            const feeShortfall = Math.max(0, fee.amount - feePaid);
+            if (feeShortfall > 0) {
+                await addDoc(collection(db, 'studentPayments'), {
+                    studentId,
+                    feeItemId: fee.id,
+                    amountPaid: feeShortfall,
+                    paymentDate: new Date().toISOString().split('T')[0],
+                    paymentMethod: 'admin-lunas',
+                    notes: 'Pelunasan otomatis',
+                    isDeposit: false
+                });
+            }
+        }
+
+        onRefresh();
+    };
+
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     };
@@ -4771,6 +4806,7 @@ function PaymentsView({
                                         const paid = studentPayments.reduce((acc, p) => acc + p.amountPaid, 0);
                                         const totalDue = feeItems.reduce((acc, i) => acc + (i.category === 'wajib' ? i.amount : 0), 0);
                                         const balance = paid - totalDue;
+                                        const isLunas = balance >= 0;
 
                                         return (
                                             <tr key={s.id}>
@@ -4784,11 +4820,20 @@ function PaymentsView({
                                                 </td>
                                                 <td className="text-xs font-mono">{formatCurrency(totalDue)}</td>
                                                 <td className="text-xs font-mono font-bold text-accent">{formatCurrency(paid)}</td>
-                                                <td>
-                                                    {balance >= 0 ? (
+                                                <td className="flex items-center gap-2">
+                                                    {isLunas ? (
                                                         <span className="status-pill">LUNAS</span>
                                                     ) : (
-                                                        <span className="status-pill !bg-red-50 !text-red-600" title={`Kurang: ${formatCurrency(Math.abs(balance))}`}>MENUNGGAK</span>
+                                                        <>
+                                                            <span className="status-pill !bg-red-50 !text-red-600" title={`Kurang: ${formatCurrency(Math.abs(balance))}`}>MENUNGGAK</span>
+                                                            <button
+                                                                onClick={() => handleBayarLunas(s.id)}
+                                                                className="text-[10px] bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded font-bold uppercase tracking-widest transition-all"
+                                                                title="Catat pembayaran lunas"
+                                                            >
+                                                                Bayar Lunas
+                                                            </button>
+                                                        </>
                                                     )}
                                                 </td>
                                             </tr>
