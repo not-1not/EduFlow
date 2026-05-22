@@ -282,9 +282,8 @@ export type View =
      | 'payments'
      | 'savings'
      | 'gemari'
-     | 'infaqJumat'
-     | 'class-cash'
-     | 'academic'
+    | 'infaqJumat'
+    | 'academic'
      | 'users';
 
 // ===== NEW KAS INTERFACES =====

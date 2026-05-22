@@ -587,16 +587,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 />;
             case 'savings':
                 return <SavingsView students={students} classes={classes} transactions={savings} onRefresh={fetchData} onOpenPrint={() => setShowPrintModal(true)} {...commonProps} />;
-            case 'class-cash':
-                return <ClassCashView
-                    classes={classes}
-                    students={students}
-                    transactions={classCash}
-                    holidays={holidays}
-                    onRefresh={fetchData}
-                    onOpenPrint={() => setShowPrintModal(true)}
-                    {...commonProps}
-                />;
+            /* 'class-cash' view removed */
             case 'grades':
                 return <GradesView students={students} subjects={subjects} materials={materials} grades={grades} classes={classes} onRefresh={fetchData} onOpenPrint={() => setShowPrintModal(true)} {...commonProps} />;
             case 'subjects':
@@ -778,15 +769,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                             onClick={() => { setCurrentView('savings'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
-                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableClassCash) && (
-                        <NavItem
-                            icon={<Coins size={20} />}
-                            label="KAS Kelas"
-                            active={currentView === 'class-cash'}
-                            collapsed={isSidebarCollapsed}
-                            onClick={() => { setCurrentView('class-cash'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
-                        />
-                    )}
+                    {/* KAS Kelas feature removed from sidebar */}
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableAcademic) && (
                         <NavItem
                             icon={<FileSpreadsheet size={20} />}
@@ -861,7 +844,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                                                      currentView === 'payments' ? 'Pembayaran Uang Sekolah' :
                                                          currentView === 'savings' ? 'Tabungan Siswa' :
                                                              currentView === 'attendance' ? 'Presensi Siswa' :
-                                                                 currentView === 'class-cash' ? 'KAS & Infaq Kelas' : 'Pengaturan'}
+                                                                currentView === 'settings' ? 'Pengaturan' : 'Pengaturan'}
                          </h1>
                         <div className="hidden sm:block h-4 w-px bg-border flex-shrink-0"></div>
                         <div className="hidden sm:block">
@@ -2087,10 +2070,11 @@ function DashboardView({
                                                 <p className="text-xl font-black text-emerald-700">{formatCurrency(classCash.filter(t => t.type === 'infaq').reduce((acc, t) => acc + t.amount, 0))}</p>
                                             </div>
                                             <button
-                                                onClick={() => onNavigate('class-cash')}
                                                 className="w-full btn-small"
+                                                disabled
+                                                title="Fitur Kas Kelas dinonaktifkan"
                                             >
-                                                Lihat Rincian Kas
+                                                Kas Kelas Dinonaktifkan
                                             </button>
                                         </div>
                                         <div className="space-y-2">
