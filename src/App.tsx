@@ -4828,6 +4828,7 @@ function PaymentsView({
                                         <th>TOTAL WAJIB</th>
                                         <th>TOTAL BAYAR</th>
                                         <th>STATUS</th>
+                                        <th className="no-print">AKSI</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -4865,6 +4866,24 @@ function PaymentsView({
                                                             </button>
                                                         </>
                                                     )}
+                                                </td>
+                                                <td className="no-print">
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => setDetailStudentId(s.id)}
+                                                            className="p-1.5 hover:bg-accent/10 text-accent rounded transition-all"
+                                                            title="Edit"
+                                                        >
+                                                            <Edit size={14} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteStudent(s.id)}
+                                                            className="p-1.5 hover:bg-red-500/10 text-red-600 rounded transition-all"
+                                                            title="Hapus"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         )
