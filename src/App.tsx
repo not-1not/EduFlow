@@ -4231,6 +4231,7 @@ function PaymentsView({
     const [gemariInfaqManualNote, setGemariInfaqManualNote] = useState('');
     const [savingGemariInfaqManual, setSavingGemariInfaqManual] = useState(false);
     const [showPrintBill, setShowPrintBill] = useState(false);
+    const [recapSortBy, setRecapSortBy] = useState<'name' | 'status'>('name');
 
     // Rekap Gemari & Infaq pada rekap pembayaran personal memakai periode Tahun Ajaran (Juli–Juni)
     const GEMARI_INFAQ_ACADEMIC_START_MONTH = '2026-01';
@@ -4371,6 +4372,14 @@ function PaymentsView({
         if (!ok) return;
         await deleteDoc(doc(db, 'studentPayments', payment.id));
         if (editingPayment?.id === payment.id) setEditingPayment(null);
+        onRefresh();
+    };
+
+    const handleDeleteStudent = async (studentId: string) => {
+        const s = students.find(st => st.id === studentId);
+        const ok = window.confirm(`Hapus data siswa ini?\n\nSiswa: ${s?.name || '-'}\nAksi ini tidak dapat dibatalkan.`);
+        if (!ok) return;
+        await deleteDoc(doc(db, 'students', studentId));
         onRefresh();
     };
 
@@ -4547,6 +4556,20 @@ function PaymentsView({
     const detailRequiredAmount = feeItems.filter(i => i.category === 'wajib').reduce((acc, i) => acc + i.amount, 0);
     const detailBalance = detailPaidAmount - detailRequiredAmount;
     const isDetailLunas = !!detailStudentId && detailBalance >= 0;
+    const studentsToShow = (() => {
+        const arr = [...filteredStudents];
+        if (recapSortBy === 'name') {
+            return arr.sort((a, b) => (String(a.name || '')).localeCompare(String(b.name || ''), 'id-ID'));
+        }
+        // sort by status (lunas first)
+        const getBalance = (s: Student) => {
+            const sp = payments.filter(p => p.studentId === s.id);
+            const paid = sp.reduce((acc, p) => acc + p.amountPaid, 0);
+            const totalDue = feeItems.reduce((acc, i) => acc + (i.category === 'wajib' ? i.amount : 0), 0);
+            return paid - totalDue;
+        };
+        return arr.sort((a, b) => getBalance(b) - getBalance(a));
+    })();
 
     return (
         <div className="space-y-6 print-container relative">
@@ -4777,16 +4800,23 @@ function PaymentsView({
                 <div className="space-y-4">
                     <div className="flex flex-col sm:flex-row gap-4 no-print sm:items-center justify-between">
                         <label className="stat-label" htmlFor="recap-class-select">Pilih Kelas</label>
-                        <select
-                            id="recap-class-select"
-                            className="bg-bg border border-border px-3 py-1.5 rounded-lg text-xs outline-none focus:border-accent"
-                            value={selectedClassId}
-                            onChange={(e) => setSelectedClassId(e.target.value)}
-                            title="Filter Berdasarkan Kelas"
-                        >
-                            <option value="">Semua Kelas</option>
-                            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        <div className="flex items-center gap-2">
+                            <select
+                                id="recap-class-select"
+                                className="bg-bg border border-border px-3 py-1.5 rounded-lg text-xs outline-none focus:border-accent"
+                                value={selectedClassId}
+                                onChange={(e) => setSelectedClassId(e.target.value)}
+                                title="Filter Berdasarkan Kelas"
+                            >
+                                <option value="">Semua Kelas</option>
+                                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            <label className="text-[10px] font-bold text-text-secondary uppercase">Sort</label>
+                            <select className="bg-bg border border-border px-2 py-1 rounded-lg text-xs outline-none" value={recapSortBy} onChange={e => setRecapSortBy(e.target.value as any)}>
+                                <option value="name">Nama</option>
+                                <option value="status">Status (Lunas terlebih dahulu)</option>
+                            </select>
+                        </div>
                         <p className="text-[10px] font-bold text-text-secondary uppercase">Klik nama siswa untuk rincian & koreksi</p>
                     </div>
                     <div className="card !p-0 overflow-hidden">
@@ -4801,7 +4831,7 @@ function PaymentsView({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredStudents.map(s => {
+                                    {studentsToShow.map(s => {
                                         const studentPayments = payments.filter(p => p.studentId === s.id);
                                         const paid = studentPayments.reduce((acc, p) => acc + p.amountPaid, 0);
                                         const totalDue = feeItems.reduce((acc, i) => acc + (i.category === 'wajib' ? i.amount : 0), 0);
