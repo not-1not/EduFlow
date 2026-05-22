@@ -57,18 +57,15 @@ import {
     Zap,
     Palette,
     TrendingDown,
-     MessageSquare,
-     Send,
-     LogOut,
-     Sparkles,
-     Minus
- } from 'lucide-react';
+    MessageSquare,
+    Send,
+    LogOut
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase, syncSheetRecords } from './firebase';
+import { db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, orderBy, getDoc, addDoc, supabase } from './firebase';
 import { View, Student, Class, Assignment, Subject, Material, Grade, AttendanceRecord, AttendanceStatus, Holiday, AssessmentType, FeeItem, StudentPayment, SavingsTransaction, ClassCashTransaction, DashboardWidget, SchoolDeposit, AppSettings, UserAccount, UserRole, StudentDisplaySettings, ChatMessage } from './types';
 import { INDONESIA_HOLIDAYS_2026 } from './data/holidays';
 import sdn3PurwosariLogo from './assets/logo-sdn3-purwosari.png';
-import html2canvas from 'html2canvas';
 
 const sortStudentsForSelect = (students: Student[]) => {
     return [...students].sort((a, b) => {
@@ -78,86 +75,6 @@ const sortStudentsForSelect = (students: Student[]) => {
         return (a.name || '').localeCompare((b.name || ''), 'id-ID', { numeric: true, sensitivity: 'base' });
     });
 };
-
-const normalizeDelimitedHeader = (value: string) =>
-    String(value || '')
-        .replace(/^\uFEFF/, '')
-        .replace(/(^"|"$)/g, '')
-        .trim()
-        .toLowerCase();
-
-const detectDelimitedSeparator = (text: string) => {
-    const sampleLine = String(text || '')
-        .replace(/^\uFEFF/, '')
-        .split(/\r?\n/)
-        .find(line => line.trim().length > 0) || '';
-    const candidates = [',', ';', '\t'] as const;
-    let best = ',';
-    let bestScore = -1;
-
-    for (const delimiter of candidates) {
-        let count = 0;
-        let inQuotes = false;
-        for (let i = 0; i < sampleLine.length; i++) {
-            const ch = sampleLine[i];
-            if (ch === '"') {
-                if (inQuotes && sampleLine[i + 1] === '"') {
-                    i++;
-                } else {
-                    inQuotes = !inQuotes;
-                }
-            } else if (ch === delimiter && !inQuotes) {
-                count++;
-            }
-        }
-        if (count > bestScore) {
-            bestScore = count;
-            best = delimiter;
-        }
-    }
-
-    return best;
-};
-
-const parseDelimitedLine = (line: string, delimiter: string) => {
-    const cells: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (inQuotes) {
-            if (ch === '"') {
-                if (line[i + 1] === '"') {
-                    current += '"';
-                    i++;
-                } else {
-                    inQuotes = false;
-                }
-            } else {
-                current += ch;
-            }
-        } else if (ch === '"') {
-            inQuotes = true;
-        } else if (ch === delimiter) {
-            cells.push(current.trim());
-            current = '';
-        } else {
-            current += ch;
-        }
-    }
-
-    cells.push(current.trim());
-    return cells.map(cell => cell.replace(/^\uFEFF/, '').trim());
-};
-
-const serializeDelimitedValue = (value: any) => {
-    if (value === undefined || value === null) return '';
-    return `"${String(value).replace(/"/g, '""')}"`;
-};
-
-const serializeDelimitedRow = (values: any[], delimiter = ';') =>
-    values.map(serializeDelimitedValue).join(delimiter);
 
 type ClassCashWriteEntry = {
     classId: string;
@@ -170,37 +87,15 @@ type ClassCashWriteEntry = {
     transactionType?: 'deposit' | 'withdrawal';
 };
 
-const DEFAULT_APP_FEATURES: Required<NonNullable<AppSettings['features']>> = {
-    enableSavings: true,
-    enableClassCash: true,
-    enableInfaq: true,
-    enableAcademic: true,
-    enablePayments: true,
-    enableAttendance: true
-};
-
-const withDefaultFeatures = (settings: AppSettings): AppSettings => ({
-    ...settings,
-    features: {
-        ...DEFAULT_APP_FEATURES,
-        ...(settings.features || {})
-    }
-});
-
 const getPeriodMonth = (dateValue: string) => String(dateValue || '').slice(0, 7);
 const CLASSCASH_EDIT_KEY_SEPARATOR = '::';
-const currentYear = new Date().getFullYear();
-const CLASSCASH_MONTH_TABLES: string[] = [];
-for (let y = 2025; y <= currentYear + 1; y++) {
-    for (let m = 1; m <= 12; m++) {
-        CLASSCASH_MONTH_TABLES.push(`classCashTransactions_${y}_${String(m).padStart(2, '0')}`);
-    }
-}
+const CLASSCASH_TARGET_YEAR = '2026';
+const CLASSCASH_MONTH_TABLES = Array.from({ length: 12 }, (_, i) => `classCashTransactions_${CLASSCASH_TARGET_YEAR}_${String(i + 1).padStart(2, '0')}`);
 const getClassCashTableByDate = (dateValue: string) => {
     const month = getPeriodMonth(dateValue);
     const [year, mm] = month.split('-');
     if (year && mm) return `classCashTransactions_${year}_${mm}`;
-    return `classCashTransactions_${currentYear}_01`;
+    return `classCashTransactions_${CLASSCASH_TARGET_YEAR}_01`;
 };
 
 const applyClassCashFilters = (queryBuilder: any, filters: { studentId?: string; classId?: string; amount?: number }) => {
@@ -214,8 +109,6 @@ const applyClassCashFilters = (queryBuilder: any, filters: { studentId?: string;
 async function fetchClassCashTransactions(filters: { studentId?: string; classId?: string; amount?: number } = {}) {
     const sb = supabase;
     if (!sb) return [] as any[];
-    
-    // We fetch across generated partitioned tables
     const responses = await Promise.all(
         CLASSCASH_MONTH_TABLES.map((tableName) =>
             applyClassCashFilters(sb.from(tableName).select('*'), filters)
@@ -225,10 +118,7 @@ async function fetchClassCashTransactions(filters: { studentId?: string; classId
     const merged: any[] = [];
     responses.forEach(({ data, error }, idx) => {
         if (error) {
-            // Ignore missing tables gracefully, it just means no transactions for that month yet
-            if (!error.message?.includes('does not exist')) {
-                console.error(`Error fetching ${CLASSCASH_MONTH_TABLES[idx]}:`, error);
-            }
+            console.error(`Error fetching ${CLASSCASH_MONTH_TABLES[idx]}:`, error);
             return;
         }
         if (Array.isArray(data)) merged.push(...data);
@@ -256,13 +146,12 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
 
     const rows = deduped.map((entry) => ({
         ...entry,
-        transactionType: entry.transactionType || 'deposit',
+        transactionType: entry.transactionType ?? 'deposit',
         period_month: getPeriodMonth(entry.date),
         id: buildClassCashKey(entry)
     }));
     const chunkSize = 200;
     const maxRetries = 2;
-
     const groupedByTable = rows.reduce((acc, row) => {
         const tableName = getClassCashTableByDate(row.date);
         if (!acc[tableName]) acc[tableName] = [];
@@ -316,11 +205,11 @@ async function persistClassCashEntries(entries: ClassCashWriteEntry[]) {
                 }
             }
 
-        if (lastError) {
-            throw lastError;
+            if (lastError) {
+                throw lastError;
+            }
         }
     }
-    } // End of groupedByTable loop
 
     return { total: rows.length };
 }
@@ -361,7 +250,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
         { id: '2', type: 'arrears', title: 'Tunggakan Tertinggi', isVisible: true, order: 1 },
         { id: '3', type: 'recent_savings', title: 'Aktivitas Tabungan', isVisible: true, order: 2 },
         { id: '4', type: 'attendance_summary', title: 'Rekap Kehadiran', isVisible: true, order: 3 },
-        { id: '5', type: 'cash_flow', title: 'Gemari', isVisible: true, order: 4 },
+        { id: '5', type: 'cash_flow', title: 'Arus Kas Kelas', isVisible: true, order: 4 },
     ]);
 
     useEffect(() => {
@@ -488,7 +377,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
 
                 // Settings still apply (theme, visibility)
                 const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-                if (settingsDoc.exists()) setAppSettings(withDefaultFeatures(settingsDoc.data() as AppSettings));
+                if (settingsDoc.exists()) setAppSettings(settingsDoc.data() as AppSettings);
 
                 return;
             }
@@ -594,7 +483,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 settingsDoc = await getDoc(doc(db, 'settings', 'default'));
             }
             if (settingsDoc.exists()) {
-                const settingsData = withDefaultFeatures(settingsDoc.data() as AppSettings);
+                const settingsData = settingsDoc.data() as AppSettings;
                 setAppSettings(settingsData);
                 if (settingsData.themeColor) {
                     document.documentElement.style.setProperty('--color-accent', settingsData.themeColor);
@@ -606,7 +495,13 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     schoolAddress: 'Jl. Pendidikan No 1',
                     headmasterName: 'Bapak Kepala Sekolah',
                     themeColor: '#3b82f6',
-                    features: DEFAULT_APP_FEATURES
+                    features: {
+                        enableSavings: true,
+                        enableClassCash: true,
+                        enableAcademic: true,
+                        enablePayments: true,
+                        enableAttendance: true
+                    }
                 };
                 setAppSettings(defaultSettings);
             }
@@ -692,18 +587,8 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                 />;
             case 'savings':
                 return <SavingsView students={students} classes={classes} transactions={savings} onRefresh={fetchData} onOpenPrint={() => setShowPrintModal(true)} {...commonProps} />;
-            case 'gemari':
-                return <GemariView
-                    classes={classes}
-                    students={students}
-                    transactions={classCash}
-                    holidays={holidays}
-                    onRefresh={fetchData}
-                    onOpenPrint={() => setShowPrintModal(true)}
-                    {...commonProps}
-                />;
-            case 'infaqJumat':
-                return <InfaqJumatView
+            case 'class-cash':
+                return <ClassCashView
                     classes={classes}
                     students={students}
                     transactions={classCash}
@@ -741,7 +626,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
             case 'users':
                 return <UsersManagementView students={students} classes={classes} />;
             case 'settings':
-                return <SettingsView settings={appSettings || { appName: '', schoolName: '', schoolAddress: '', headmasterName: '', themeColor: '#3B82F6', features: DEFAULT_APP_FEATURES }} onSettingsSaved={fetchData} />;
+                return <SettingsView settings={appSettings || { appName: '', schoolName: '', schoolAddress: '', headmasterName: '', themeColor: '#3B82F6', features: { enableSavings: true, enableClassCash: true, enableAcademic: true, enablePayments: true, enableAttendance: true } }} onSettingsSaved={fetchData} />;
             default:
                 return <DashboardView
                     classes={classes}
@@ -863,7 +748,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         />
                     )}
 
-                    {role === 'admin' && !isSidebarCollapsed && (appSettings?.features?.enableAttendance || appSettings?.features?.enablePayments || appSettings?.features?.enableSavings || appSettings?.features?.enableClassCash || appSettings?.features?.enableInfaq) && (
+                    {role === 'admin' && !isSidebarCollapsed && (appSettings?.features?.enableAttendance || appSettings?.features?.enablePayments || appSettings?.features?.enableSavings) && (
                         <div className="px-4 pt-4 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Administrasi</div>
                     )}
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableAttendance) && (
@@ -896,19 +781,10 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableClassCash) && (
                         <NavItem
                             icon={<Coins size={20} />}
-                            label="GEMARI"
-                            active={currentView === 'gemari'}
+                            label="KAS Kelas"
+                            active={currentView === 'class-cash'}
                             collapsed={isSidebarCollapsed}
-                            onClick={() => { setCurrentView('gemari'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
-                        />
-                    )}
-                    {role === 'admin' && (!appSettings?.features || appSettings.features.enableInfaq) && (
-                        <NavItem
-                            icon={<Sparkles size={20} />}
-                            label="INFAQ Jumat"
-                            active={currentView === 'infaqJumat'}
-                            collapsed={isSidebarCollapsed}
-                            onClick={() => { setCurrentView('infaqJumat'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
+                            onClick={() => { setCurrentView('class-cash'); if (window.innerWidth < 1024) setIsSidebarCollapsed(true); }}
                         />
                     )}
                     {role === 'admin' && (!appSettings?.features || appSettings.features.enableAcademic) && (
@@ -985,8 +861,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                                                      currentView === 'payments' ? 'Pembayaran Uang Sekolah' :
                                                          currentView === 'savings' ? 'Tabungan Siswa' :
                                                              currentView === 'attendance' ? 'Presensi Siswa' :
-                                                             currentView === 'gemari' ? 'GEMARI' :
-                                                                 currentView === 'infaqJumat' ? 'INFAQ Jumat' : 'Pengaturan'}
+                                                                 currentView === 'class-cash' ? 'KAS & Infaq Kelas' : 'Pengaturan'}
                          </h1>
                         <div className="hidden sm:block h-4 w-px bg-border flex-shrink-0"></div>
                         <div className="hidden sm:block">
@@ -2212,10 +2087,10 @@ function DashboardView({
                                                 <p className="text-xl font-black text-emerald-700">{formatCurrency(classCash.filter(t => t.type === 'infaq').reduce((acc, t) => acc + t.amount, 0))}</p>
                                             </div>
                                             <button
-                                                onClick={() => onNavigate('gemari')}
+                                                onClick={() => onNavigate('class-cash')}
                                                 className="w-full btn-small"
                                             >
-                                                Buka GEMARI
+                                                Lihat Rincian Kas
                                             </button>
                                         </div>
                                         <div className="space-y-2">
@@ -2469,7 +2344,16 @@ function StudentsView({ students, classes, onRefresh, onViewProfile, onSort, onS
     };
 
     const parseCSVRow = (text: string) => {
-        return parseDelimitedLine(text, detectDelimitedSeparator(text));
+        let p = '', row = [''], i = 0, s = true;
+        for (let l of text) {
+            if ('"' === l) {
+                if (s && l === p) row[i] += l;
+                s = !s;
+            } else if (',' === l && s) { l = row[++i] = ''; }
+            else row[i] += l;
+            p = l;
+        }
+        return row;
     };
 
     const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3222,7 +3106,7 @@ function AttendanceView({
     const [activeTab, setActiveTab] = useState<'daily' | 'monthly'>('daily');
     const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
     const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [selectedYear, setSelectedYear] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
     const classStudents = students.filter(s => s.classId === selectedClassId);
     const currentHoliday = holidays.find(h => h.date === selectedDate);
@@ -3267,7 +3151,6 @@ function AttendanceView({
         }
 
         if (error) throw error;
-        await syncSheetRecords('attendance', [{ ...withClassPayload }], 'upsert');
     };
 
     const upsertAttendanceEntries = async (entries: Array<{ studentId: string; date: string; status: AttendanceStatus }>) => {
@@ -3308,7 +3191,7 @@ function AttendanceView({
         <div className="space-y-6 print-container">
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">LAPORAN PRESENSI SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Kelas: {classes.find(c => c.id === selectedClassId)?.name || '-'} | Periode: {activeTab === 'daily' ? selectedDate : selectedYear}</p>
+                <p className="text-xs font-bold text-slate-500">Kelas: {classes.find(c => c.id === selectedClassId)?.name || '-'} | Periode: {activeTab === 'daily' ? selectedDate : selectedMonth}</p>
             </div>
 
             <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
@@ -3370,8 +3253,8 @@ function AttendanceView({
                             pattern="\d{4}-\d{2}"
                             title="Format: YYYY-MM"
                             className="w-full bg-white border border-border rounded-xl p-3 outline-none font-bold"
-                            value={selectedYear}
-                            onChange={e => setSelectedYear(e.target.value)}
+                            value={selectedMonth}
+                            onChange={e => setSelectedMonth(e.target.value)}
                         />
                     </div>
                 )}
@@ -3437,7 +3320,7 @@ function AttendanceView({
                 ) : (
                     <MonthlyAttendanceView
                         students={classStudents}
-                        month={selectedYear}
+                        month={selectedMonth}
                         attendanceRecords={attendanceRecords}
                         classId={selectedClassId}
                         holidays={holidays}
@@ -3539,7 +3422,6 @@ function MonthlyAttendanceView({
         }
 
         if (error) throw error;
-        await syncSheetRecords('attendance', [{ ...withClassPayload }], 'upsert');
     };
 
     const handleSaveMonthlyEdits = async () => {
@@ -4361,6 +4243,42 @@ function PaymentsView({
     const [extraBills, setExtraBills] = useState<Student['paymentExtraBills']>([]);
     const [savingExtraBills, setSavingExtraBills] = useState(false);
     const [hideAdditionalBills, setHideAdditionalBills] = useState(false);
+    const [gemariInfaqManualAmount, setGemariInfaqManualAmount] = useState<number | ''>('');
+    const [gemariInfaqManualNote, setGemariInfaqManualNote] = useState('');
+    const [savingGemariInfaqManual, setSavingGemariInfaqManual] = useState(false);
+    const [showPrintBill, setShowPrintBill] = useState(false);
+
+    // Rekap Gemari & Infaq pada rekap pembayaran personal memakai periode Tahun Ajaran (Juli–Juni)
+    const GEMARI_INFAQ_ACADEMIC_START_MONTH = '2026-01';
+    const GEMARI_INFAQ_ACADEMIC_END_MONTH = '2026-06';
+    const GEMARI_INFAQ_PERIOD_KEY = `${GEMARI_INFAQ_ACADEMIC_START_MONTH}..${GEMARI_INFAQ_ACADEMIC_END_MONTH}`;
+
+    const isMonthInGemariInfaqRange = (month: string) =>
+        month >= GEMARI_INFAQ_ACADEMIC_START_MONTH && month <= GEMARI_INFAQ_ACADEMIC_END_MONTH;
+
+    const isDateInGemariInfaqRange = (dateStr: string) => {
+        const month = String(dateStr || '').slice(0, 7);
+        if (!month || month.length !== 7) return false;
+        return isMonthInGemariInfaqRange(month);
+    };
+
+    const listMonthsBetweenInclusive = (startMonth: string, endMonth: string) => {
+        const [sy, sm] = startMonth.split('-').map(Number);
+        const [ey, em] = endMonth.split('-').map(Number);
+        if (!sy || !sm || !ey || !em) return [] as string[];
+        const out: string[] = [];
+        let y = sy;
+        let m = sm;
+        while (y < ey || (y === ey && m <= em)) {
+            out.push(`${y}-${String(m).padStart(2, '0')}`);
+            m++;
+            if (m > 12) {
+                m = 1;
+                y++;
+            }
+        }
+        return out;
+    };
 
     const [newSchoolDeposit, setNewSchoolDeposit] = useState({
         classId: '',
@@ -4393,6 +4311,12 @@ function PaymentsView({
             setNewPayment(prev => ({ ...prev, studentId: initialStudentId }));
         }
     }, [initialStudentId]);
+
+    useEffect(() => {
+        if (showPrintBill) document.body.classList.add('bill-printing');
+        else document.body.classList.remove('bill-printing');
+        return () => document.body.classList.remove('bill-printing');
+    }, [showPrintBill]);
 
     const handleAddPayment = async () => {
         if (!newPayment.studentId) return alert('Pilih siswa terlebih dahulu');
@@ -4534,6 +4458,9 @@ function PaymentsView({
         const st = students.find(s => s.id === detailStudentId);
         setExtraBills((st?.paymentExtraBills || []).map(b => ({ ...b })));
         setHideAdditionalBills(false);
+        const adj = (st?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === GEMARI_INFAQ_PERIOD_KEY);
+        setGemariInfaqManualAmount(adj?.amount ?? '');
+        setGemariInfaqManualNote(adj?.note ?? '');
     }, [detailStudentId, students]);
 
     const addExtraBill = () => {
@@ -4565,6 +4492,31 @@ function PaymentsView({
         }
     };
 
+    const saveGemariInfaqManual = async () => {
+        if (!detailStudentId) return;
+        setSavingGemariInfaqManual(true);
+        try {
+            const st = students.find(s => s.id === detailStudentId);
+            const prev = (st?.paymentGemariInfaqAdjustments || []).filter((a: any) => a.month !== GEMARI_INFAQ_PERIOD_KEY);
+
+            const amountVal = gemariInfaqManualAmount === '' ? undefined : Number(gemariInfaqManualAmount);
+            const noteVal = (gemariInfaqManualNote || '').trim();
+            const next = [...prev];
+            if (amountVal !== undefined || noteVal) {
+                next.push({
+                    month: GEMARI_INFAQ_PERIOD_KEY,
+                    ...(amountVal !== undefined ? { amount: amountVal } : {}),
+                    ...(noteVal ? { note: noteVal } : {})
+                });
+            }
+
+            await updateDoc(doc(db, 'students', detailStudentId), { paymentGemariInfaqAdjustments: next });
+            onRefresh();
+        } finally {
+            setSavingGemariInfaqManual(false);
+        }
+    };
+
     const filteredStudents = selectedClassId ? students.filter(s => s.classId === selectedClassId) : students;
     const totalRequired = feeItems.reduce((acc, item) => acc + (item.category === 'wajib' ? item.amount * students.length : 0), 0);
     const totalCollected = payments.reduce((acc, p) => acc + p.amountPaid, 0);
@@ -4579,6 +4531,109 @@ function PaymentsView({
 
     return (
         <div className="space-y-6 print-container relative">
+            {showPrintBill && detailStudentId && (
+                <>
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+                        <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-border">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-black uppercase tracking-widest">Cetak Kartu Tagihan</h3>
+                                <button onClick={() => setShowPrintBill(false)} aria-label="Tutup cetak kartu tagihan" className="p-2 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-4">Klik cetak untuk menyimpan sebagai PDF atau mencetak langsung.</p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowPrintBill(false)} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200">Batal</button>
+                                <button onClick={() => { window.print(); setShowPrintBill(false); }} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-950 flex items-center justify-center gap-2">
+                                    <Printer size={16} /> Cetak
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bill-print-root print-container">
+                        <div className="print-header">
+                            <h1 className="text-2xl font-black uppercase tracking-tighter">KARTU TAGIHAN SISWA</h1>
+                            <p className="text-xs font-bold text-slate-500">Periode: {getCurrentMonthStr()}</p>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="border border-black p-4 rounded">
+                                <div className="flex justify-between gap-6">
+                                    <div>
+                                        <div className="text-xs text-slate-500">Nama</div>
+                                        <div className="font-black">{detailStudent?.name || '-'}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs text-slate-500">Kelas</div>
+                                        <div className="font-black">{detailClass?.name || '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border border-black p-4 rounded space-y-3">
+                                <div className="font-black uppercase tracking-wider text-sm border-b border-black pb-2">Rincian Tagihan</div>
+                                <div className="space-y-2">
+                                    {feeItems.map(i => {
+                                        const due = Number((i as any).amount) || 0;
+                                        const paid = Number(detailPayments.filter(p => p.feeItemId === i.id).reduce((sum, p) => sum + (Number(p.amountPaid) || 0), 0)) || 0;
+                                        const kurang = Math.max(0, due - paid);
+                                        return (
+                                            <div key={i.id} className="flex justify-between text-xs">
+                                                <div className="font-bold">{i.name}</div>
+                                                <div className="font-mono">{formatCurrency(kurang)}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="pt-2 border-t border-black space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <div className="font-bold">Kekurangan Gemari &amp; Infaq</div>
+                                        <div className="font-mono">{(() => {
+                                            const st = detailStudent;
+                                            if (!st) return formatCurrency(0);
+                                            const monthStr = getCurrentMonthStr();
+                                            const classId = String((st as any)?.classId || '');
+                                            const calc = (type: 'gemari' | 'infaq') => {
+                                                const nominal = getCashNominal(type);
+                                                const targetDays = countTargetDays(type, monthStr);
+                                                const target = targetDays * nominal;
+
+                                                const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
+                                                const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+                                                const targetReal = Math.max(0, target - (bebasDates.size * nominal));
+
+                                                const paid = monthTx
+                                                    .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
+                                                    .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
+                                                    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+                                                const kurang = Math.max(0, targetReal - paid);
+                                                return { kurang };
+                                            };
+
+                                            const autoCombined = (Number(calc('gemari').kurang) || 0) + (Number(calc('infaq').kurang) || 0);
+                                            const combined = (gemariInfaqManualAmount === '' ? autoCombined : (Number(gemariInfaqManualAmount) || 0));
+                                            return formatCurrency(combined);
+                                        })()}</div>
+                                    </div>
+                                    {(extraBills || []).map(b => (
+                                        <div key={b.id} className="flex justify-between text-xs">
+                                            <div className="font-bold">{b.label}</div>
+                                            <div className="font-mono">{formatCurrency(Number(b.amount) || 0)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {gemariInfaqManualNote?.trim() && (
+                                    <div className="pt-3">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-1">Catatan</div>
+                                        <div className="text-xs">{gemariInfaqManualNote.trim()}</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
             <div className="print-header">
                 <h1 className="text-2xl font-black uppercase tracking-tighter">LAPORAN PEMBAYARAN SISWA</h1>
                 <p className="text-xs font-bold text-slate-500">Periode: {new Date().getFullYear()}</p>
@@ -4915,12 +4970,22 @@ function PaymentsView({
                                         </div>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
-                                    className="p-2 hover:bg-slate-100 rounded-lg"
-                                >
-                                    <X size={20} />
-                                </button>
+                                <div className="flex items-center gap-2 no-print">
+                                    <button
+                                        onClick={() => setShowPrintBill(true)}
+                                        className="btn-small !bg-slate-900 !text-yellow-400 flex items-center gap-2"
+                                        title="Cetak kartu tagihan"
+                                    >
+                                        <Printer size={14} /> Cetak
+                                    </button>
+                                    <button
+                                        onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
+                                        className="p-2 hover:bg-slate-100 rounded-lg"
+                                        title="Tutup"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-6">
@@ -4955,21 +5020,23 @@ function PaymentsView({
                                             const st = detailStudent;
                                             if (!st) return null;
 
-                                            const monthStr = getCurrentMonthStr();
-                                            const [yy, mm] = monthStr.split('-').map(Number);
-                                            const monthLabel = new Date(yy, (mm || 1) - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+                                            const months = listMonthsBetweenInclusive(GEMARI_INFAQ_ACADEMIC_START_MONTH, GEMARI_INFAQ_ACADEMIC_END_MONTH);
+                                            const periodLabel = 'Januari 2026 - Juni 2026';
 
                                             const classId = String((st as any)?.classId || '');
                                             const calc = (type: 'gemari' | 'infaq') => {
                                                 const nominal = getCashNominal(type);
-                                                const targetDays = countTargetDays(type, monthStr);
+                                                const targetDays = months.reduce((acc, m) => acc + countTargetDays(type, m), 0);
                                                 const target = targetDays * nominal;
 
-                                                const monthTx = classCash.filter(t => t.type === type && String((t as any)?.classId || '') === classId && (t.date || '').startsWith(monthStr));
-                                                const bebasDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+                                                const rangeTx = classCash
+                                                    .filter(t => t.type === type && String((t as any)?.classId || '') === classId)
+                                                    .filter(t => isDateInGemariInfaqRange(t.date || ''));
+
+                                                const bebasDates = new Set(rangeTx.filter(t => t.amount === 0).map(t => t.date));
                                                 const targetReal = Math.max(0, target - (bebasDates.size * nominal));
 
-                                                const paid = monthTx
+                                                const paid = rangeTx
                                                     .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
                                                     .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
                                                     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
@@ -4981,14 +5048,16 @@ function PaymentsView({
                                             const gemari = calc('gemari');
                                             const infaq = calc('infaq');
                                             const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-                                            const totalAdditional = gemari.kurang + infaq.kurang + otherTotal;
+                                            const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
+                                            const combined = (gemariInfaqManualAmount === '' ? autoCombined : (Number(gemariInfaqManualAmount) || 0));
+                                            const totalAdditional = (hideAdditionalBills ? otherTotal : (combined + otherTotal));
 
                                             return (
                                                 <div className="space-y-4">
                                                     <div className="flex items-end justify-between gap-4">
                                                         <div>
                                                             <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
-                                                            <p className="text-[10px] text-slate-400 italic pl-1">Sinkron dengan tagihan Kas & Infaq ({monthLabel})</p>
+                                                            <p className="text-[10px] text-slate-400 italic pl-1">Rekap Gemari & Infaq Tahun Ajaran ({periodLabel})</p>
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <button
@@ -4999,85 +5068,130 @@ function PaymentsView({
                                                             >
                                                                 {hideAdditionalBills ? 'Show' : 'Hide'}
                                                             </button>
-                                                            <button onClick={addExtraBill} className="btn-small" disabled={hideAdditionalBills}>+ Lain-lain</button>
+                                                            <button onClick={addExtraBill} className="btn-small">+ Lain-lain</button>
                                                         </div>
                                                     </div>
 
-                                                    {hideAdditionalBills ? (
-                                                        <div className="p-4 bg-white rounded-2xl border border-border flex items-center justify-between">
-                                                            <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (disembunyikan)</div>
-                                                            <div className="text-right">
-                                                                <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                                <div className="text-[10px] text-slate-400">Klik Show untuk detail</div>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
-                                                            <div className="flex justify-between items-center">
-                                                                <div>
-                                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari</div>
-                                                                    <div className="text-[10px] text-slate-400">Target: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)} {gemari.bebasDays ? `(- bebas setor ${gemari.bebasDays} hari)` : ''}</div>
-                                                                </div>
+                                                    <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
+                                                        {hideAdditionalBills ? (
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (Hide)</div>
                                                                 <div className="text-right">
-                                                                    <div className="text-xs font-black text-red-500">{formatCurrency(gemari.kurang)}</div>
-                                                                    <div className="text-[10px] text-slate-400">Setor: {formatCurrency(gemari.paid)}</div>
+                                                                    <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                                    <div className="text-[10px] text-slate-400">Gemari &amp; Infaq tidak dihitung saat Hide</div>
                                                                 </div>
                                                             </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <div>
-                                                                    <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Infaq Jumat</div>
-                                                                    <div className="text-[10px] text-slate-400">Target: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)} {infaq.bebasDays ? `(- bebas setor ${infaq.bebasDays} Jumat)` : ''}</div>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <div className="text-xs font-black text-red-500">{formatCurrency(infaq.kurang)}</div>
-                                                                    <div className="text-[10px] text-slate-400">Setor: {formatCurrency(infaq.paid)}</div>
-                                                                </div>
-                                                            </div>
+                                                        ) : (
+                                                            (() => {
+                                                                const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
+                                                                const manual = gemariInfaqManualAmount === '' ? null : (Number(gemariInfaqManualAmount) || 0);
+                                                                const combined = manual === null ? autoCombined : manual;
+                                                                const note = (gemariInfaqManualNote || '').trim();
 
-                                                            {(extraBills || []).length > 0 && (
-                                                                <div className="pt-2 border-t border-border space-y-2">
-                                                                    {(extraBills || []).map(b => (
-                                                                        <div key={b.id} className="flex gap-2 items-center">
-                                                                            <input
-                                                                                className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
-                                                                                value={b.label}
-                                                                                onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
-                                                                                placeholder="Nama tagihan lain-lain"
-                                                                            />
-                                                                            <input
-                                                                                type="number"
-                                                                                className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
-                                                                                value={Number(b.amount) || 0}
-                                                                                onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
-                                                                                min={0}
-                                                                            />
+                                                                return (
+                                                                    <>
+                                                                        <div className="flex justify-between items-start gap-4">
+                                                                            <div className="min-w-0">
+                                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari &amp; Infaq</div>
+                                                                                <div className="text-[10px] text-slate-400">
+                                                                                    Gemari: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)}{gemari.bebasDays ? ` (- bebas setor ${gemari.bebasDays} hari)` : ''}
+                                                                                </div>
+                                                                                <div className="text-[10px] text-slate-400">
+                                                                                    Infaq: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)}{infaq.bebasDays ? ` (- bebas setor ${infaq.bebasDays} Jumat)` : ''}
+                                                                                </div>
+                                                                                {note && (
+                                                                                    <div className="mt-2 text-[10px] font-bold text-slate-600 bg-slate-50 border border-border rounded-lg px-2.5 py-2">
+                                                                                        {note}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-right">
+                                                                                <div className="text-xs font-black text-red-500">{formatCurrency(combined)}</div>
+                                                                                <div className="text-[10px] text-slate-400">Setor (Jan 2026-Jun 2026): {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="no-print pt-2 border-t border-border space-y-2">
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                                                                                <div className="sm:col-span-1">
+                                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Override Nominal</div>
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        className="w-full bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
+                                                                                        value={gemariInfaqManualAmount}
+                                                                                        onChange={(e) => setGemariInfaqManualAmount(e.target.value === '' ? '' : (Number(e.target.value) || 0))}
+                                                                                        placeholder="Kosongkan = otomatis"
+                                                                                    />
+                                                                                </div>
+                                                                                <div className="sm:col-span-2">
+                                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Catatan (Opsional)</div>
+                                                                                    <input
+                                                                                        className="w-full bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
+                                                                                        value={gemariInfaqManualNote}
+                                                                                        onChange={(e) => setGemariInfaqManualNote(e.target.value)}
+                                                                                        placeholder="Tambahan informasi untuk kartu tagihan"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
                                                                             <button
-                                                                                onClick={() => removeExtraBill(b.id)}
-                                                                                className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
-                                                                                title="Hapus tagihan lain-lain"
-                                                                                aria-label="Hapus tagihan lain-lain"
+                                                                                onClick={saveGemariInfaqManual}
+                                                                                disabled={savingGemariInfaqManual}
+                                                                                className="w-full px-3 py-2 rounded-xl bg-slate-900 text-yellow-400 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
                                                                             >
-                                                                                <Trash2 size={16} />
+                                                                                {savingGemariInfaqManual ? 'Menyimpan...' : 'Simpan Kekurangan Gemari & Infaq'}
                                                                             </button>
                                                                         </div>
-                                                                    ))}
-                                                                </div>
+                                                                    </>
+                                                                );
+                                                            })()
+                                                        )}
+
+                                                        <div className="pt-2 border-t border-border space-y-2">
+                                                            {(extraBills || []).length === 0 ? (
+                                                                <div className="text-[10px] text-slate-400 italic">Belum ada tagihan lain-lain.</div>
+                                                            ) : (
+                                                                (extraBills || []).map(b => (
+                                                                    <div key={b.id} className="flex gap-2 items-center">
+                                                                        <input
+                                                                            className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
+                                                                            value={b.label}
+                                                                            onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
+                                                                            placeholder="Nama tagihan lain-lain"
+                                                                        />
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
+                                                                            value={Number(b.amount) || 0}
+                                                                            onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
+                                                                            min={0}
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => removeExtraBill(b.id)}
+                                                                            className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
+                                                                            title="Hapus tagihan lain-lain"
+                                                                            aria-label="Hapus tagihan lain-lain"
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                ))
                                                             )}
-
-                                                            <div className="pt-3 border-t border-border flex items-center justify-between">
-                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
-                                                                <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                            </div>
-
-                                                            <button
-                                                                onClick={saveExtraBills}
-                                                                disabled={savingExtraBills}
-                                                                className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
-                                                            >
-                                                                {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
-                                                            </button>
                                                         </div>
-                                                    )}
+
+                                                        <div className="pt-3 border-t border-border flex items-center justify-between">
+                                                            <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
+                                                            <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={saveExtraBills}
+                                                            disabled={savingExtraBills}
+                                                            className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
+                                                        >
+                                                            {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             );
                                         })()}
@@ -5419,7 +5533,7 @@ function PaymentsView({
     );
 }
 
-function GemariView({
+function ClassCashView({
     classes,
     students,
     transactions,
@@ -5442,237 +5556,93 @@ function GemariView({
     sortedData: any,
     SortableTH: any
 }) {
-    const DEFAULT_GEMARI_RATE = 500;
-    const todayStr = new Date().toISOString().split('T')[0];
-    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('bulk');
+    const [activeTab, setActiveTab] = useState<'gemari' | 'infaq'>('gemari');
+    const [viewMode, setViewMode] = useState<'daily' | 'monthly' | 'ledger'>('daily');
     const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-    const [selectedStudentId, setSelectedStudentId] = useState('');
-    const [showForm, setShowForm] = useState(false);
-    const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
-    const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
-    const [annualTarget, setAnnualTarget] = useState<number>(0);
-    const [showGemariSettings, setShowGemariSettings] = useState(false);
-    const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
-    const [bulkDate, setBulkDate] = useState(`${selectedYear}-01-01`);
-    const [bulkNotes, setBulkNotes] = useState('');
-    const [bulkSaving, setBulkSaving] = useState(false);
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+    const [showMonthPicker, setShowMonthPicker] = useState(false);
+    const [studentAmounts, setStudentAmounts] = useState<{ [key: string]: number }>({});
 
-    // Table-based settings: map of month -> { rate, targetDays, override }
-    const currentYear = new Date().getFullYear();
-    const [settingsRangeStart, setSettingsRangeStart] = useState(`${currentYear - 1}-07`);
-    const [settingsRangeEnd, setSettingsRangeEnd] = useState(`${currentYear}-06`);
-    const [settingsTable, setSettingsTable] = useState<Record<string, { rate: number; targetDays: string; override: string }>>({});
-    const [settingsBulkRate, setSettingsBulkRate] = useState(DEFAULT_GEMARI_RATE);
-    const [settingsLoading, setSettingsLoading] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [showRangeModal, setShowRangeModal] = useState(false);
+    const [isSavingRange, setIsSavingRange] = useState(false);
+    const classCashSheetWebhook = (import.meta as any)?.env?.VITE_CLASSCASH_SHEET_WEBHOOK_URL as string | undefined;
+    const classCashSpreadsheetId = ((import.meta as any)?.env?.VITE_CLASSCASH_SPREADSHEET_ID as string | undefined) || '1oKnCNX5SLz37-8h_XNPuNi-yKTfqvBilw34kzNCHsdo';
+    const classCashGemariSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_GEMARI_SHEET_NAME as string | undefined) || 'Sheet1';
+    const classCashInfaqSheetName = ((import.meta as any)?.env?.VITE_CLASSCASH_INFAQ_SHEET_NAME as string | undefined) || 'Sheet2';
 
-    // Generate months in range
-    const getMonthsInRange = (start: string, end: string) => {
-        const months: string[] = [];
-        const [sy, sm] = start.split('-').map(Number);
-        const [ey, em] = end.split('-').map(Number);
-        let y = sy, m = sm;
-        while (y < ey || (y === ey && m <= em)) {
-            months.push(`${y}-${String(m).padStart(2, '0')}`);
-            m++;
-            if (m > 12) { m = 1; y++; }
-        }
-        return months;
-    };
-
-    const settingsMonths = React.useMemo(() => getMonthsInRange(settingsRangeStart, settingsRangeEnd), [settingsRangeStart, settingsRangeEnd]);
-
-    const monthLabel = (m: string) => {
-        const [y, mo] = m.split('-').map(Number);
-        return new Date(y, mo - 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-    };
-
-    const getSchoolDaysForMonth = (monthStr: string) => {
-        const [y, m] = monthStr.split('-').map(Number);
-        if (!y || !m) return 0;
-        const daysInMonth = new Date(y, m, 0).getDate();
-        let total = 0;
-        for (let day = 1; day <= daysInMonth; day++) {
-            const d = new Date(y, m - 1, day);
-            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
-            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
-            if (d.getDay() !== 0 && !isHoliday) total++;
-        }
-        return total;
-    };
-
-    const [form, setForm] = useState({
+    const [rangeForm, setRangeForm] = useState({
+        startDate: '',
+        endDate: '',
         studentId: '',
-        transactionType: 'deposit' as 'deposit' | 'withdrawal',
-        amount: 0,
-        date: todayStr,
-        notes: ''
+        targetType: 'active' as 'active' | 'gemari' | 'infaq' | 'both',
+        status: 'setor' as 'setor' | 'bebas_setor',
+        customAmount: 0
     });
 
-    // Load monthly gemari settings from Firestore (for the active month)
-    React.useEffect(() => {
-        if (!selectedYear) return;
-        (async () => {
-            try {
-                const settingsRef = doc(db, 'gemariSettings', selectedYear);
-                const snap = await getDoc(settingsRef);
-                if (snap.exists()) {
-                    const data = snap.data();
-                    
-                    
-                    
-                } else {
-                    
-                    
-                    
-                }
-            } catch {
-                
-                
-                
-            }
-        })();
-    }, [selectedYear]);
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const selectedClass = classes.find(c => c.id === selectedClassId);
+    const filteredStudents = students.filter(s => {
+        const studentClass = String((s as any)?.classId || '').trim();
+        if (!selectedClassId) return true;
+        if (studentClass === String(selectedClassId)) return true;
+        if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
+        return false;
+    });
+    const sortedFilteredStudents = sortStudentsForSelect(filteredStudents);
+    const holiday = holidays.find(h => h.date === selectedDate);
+    const dateObj = new Date(selectedDate);
+    const isWeekend = dateObj.getDay() === 0;
+    const isFriday = dateObj.getDay() === 5;
 
-    // Load all settings for the table range (single batch query)
-    const loadSettingsTable = async () => {
-        setSettingsLoading(true);
-        setSettingsSavingError('');
-        const table: Record<string, { rate: number; targetDays: string; override: string }> = {};
+    const getNominal = () => activeTab === 'gemari' ? 500 : 1000;
 
-        const fetchSettings = () => supabase!
-            .from('gemariSettings')
-            .select('month, rate, "targetDays", "targetOverride"')
-            .in('month', settingsMonths);
+    // Calculate Monthly Recap
+    const currentMonthStr = viewMode === 'daily' ? selectedDate.substring(0, 7) : (selectedMonth || selectedDate.substring(0, 7));
+    const summaryMonthDate = new Date(`${currentMonthStr}-01`);
+    const getMonthlyRecap = () => {
+        let targetDays = 0;
+        const year = parseInt(currentMonthStr.split('-')[0]);
+        const month = parseInt(currentMonthStr.split('-')[1]) - 1;
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-        try {
-            const { data, error } = await Promise.race([
-                fetchSettings(),
-                new Promise<never>((_, rej) => setTimeout(() => rej(new Error(
-                    'Koneksi terlalu lama (>15 dtk). Periksa sambungan internet atau tabel gemariSettings belum dibuat di Supabase.'
-                )), 15000))
-            ]);
-            if (error) throw error;
-            if (data && data.length > 0) {
-                const rows = data as any[];
-                const found = new Set(rows.map((r: any) => r.month));
-                for (const m of settingsMonths) {
-                    if (found.has(m)) {
-                        const r = rows.find((x: any) => x.month === m)!;
-                        table[m] = {
-                            rate: Number(r.rate) || DEFAULT_GEMARI_RATE,
-                            targetDays: r.targetDays !== null && r.targetDays !== undefined ? String(r.targetDays) : '',
-                            override: r.targetOverride ? String(r.targetOverride) : ''
-                        };
-                    } else {
-                        table[m] = { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
-                    }
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(year, month, day);
+            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+            const isH = holidays.some(h => h.date === dateStr);
+            const dayOfWeek = d.getDay();
+
+            if (activeTab === 'gemari') {
+                if (dayOfWeek !== 0 && !isH) {
+                    targetDays++;
                 }
             } else {
-                for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
-            }
-        } catch (err: any) {
-            console.error('Gagal memuat pengaturan GEMARI:', err);
-            for (const m of settingsMonths) table[m] = { rate: DEFAULT_GEMARI_RATE, targetDays: '', override: '' };
-            setSettingsSavingError(err?.message || String(err));
-        }
-        setSettingsTable(table);
-        setSettingsLoading(false);
-    };
-
-    const openGemariSettings = () => {
-        setShowGemariSettings(true);
-        loadSettingsTable();
-    };
-
-    const [settingsSavingError, setSettingsSavingError] = useState('');
-
-    const handleSaveAllSettings = () => {
-        if (!supabase || !supabase.from) {
-            setSettingsSavingError('Supabase belum dikonfigurasi. Cek file .env');
-            return;
-        }
-        const sb = supabase;
-        setSettingsLoading(true);
-        setSettingsSavingError('');
-        const rows: any[] = settingsMonths.map(m => {
-            const entry = settingsTable[m];
-            if (!entry) return null;
-            const rate = Number(entry.rate) || DEFAULT_GEMARI_RATE;
-            const targetDays = entry.targetDays !== '' ? Number(entry.targetDays) : null;
-            const override = entry.override ? Number(entry.override) : null;
-            return { month: m, rate, targetDays, targetOverride: override, updatedAt: new Date().toISOString() };
-        }).filter(Boolean);
-
-        const saveUp = async () => {
-            try {
-                if (rows.length > 0) {
-                    const { error } = await sb.from('gemariSettings').upsert(rows, { onConflict: 'month' });
-                    if (error) throw error;
+                if (dayOfWeek === 5 && !isH) {
+                    targetDays++;
                 }
-                // Update in-memory live rate from the just-saved table
-                const active = settingsTable[selectedYear];
-                if (active) {
-                    
-                    
-                    
-                }
-            } catch (err: any) {
-                console.error('Gagal menyimpan pengaturan GEMARI:', err);
-                setSettingsSavingError(`Gagal menyimpan: ${err?.message || err}`);
-            } finally {
-                setSettingsLoading(false);
             }
-        };
-        void saveUp();
+        }
+
+        const totalSeharusnya = targetDays * getNominal() * filteredStudents.length;
+
+        // Total sudah setor for this month
+        const monthTx = transactions.filter(t => t.type === activeTab && t.classId === selectedClassId && t.date.startsWith(currentMonthStr));
+        const sudahSetor = monthTx.reduce((acc, t) => acc + t.amount, 0);
+
+        // Find unique days marked as bebas_setor for this class this month
+        const bebasSetorDates = new Set(monthTx.filter(t => t.amount === 0).map(t => t.date));
+        const bebasSetorDeduction = bebasSetorDates.size * getNominal() * filteredStudents.length;
+
+        const totalSeharusnyaReal = Math.max(0, totalSeharusnya - bebasSetorDeduction);
+
+        // As per user, "hari tanpa setor karena alasan tertentu" might be recorded as 0. Belum setor depends on expectations.
+        const belumSetor = Math.max(0, totalSeharusnyaReal - sudahSetor);
+
+        return { totalSeharusnya: totalSeharusnyaReal, sudahSetor, belumSetor };
     };
 
-    
-    const getStudentName = (id: string) => {
-        const s = students.find(x => x.id === id);
-        return s?.name || (s as any)?.displayName || (s as any)?.fullName || (s as any)?.nama || 'Umum / Kolektif';
-    };
-    const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
-    
-    const selectedClass = React.useMemo(() => classes.find(c => c.id === selectedClassId), [classes, selectedClassId]);
-    const filteredStudents = React.useMemo(() => students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId)), [students, selectedClassId]);
-    
-    // Transactions for the selected month and class
-    const monthTransactions = React.useMemo(() => transactions
-        .filter(t => t.type === 'gemari' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedYear))
-        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedYear]);
-
-    const targetPerStudent = annualTarget;
-
-    const studentRows = React.useMemo(() => filteredStudents.map(s => {
-        const studentTx = monthTransactions.filter(t => t.studentId === s.id);
-        const paid = studentTx.reduce((sum, t) => sum + (t.transactionType === 'withdrawal' ? -Number(t.amount || 0) : Number(t.amount || 0)), 0);
-        const kurang = Math.max(0, targetPerStudent - paid);
-        const status = paid >= targetPerStudent && paid > 0 ? 'sudah_bayar' : paid <= 0 ? 'belum_bayar' : 'kurang_bayar';
-        return {
-            student: s,
-            paid,
-            kurang,
-            status,
-            txCount: studentTx.length
-        };
-    }).sort((a, b) => {
-        const order: Record<string, number> = { keKurangan: 0, belum_bayar: 1, sudah_bayar: 2 };
-        return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
-    }), [filteredStudents, monthTransactions, targetPerStudent]);
-
-    const totalPaid = studentRows.reduce((sum, row) => sum + row.paid, 0);
-    const totalTarget = targetPerStudent * filteredStudents.length;
-    const totalKurang = studentRows.reduce((sum, row) => sum + row.kurang, 0);
-    const countSudah = studentRows.filter(row => row.status === 'sudah_bayar').length;
-    const countBelum = studentRows.filter(row => row.status === 'belum_bayar').length;
-    const countKurang = studentRows.filter(row => row.status === 'kurang_bayar').length;
-
-    useEffect(() => {
-        setBulkAmounts(Object.fromEntries(studentRows.map(row => [row.student.id, row.paid > 0 ? String(row.paid) : ''])));
-        setBulkNotes(`Rekap GEMARI ${selectedYear}`);
-        setBulkDate(`${selectedYear}-01`);
-    }, [studentRows, selectedYear]);
+    const recap = getMonthlyRecap();
 
     useEffect(() => {
         if (!classes.length) return;
@@ -5681,1265 +5651,161 @@ function GemariView({
         }
     }, [classes, selectedClassId]);
 
-    const resetForm = () => setForm({
-        studentId: '',
-        transactionType: 'deposit',
-        amount: 0,
-        date: todayStr,
-        notes: ''
-    });
+    const handleSaveRange = async () => {
+        if (!rangeForm.startDate || !rangeForm.endDate) return alert('Pilih tanggal awal dan akhir!');
+        if (!rangeForm.studentId) return alert('Pilih nama siswa terlebih dahulu!');
+        if (isSavingRange) return;
 
-    const openEdit = (tx: ClassCashTransaction) => {
-        setEditingTx(tx);
-        setForm({
-            studentId: tx.studentId || '',
-            transactionType: tx.transactionType || 'deposit',
-            amount: Math.abs(Number(tx.amount) || 0),
-            date: tx.date,
-            notes: tx.notes || ''
-        });
-        setShowForm(true);
-    };
+        const start = new Date(rangeForm.startDate);
+        const end = new Date(rangeForm.endDate);
+        if (start > end) return alert('Tanggal akhir harus lebih besar atau sama dengan tanggal awal!');
 
-    const handleSaveTx = async () => {
-        if (!form.amount || form.amount <= 0) return alert('Nominal harus lebih dari 0');
-        const targetClassId = editingTx?.classId || selectedClassId;
-
-        if (editingTx) {
-            await persistClassCashEntries([{
-                classId: editingTx.classId,
-                studentId: editingTx.studentId || '',
-                type: 'gemari',
-                transactionType: editingTx.transactionType || 'deposit',
-                amount: -1,
-                date: editingTx.date,
-                notes: editingTx.notes
-            }]);
-        }
-
-        await persistClassCashEntries([{
-            classId: targetClassId,
-            studentId: form.studentId || '',
-            type: 'gemari',
-            transactionType: form.transactionType,
-            amount: form.amount,
-            date: form.date,
-            notes: form.notes || undefined
-        }]);
-        setShowForm(false);
-        setEditingTx(null);
-        resetForm();
-        onRefresh();
-    };
-
-    const handleDeleteTx = async (tx: ClassCashTransaction) => {
-        if (!confirm('Hapus transaksi ini?')) return;
-        await persistClassCashEntries([{
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'gemari',
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }]);
-        if (editingTx?.id === tx.id) setEditingTx(null);
-        onRefresh();
-    };
-
-    const handleBulkDeleteTx = async () => {
-        if (selectedTxIds.size === 0) return;
-        if (!confirm(`Hapus ${selectedTxIds.size} transaksi terpilih?`)) return;
-
-        const txsToDelete = monthTransactions.filter(t => selectedTxIds.has(t.id));
-        const entries = txsToDelete.map(tx => ({
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'gemari' as const,
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }));
-        
-        await persistClassCashEntries(entries);
-        setSelectedTxIds(new Set());
-        onRefresh();
-    };
-
-    const handleDeleteStudentGemari = async (studentId: string, studentName: string) => {
-        const studentTx = monthTransactions.filter(t => t.studentId === studentId);
-        if (studentTx.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
-        if (!confirm(`Hapus semua ${studentTx.length} transaksi GEMARI milik ${studentName} pada bulan ini?`)) return;
-        const entries = studentTx.map(tx => ({
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'gemari' as const,
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }));
-        await persistClassCashEntries(entries);
-        setSelectedTxIds(new Set());
-        onRefresh();
-    };
-
-    const handleDeleteAllGemari = async () => {
-        const target = ledgerRows;
-        if (target.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
-        if (!confirm(`Hapus SEMUA ${target.length} transaksi yang sedang ditampilkan?\n\nAksi ini TIDAK BISA dibatalkan.`)) return;
-        const entries = target.map((tx: any) => ({
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'gemari' as const,
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }));
-        await persistClassCashEntries(entries);
-        setSelectedTxIds(new Set());
-        onRefresh();
-    };
-
-    const handleBulkAmountChange = (studentId: string, value: string) => {
-        setBulkAmounts(prev => ({ ...prev, [studentId]: value }));
-    };
-
-    const fillBulkAmounts = (mode: 'target' | 'kurang' | 'clear') => {
-        if (mode === 'clear') {
-            setBulkAmounts(Object.fromEntries(filteredStudents.map(s => [s.id, ''])));
-            return;
-        }
-
-        setBulkAmounts(Object.fromEntries(studentRows.map(row => {
-            const amount = mode === 'target' ? targetPerStudent : row.kurang;
-            return [row.student.id, amount > 0 ? String(amount) : ''];
-        })));
-    };
-
-    const handleSaveBulkGemari = async () => {
-        if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
-        if (!bulkDate || !bulkDate.startsWith(selectedYear)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
-
-        const invalidRow = filteredStudents.find(s => Number(bulkAmounts[s.id] || 0) < 0);
-        if (invalidRow) return alert(`Nominal ${invalidRow.name} tidak boleh negatif.`);
-
-        const existingStudentTx = monthTransactions.filter(t => t.studentId && filteredStudents.some(s => s.id === t.studentId));
-        const newEntries = filteredStudents
-            .map(s => ({
-                classId: selectedClassId,
-                studentId: s.id,
-                type: 'gemari' as const,
-                transactionType: 'deposit' as const,
-                amount: Number(bulkAmounts[s.id] || 0),
-                date: bulkDate,
-                notes: bulkNotes || `Rekap GEMARI ${selectedYear}`
-            }))
-            .filter(entry => entry.amount > 0);
-
-        if (existingStudentTx.length > 0) {
-            const ok = confirm(`Simpan input massal GEMARI untuk ${filteredStudents.length} siswa?\n\nTransaksi GEMARI per siswa pada bulan ${selectedYear} akan diganti dengan data tabel ini.`);
-            if (!ok) return;
-        }
-
-        setBulkSaving(true);
+        setIsSavingRange(true);
         try {
-            const deleteEntries = existingStudentTx.map(tx => ({
-                classId: tx.classId,
-                studentId: tx.studentId || '',
-                type: 'gemari' as const,
-                transactionType: tx.transactionType || 'deposit',
-                amount: -1,
-                date: tx.date,
-                notes: tx.notes
+            const entries: any[] = [];
+            let currentDate = new Date(start);
+            const targetTypes = rangeForm.targetType === 'both'
+                ? (['gemari', 'infaq'] as const)
+                : ([(rangeForm.targetType === 'active' ? activeTab : rangeForm.targetType)] as const);
+
+            while (currentDate <= end) {
+                const dateStr = [currentDate.getFullYear(), ('0' + (currentDate.getMonth() + 1)).slice(-2), ('0' + currentDate.getDate()).slice(-2)].join('-');
+                const isH = holidays.some(h => h.date === dateStr);
+                const dayOfWeek = currentDate.getDay();
+
+                targetTypes.forEach((targetType) => {
+                    let validDay = false;
+                    if (targetType === 'gemari' && dayOfWeek !== 0 && !isH) validDay = true;
+                    if (targetType === 'infaq' && dayOfWeek === 5 && !isH) validDay = true;
+
+                    if (validDay || rangeForm.status === 'bebas_setor') {
+                        entries.push({
+                            classId: selectedClassId,
+                            studentId: rangeForm.studentId,
+                            amount: rangeForm.status === 'setor' ? (rangeForm.customAmount || (targetType === 'gemari' ? 500 : 1000)) : 0,
+                            date: dateStr,
+                            type: targetType,
+                            notes: rangeForm.status === 'bebas_setor' ? 'Bebas Setor' : `Input rentang - ${targetType}`
+                        });
+                    }
+                });
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            if (entries.length === 0) return alert('Tidak ada hari valid untuk diinput dalam rentang ini.');
+
+            await saveClassCashEntries(entries);
+
+            onRefresh();
+            setShowRangeModal(false);
+            alert(`Berhasil menyimpan ${entries.length} entri untuk siswa terpilih.`);
+        } catch (error) {
+            console.error('Gagal menyimpan input rentang:', error);
+            alert('Gagal menyimpan input rentang. Silakan coba lagi.');
+        } finally {
+            setIsSavingRange(false);
+        }
+    };
+
+    const jumpMonth = (offset: number) => {
+        const [yearStr, monthStr] = selectedMonth.split('-');
+        const date = new Date(Number(yearStr), Number(monthStr) - 1 + offset, 1);
+        const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        setSelectedMonth(month);
+        setSelectedDate(`${month}-01`);
+    };
+
+    const handleSave = async () => {
+
+        const entries = (Object.entries(studentAmounts) as [string, number][])
+            .filter(([_, amount]) => amount > 0)
+            .map(([studentId, amount]) => ({
+                classId: selectedClassId,
+                studentId,
+                amount,
+                date: selectedDate,
+                type: activeTab,
+                notes: `Input per siswa - ${activeTab}`
             }));
 
-            await persistClassCashEntries([...deleteEntries, ...newEntries]);
-            onRefresh();
-        } finally {
-            setBulkSaving(false);
-        }
-    };
-
-    // Calculate Ledger Rows with Running Balance
-    const ledgerRows = React.useMemo(() => {
-        const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
-        let runningBalance = 0;
-        return base.map(t => {
-            const debet = t.transactionType === 'deposit' ? Number(t.amount || 0) : 0;
-            const kredit = t.transactionType === 'withdrawal' ? Number(t.amount || 0) : 0;
-            runningBalance += (debet - kredit);
-            return {
-                ...t,
-                student: students.find(s => s.id === t.studentId),
-                debet,
-                kredit,
-                saldo: runningBalance
-            };
-        });
-    }, [monthTransactions, selectedStudentId, students]);
-
-    return (
-        <div className="space-y-6 print-container">
-            <div className="print-header">
-                <h1 className="text-2xl font-black uppercase tracking-tighter">GEMARI SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Buku Transaksi: {selectedClass?.name} - Tahun {selectedYear}</p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
-                <div>
-                    <h2 className="text-2xl font-black tracking-tighter uppercase italic">GEMARI</h2>
-                    <p className="text-xs text-text-secondary font-bold">Monitor tabungan dan infaq harian siswa secara transparan</p>
-                </div>
-                <div className="flex gap-2 w-full sm:w-auto">
-                    <select
-                        className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
-                        value={selectedClassId}
-                        onChange={e => setSelectedClassId(e.target.value)}
-                    >
-                        {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
-                    </select>
-                    <input type="number" min="2000" max="2100"
-                        className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
-                        value={selectedYear}
-                        onChange={e => setSelectedYear(e.target.value)}
-                    />
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 no-print">
-                <div className="card">
-                    <p className="stat-label">Total Target Kelas</p>
-                    <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
-                </div>
-                <div className="card">
-                    <p className="stat-label">Total Terkumpul</p>
-                    <p className="stat-value text-emerald-600">{formatCurrency(totalPaid)}</p>
-                </div>
-                <div className="card">
-                    <p className="stat-label">Sisa Kekurangan</p>
-                    <p className="stat-value text-red-500">{formatCurrency(totalKurang)}</p>
-                </div>
-            </div>
-
-            <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
-                <div className="flex gap-8">
-                    <button
-                        onClick={() => setActiveTab('bulk')}
-                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'bulk' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
-                    >
-                        Tabel Pembayaran
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('ledger')}
-                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'ledger' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
-                    >
-                        Buku Transaksi
-                    </button>
-                </div>
-                <button onClick={onOpenPrint} className="btn-small !bg-slate-700 flex items-center gap-2">
-                    <Printer size={14} /> Cetak Laporan
-                </button>
-            </div>
-
-            {activeTab === 'overview' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {studentRows.length === 0 ? (
-                        <div className="card p-10 text-center text-slate-400 italic">Belum ada siswa pada kelas ini.</div>
-                    ) : studentRows.map(row => (
-                        <div key={row.student.id} className="card space-y-4 group hover:border-accent transition-all">
-                            <div className="flex items-start justify-between gap-3">
-                                <div>
-                                    <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: 1 Tahun</p>
-                                </div>
-                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                                    row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
-                                    row.status === 'kurang_bayar' ? 'bg-amber-100 text-amber-700' :
-                                    'bg-red-100 text-red-700'
-                                }`}>
-                                    {row.status === 'sudah_bayar' ? 'Sudah Bayar' : row.status === 'kurang_bayar' ? 'Kurang Bayar' : 'Belum Bayar'}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Target</p>
-                                    <p className="font-black">{formatCurrency(targetPerStudent)}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Dibayar</p>
-                                    <p className="font-black text-emerald-600">{formatCurrency(row.paid)}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Kurang</p>
-                                    <p className="font-black text-red-500">{formatCurrency(row.kurang)}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Input</p>
-                                    <p className="font-black">{row.txCount} Kali</p>
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => {
-                                        setForm({ ...form, studentId: row.student.id, transactionType: 'deposit' });
-                                        setShowForm(true);
-                                    }}
-                                    className="flex-1 btn-primary !py-2 text-[10px]"
-                                >
-                                    Input / Edit
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setSelectedStudentId(row.student.id);
-                                        setActiveTab('ledger');
-                                    }}
-                                    className="flex-1 btn-small !py-2 text-[10px] bg-slate-100 text-slate-600 shadow-none border-none hover:bg-slate-200"
-                                >
-                                    Detail
-                                </button>
-                                <button
-                                    onClick={() => handleDeleteStudentGemari(row.student.id, row.student.name)}
-                                    className="btn-small !py-2 text-[10px] bg-red-50 text-red-500 border-none shadow-none hover:bg-red-100"
-                                    title={`Hapus semua data GEMARI ${row.student.name}`}
-                                >
-                                    <Trash2 size={12} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : activeTab === 'bulk' ? (
-                <div className="space-y-4">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-border no-print flex flex-col lg:flex-row gap-4 justify-between lg:items-end">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal Input</label>
-                                <input
-                                    type="date"
-                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
-                                    value={bulkDate}
-                                    onChange={e => setBulkDate(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Catatan</label>
-                                <input
-                                    type="text"
-                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
-                                    value={bulkNotes}
-                                    onChange={e => setBulkNotes(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button onClick={() => fillBulkAmounts('target')} className="btn-small bg-slate-900 text-yellow-400">Isi Target</button>
-                            <button onClick={() => fillBulkAmounts('kurang')} className="btn-small bg-amber-100 text-amber-700 shadow-none">Isi Kekurangan</button>
-                            <button onClick={() => fillBulkAmounts('clear')} className="btn-small bg-slate-100 text-slate-600 shadow-none">Kosongkan</button>
-                            <button onClick={handleSaveBulkGemari} disabled={bulkSaving} className="btn-small !bg-emerald-600 text-white flex items-center gap-2 disabled:opacity-50">
-                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan ke Supabase'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="table-container shadow-sm overflow-x-auto">
-                        <table className="data-table">
-                            <thead className="bg-slate-900 text-white">
-                                <tr>
-                                    <th className="!text-white border-none text-left">NAMA SISWA</th>
-                                    <th className="!text-white border-none text-right">TARGET BAYAR</th>
-                                    <th className="!text-white border-none text-right">INPUT BAYAR</th>
-                                    <th className="!text-white border-none text-right">KEKURANGAN BAYAR</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {studentRows.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
-                                    </tr>
-                                ) : studentRows.map(row => {
-                                    const newAmount = Number(bulkAmounts[row.student.id] || 0);
-                                    const remaining = Math.max(0, targetPerStudent - newAmount);
-                                    return (
-                                        <tr key={row.student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
-                                            <td className="py-3">
-                                                <div className="font-bold text-slate-700">{row.student.name}</div>
-                                            </td>
-                                            <td className="text-right font-black">{formatCurrency(targetPerStudent)}</td>
-                                            <td className="text-right">
-                                                <input
-                                                    type="number"
-                                                    min={0}
-                                                    className="w-36 max-w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-right font-black outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                                                    value={bulkAmounts[row.student.id] ?? ''}
-                                                    onChange={e => handleBulkAmountChange(row.student.id, e.target.value)}
-                                                    placeholder="0"
-                                                />
-                                            </td>
-                                            <td className={`text-right font-black ${remaining > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                                                {formatCurrency(remaining)}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                            {studentRows.length > 0 && (
-                                <tfoot className="bg-slate-50 font-black">
-                                    <tr>
-                                        <td className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
-                                        <td className="text-right">{formatCurrency(totalTarget)}</td>
-                                        <td className="text-right text-accent">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Number(bulkAmounts[s.id] || 0), 0))}</td>
-                                        <td className="text-right text-red-500">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Math.max(0, targetPerStudent - Number(bulkAmounts[s.id] || 0)), 0))}</td>
-                                    </tr>
-                                </tfoot>
-                            )}
-                        </table>
-                    </div>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row gap-4 no-print items-end justify-between bg-slate-50 p-4 rounded-2xl border border-border">
-                        <div className="flex gap-4 items-end flex-wrap">
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary ml-1">Cari Siswa</label>
-                                <select
-                                    className="bg-white border border-border rounded-lg px-4 py-2 text-sm outline-none font-bold min-w-[200px]"
-                                    value={selectedStudentId}
-                                    onChange={e => setSelectedStudentId(e.target.value)}
-                                >
-                                    <option value="">Seluruh Kelas</option>
-                                    {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                            </div>
-                            {selectedStudentId && (
-                                <button onClick={() => setSelectedStudentId('')} className="text-xs font-bold text-accent hover:underline mb-2">Hapus Filter</button>
-                            )}
-                        </div>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'deposit' })); setShowForm(true); }} 
-                                className="btn-small !bg-emerald-600 text-white flex items-center gap-2"
-                            >
-                                <Plus size={14} /> Pemasukan
-                            </button>
-                            <button 
-                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'withdrawal' })); setShowForm(true); }} 
-                                className="btn-small !bg-red-500 text-white flex items-center gap-2"
-                            >
-                                <Minus size={14} /> Pengeluaran
-                            </button>
-                            <button 
-                                onClick={handleDeleteAllGemari} 
-                                className="btn-small !bg-red-50 text-red-600 border border-red-200 hover:!bg-red-100 flex items-center gap-2"
-                            >
-                                <Trash2 size={14} /> Hapus Semua
-                            </button>
-                        </div>
-                    </div>
-
-                    {selectedTxIds.size > 0 && (
-                        <div className="bg-red-50 border border-red-100 p-3 mb-4 rounded-xl flex justify-between items-center no-print">
-                            <span className="text-sm font-bold text-red-800">{selectedTxIds.size} transaksi terpilih</span>
-                            <button onClick={handleBulkDeleteTx} className="btn-small bg-red-500 text-white hover:bg-red-600 flex items-center gap-2 shadow-sm shadow-red-500/20">
-                                <Trash2 size={14} /> Hapus Terpilih
-                            </button>
-                        </div>
-                    )}
-
-                    <div className="table-container shadow-sm overflow-x-auto">
-                        <table className="data-table">
-                            <thead className="bg-slate-900 text-white">
-                                <tr>
-                                    <th className="w-10 !text-white border-none py-3 px-4">
-                                        <input 
-                                            type="checkbox" 
-                                            className="rounded cursor-pointer w-4 h-4 accent-red-500 focus:ring-red-500 border-white/20 bg-white/10" 
-                                            checked={ledgerRows.length > 0 && selectedTxIds.size === ledgerRows.length}
-                                            onChange={(e) => {
-                                                if (e.target.checked) {
-                                                    setSelectedTxIds(new Set(ledgerRows.map((t: any) => t.id)));
-                                                } else {
-                                                    setSelectedTxIds(new Set());
-                                                }
-                                            }}
-                                        />
-                                    </th>
-                                    <th className="!text-white border-none">TGL</th>
-                                    <th className="!text-white border-none">SISWA / KETERANGAN</th>
-                                    <th className="!text-white border-none text-right">MASUK (D)</th>
-                                    <th className="!text-white border-none text-right">KELUAR (K)</th>
-                                    <th className="!text-white border-none text-right">SALDO</th>
-                                    <th className="no-print !text-white border-none">AKSI</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {ledgerRows.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className="text-center py-20 text-slate-400 italic">Belum ada catatan transaksi untuk periode ini.</td>
-                                    </tr>
-                                ) : (
-                                    ledgerRows.map((t: any) => (
-                                        <tr key={t.id} className={`transition-all border-b border-slate-100 ${selectedTxIds.has(t.id) ? 'bg-red-50/50' : 'hover:bg-blue-50/50'}`}>
-                                            <td className="text-center py-3 px-4">
-                                                <input 
-                                                    type="checkbox"
-                                                    className="w-4 h-4 text-red-500 rounded border-slate-300 focus:ring-red-500 cursor-pointer accent-red-500"
-                                                    checked={selectedTxIds.has(t.id)}
-                                                    onChange={(e) => {
-                                                        const newSet = new Set(selectedTxIds);
-                                                        if (e.target.checked) newSet.add(t.id);
-                                                        else newSet.delete(t.id);
-                                                        setSelectedTxIds(newSet);
-                                                    }}
-                                                />
-                                            </td>
-                                            <td className="font-mono text-xs whitespace-nowrap">{t.date}</td>
-                                            <td className="py-3">
-                                                <div className="flex flex-col">
-                                                    <span className="font-bold text-slate-700">{t.student?.name || 'UMUM / KOLEKTIF'}</span>
-                                                    <span className="text-[10px] text-slate-400 italic">{t.notes || '- no notes -'}</span>
-                                                </div>
-                                            </td>
-                                            <td className="text-right font-bold text-emerald-600">
-                                                {t.debet > 0 ? formatCurrency(t.debet) : '-'}
-                                            </td>
-                                            <td className="text-right font-bold text-red-500">
-                                                {t.kredit > 0 ? formatCurrency(t.kredit) : '-'}
-                                            </td>
-                                            <td className="text-right font-black bg-slate-50/50">
-                                                {formatCurrency(t.saldo)}
-                                            </td>
-                                            <td className="no-print">
-                                                <div className="flex gap-1 justify-center">
-                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-100 rounded text-blue-600 transition-all">
-                                                        <Edit size={12} />
-                                                    </button>
-                                                    <button onClick={() => handleDeleteTx(t)} className="p-1.5 hover:bg-red-100 rounded text-red-500 transition-all">
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                            {ledgerRows.length > 0 && (
-                                <tfoot className="bg-slate-50 font-black">
-                                    <tr>
-                                        <td colSpan={3} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total Periode Ini</td>
-                                        <td className="text-right text-emerald-600">{formatCurrency(ledgerRows.reduce((a, b) => a + b.debet, 0))}</td>
-                                        <td className="text-right text-red-500">{formatCurrency(ledgerRows.reduce((a, b) => a + b.kredit, 0))}</td>
-                                        <td className="text-right bg-slate-100">{formatCurrency(ledgerRows[ledgerRows.length - 1].saldo)}</td>
-                                        <td className="no-print"></td>
-                                    </tr>
-                                </tfoot>
-                            )}
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            <AnimatePresence>
-                {showForm && (
-                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 20 }}
-                            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-border relative overflow-hidden"
-                        >
-                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-accent to-blue-400" />
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">{editingTx ? 'Ubah Catatan' : 'Input Transaksi'}</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modul Gemari Siswa</p>
-                                </div>
-                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} className="p-2 hover:bg-slate-100 rounded-full transition-all">
-                                    <X size={20} />
-                                </button>
-                            </div>
-                            
-                            <div className="space-y-4">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nama Siswa</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
-                                        value={form.studentId}
-                                        onChange={e => setForm(prev => ({ ...prev, studentId: e.target.value }))}
-                                    >
-                                        <option value="">-- UMUM / KOLEKTIF --</option>
-                                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tipe</label>
-                                        <select
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
-                                            value={form.transactionType}
-                                            onChange={e => setForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
-                                        >
-                                            <option value="deposit">Pemasukan (D)</option>
-                                            <option value="withdrawal">Pengeluaran (K)</option>
-                                        </select>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal</label>
-                                        <input
-                                            type="date"
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
-                                            value={form.date}
-                                            onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nominal (Rp)</label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-10 outline-none font-black text-lg text-accent focus:border-accent focus:bg-white transition-all"
-                                            value={form.amount}
-                                            onChange={e => setForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
-                                        />
-                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">Rp</div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Keterangan / Catatan</label>
-                                    <textarea
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-sm min-h-[80px] focus:border-accent focus:bg-white transition-all"
-                                        value={form.notes}
-                                        onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
-                                        placeholder="Tuliskan alasan atau sumber dana..."
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3 mt-8">
-                                <button 
-                                    onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} 
-                                    className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
-                                >
-                                    Batal
-                                </button>
-                                <button 
-                                    onClick={handleSaveTx} 
-                                    className="flex-3 py-4 bg-slate-900 text-yellow-400 rounded-2xl font-black uppercase text-xs shadow-xl shadow-slate-200 active:scale-95 transition-all"
-                                >
-                                    {editingTx ? 'Update Data' : 'Simpan Transaksi'}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            <AnimatePresence>
-                {showGemariSettings && (
-                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 20 }}
-                            className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-border relative overflow-hidden max-h-[90vh] flex flex-col"
-                        >
-                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-400" />
-                            <div className="flex justify-between items-center mb-5">
-                                <div>
-                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">Pengaturan Target GEMARI</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Konfigurasi tarif harian per bulan</p>
-                                </div>
-                                <button onClick={() => setShowGemariSettings(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            
-                            <div className="space-y-4 mb-6 relative z-10">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Target 1 Tahun (Rp) - Periode {selectedYear}</label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-lg font-black text-purple-700 outline-none focus:border-purple-500" 
-                                        value={annualTarget} 
-                                        onChange={e => setAnnualTarget(parseInt(e.target.value) || 0)} 
-                                    />
-                                </div>
-                                <button
-                                    className="w-full btn-primary bg-purple-600 hover:bg-purple-700 py-3 rounded-xl font-bold uppercase tracking-widest text-xs"
-                                    onClick={async () => {
-                                        if(!supabase) return alert('Supabase tidak terkonfigurasi');
-                                        try {
-                                            await supabase.from('gemariSettings').upsert({
-                                                month: 'YEAR_' + selectedYear,
-                                                targetOverride: annualTarget,
-                                                updatedAt: new Date().toISOString() // Fixed syntax
-                                            }, { onConflict: 'month' });
-                                            alert('Target 1 Tahun berhasil disimpan');
-                                            setShowGemariSettings(false);
-                                        } catch (e: any) {
-                                            alert('Gagal simpan: ' + e.message);
-                                        }
-                                    }}
-                                >
-                                    Simpan Target Tahunan
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-        </div>
-    );
-}
-
-
-function InfaqJumatView({
-    classes,
-    students,
-    transactions,
-    holidays,
-    onRefresh,
-    onOpenPrint,
-    onSort,
-    currentSort,
-    sortedData,
-    SortableTH
-}: {
-    classes: Class[],
-    students: Student[],
-    transactions: ClassCashTransaction[],
-    holidays: Holiday[],
-    onRefresh: () => void,
-    onOpenPrint: () => void,
-    onSort: (k: string) => void,
-    currentSort: any,
-    sortedData: any,
-    SortableTH: any
-}) {
-    const DEFAULT_INFAQ_RATE = 1000;
-    const todayStr = new Date().toISOString().split('T')[0];
-    const [activeTab, setActiveTab] = useState<'overview' | 'bulk' | 'ledger'>('bulk');
-    const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-    const [selectedStudentId, setSelectedStudentId] = useState('');
-    const [showForm, setShowForm] = useState(false);
-    const [editingTx, setEditingTx] = useState<ClassCashTransaction | null>(null);
-    const [selectedInfaqIds, setSelectedInfaqIds] = useState<Set<string>>(new Set());
-    const [annualInfaqTarget, setAnnualInfaqTarget] = useState<number>(0);
-    const [showInfaqSettings, setShowInfaqSettings] = useState(false);
-    const [bulkAmounts, setBulkAmounts] = useState<Record<string, string>>({});
-    const [bulkDate, setBulkDate] = useState(`${selectedYear}-01-01`);
-    const [bulkNotes, setBulkNotes] = useState('');
-    const [bulkSaving, setBulkSaving] = useState(false);
-
-    // Table-based settings: map of month -> { rate, targetDays, override }
-    const currentYear = new Date().getFullYear();
-    const [infaqRangeStart, setInfaqRangeStart] = useState(`${currentYear - 1}-07`);
-    const [infaqRangeEnd, setInfaqRangeEnd] = useState(`${currentYear}-06`);
-    const [infaqTable, setInfaqTable] = useState<Record<string, { rate: number; targetDays: string; override: string }>>({});
-    const [infaqBulkRate, setInfaqBulkRate] = useState(DEFAULT_INFAQ_RATE);
-    const [infaqLoading, setInfaqLoading] = useState(false);
-
-    // Generate months in range
-    const getMonthsInRange = (start: string, end: string) => {
-        const months: string[] = [];
-        const [sy, sm] = start.split('-').map(Number);
-        const [ey, em] = end.split('-').map(Number);
-        let y = sy, m = sm;
-        while (y < ey || (y === ey && m <= em)) {
-            months.push(`${y}-${String(m).padStart(2, '0')}`);
-            m++;
-            if (m > 12) { m = 1; y++; }
-        }
-        return months;
-    };
-
-    const infaqMonths = React.useMemo(() => getMonthsInRange(infaqRangeStart, infaqRangeEnd), [infaqRangeStart, infaqRangeEnd]);
-
-    const monthLabel = (m: string) => {
-        const [y, mo] = m.split('-').map(Number);
-        return new Date(y, mo - 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-    };
-
-    const getSchoolDaysForMonth = (monthStr: string) => {
-        const [y, m] = monthStr.split('-').map(Number);
-        if (!y || !m) return 0;
-        const daysInMonth = new Date(y, m, 0).getDate();
-        let total = 0;
-        for (let day = 1; day <= daysInMonth; day++) {
-            const d = new Date(y, m - 1, day);
-            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
-            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
-            if (d.getDay() === 5 && !isHoliday) total++;
-        }
-        return total;
-    };
-
-    const [form, setForm] = useState({
-        studentId: '',
-        transactionType: 'deposit' as 'deposit' | 'withdrawal',
-        amount: 0,
-        date: todayStr,
-        notes: ''
-    });
-
-    // Load monthly infaq settings from Supabase (for the active month)
-    React.useEffect(() => {
-        if (!selectedYear) return;
-        (async () => {
-            try {
-                const settingsRef = doc(db, 'infaqSettings', selectedYear);
-                const snap = await getDoc(settingsRef);
-                if (snap.exists()) {
-                    const data = snap.data();
-                    
-                    
-                    
-                } else {
-                    
-                    
-                    
-                }
-            } catch {
-                
-                
-                
-            }
-        })();
-    }, [selectedYear]);
-
-    // Load all settings for the table range (single batch query)
-    const loadInfaqSettings = async () => {
-        setInfaqLoading(true);
-        setInfaqSavingError('');
-        const table: Record<string, { rate: number; targetDays: string; override: string }> = {};
-
-        const isMissingInfaqSettingsColumn = (err: any) => {
-            const message = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`;
-            return /infaqSettings\.(targetDays|targetOverride|targetdays|targetoverride)/i.test(message)
-                || /column .* does not exist/i.test(message);
-        };
-
-        const fetchSettings = async () => {
-            const camel = await supabase!
-                .from('infaqSettings')
-                .select('month, rate, "targetDays", "targetOverride"')
-                .in('month', infaqMonths);
-            if (!camel.error || !isMissingInfaqSettingsColumn(camel.error)) return camel;
-
-            const lower = await supabase!
-                .from('infaqSettings')
-                .select('month, rate, targetdays, targetoverride')
-                .in('month', infaqMonths);
-            if (!lower.error || !isMissingInfaqSettingsColumn(lower.error)) return lower;
-
-            return supabase!
-                .from('infaqSettings')
-                .select('month, rate')
-                .in('month', infaqMonths);
-        };
+        if (entries.length === 0) return alert('Input nominal terlebih dahulu');
 
         try {
-            const { data, error } = await Promise.race([
-                fetchSettings(),
-                new Promise<never>((_, rej) => setTimeout(() => rej(new Error(
-                    'Koneksi terlalu lama (>15 dtk). Periksa sambungan internet atau tabel infaqSettings belum dibuat di Supabase.'
-                )), 15000))
-            ]);
-            if (error) throw error;
-            if (data && data.length > 0) {
-                const rows = data as any[];
-                const found = new Set(rows.map((r: any) => r.month));
-                for (const m of infaqMonths) {
-                    if (found.has(m)) {
-                        const r = rows.find((x: any) => x.month === m)!;
-                        const rowTargetDays = r.targetDays ?? r.targetdays;
-                        const rowTargetOverride = r.targetOverride ?? r.targetoverride;
-                        table[m] = {
-                            rate: Number(r.rate) || DEFAULT_INFAQ_RATE,
-                            targetDays: rowTargetDays !== null && rowTargetDays !== undefined ? String(rowTargetDays) : '',
-                            override: rowTargetOverride ? String(rowTargetOverride) : ''
-                        };
-                    } else {
-                        table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
-                    }
-                }
-            } else {
-                for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
-            }
-        } catch (err: any) {
-            console.error('Gagal memuat pengaturan INFAQ Jumat:', err);
-            for (const m of infaqMonths) table[m] = { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' };
-            setInfaqSavingError(err?.message || String(err));
+            await saveClassCashEntries(entries);
+            setStudentAmounts({});
+            onRefresh();
+            alert(`Berhasil menyimpan ${entries.length} data ${activeTab}`);
+        } catch (error) {
+            console.error('Gagal menyimpan input harian kas/infaq:', error);
+            alert('Gagal menyimpan semua data. Tidak ada data baru yang disimpan. Silakan coba lagi.');
         }
-        setInfaqTable(table);
-        setInfaqLoading(false);
     };
 
-    const openInfaqSettings = () => {
-        setShowInfaqSettings(true);
-        loadInfaqSettings();
-    };
+    const saveClassCashEntries = async (entries: ClassCashWriteEntry[]) => {
+        if (!entries.length) return;
 
-    const [infaqSavingError, setInfaqSavingError] = useState('');
+        // Deduplicate same logical row in a single save cycle.
+        const uniqueMap = new Map<string, ClassCashWriteEntry>();
+        entries.forEach((e) => uniqueMap.set(buildClassCashKey(e), e));
+        const uniqueEntries = Array.from(uniqueMap.values());
+        await persistClassCashEntries(uniqueEntries);
 
-    const handleSaveAllInfaqSettings = () => {
-        if (!supabase || !supabase.from) {
-            setInfaqSavingError('Supabase belum dikonfigurasi. Cek file .env');
-            return;
-        }
-        const sb = supabase;
-        setInfaqLoading(true);
-        setInfaqSavingError('');
-        const rows: any[] = infaqMonths.map(m => {
-            const entry = infaqTable[m];
-            if (!entry) return null;
-            const rate = Number(entry.rate) || DEFAULT_INFAQ_RATE;
-            const targetDays = entry.targetDays !== '' ? Number(entry.targetDays) : null;
-            const override = entry.override ? Number(entry.override) : null;
-            return { month: m, rate, targetDays, targetOverride: override, updatedAt: new Date().toISOString() };
-        }).filter(Boolean);
-
-        const saveUp = async () => {
+        // Optional realtime mirror to spreadsheet via webhook (Google Apps Script).
+        if (classCashSheetWebhook) {
             try {
-                if (rows.length > 0) {
-                    const isMissingInfaqSettingsColumn = (err: any) => {
-                        const message = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`;
-                        return /infaqSettings\.(targetDays|targetOverride|targetdays|targetoverride)/i.test(message)
-                            || /column .* does not exist/i.test(message);
+                const studentsById = new Map(students.map((s) => [s.id, s]));
+                const classesById = new Map(classes.map((c) => [c.id, c]));
+                const payload = uniqueEntries.map((entry) => {
+                    const student = entry.studentId ? studentsById.get(entry.studentId) : null;
+                    const klass = classesById.get(entry.classId);
+                    return {
+                        key: buildClassCashKey(entry),
+                        timestamp: new Date().toISOString(),
+                        spreadsheetId: classCashSpreadsheetId,
+                        targetSheet: entry.type === 'gemari' ? classCashGemariSheetName : classCashInfaqSheetName,
+                        tanggal: entry.date,
+                        kelasId: entry.classId,
+                        kelas: klass?.name || entry.classId,
+                        studentId: entry.studentId || '',
+                        noAbsen: (student as any)?.attendanceNumber ?? '',
+                        namaSiswa: student ? getStudentName(student) : 'Kolektif',
+                        jenis: entry.type,
+                        tipeTransaksi: entry.transactionType || 'deposit',
+                        nominal: entry.amount,
+                        status: entry.amount > 0 ? 'Setor' : 'Bebas Setor',
+                        catatan: entry.notes || ''
                     };
+                });
 
-                    const saveCamel = await sb.from('infaqSettings').upsert(rows, { onConflict: 'month' });
-                    if (saveCamel.error && isMissingInfaqSettingsColumn(saveCamel.error)) {
-                        const lowercaseRows = rows.map(({ targetDays, targetOverride, updatedAt, ...rest }) => ({
-                            ...rest,
-                            targetdays: targetDays,
-                            targetoverride: targetOverride,
-                            updatedat: updatedAt
-                        }));
-                        const saveLower = await sb.from('infaqSettings').upsert(lowercaseRows, { onConflict: 'month' });
-                        if (saveLower.error && isMissingInfaqSettingsColumn(saveLower.error)) {
-                            const basicRows = rows.map(({ targetDays: _targetDays, targetOverride: _targetOverride, ...rest }) => rest);
-                            const saveBasic = await sb.from('infaqSettings').upsert(basicRows, { onConflict: 'month' });
-                            if (saveBasic.error) throw saveBasic.error;
-                            setInfaqSavingError('Nominal tersimpan, tetapi kolom targetDays/targetOverride belum ada di tabel infaqSettings. Jalankan migration Supabase untuk menyimpan target hari dan override.');
-                        } else if (saveLower.error) {
-                            throw saveLower.error;
-                        }
-                    } else if (saveCamel.error) {
-                        throw saveCamel.error;
-                    }
-                }
-                // Update in-memory live rate from the just-saved table
-                const active = infaqTable[selectedYear];
-                if (active) {
-                    
-                    
-                    
-                }
-            } catch (err: any) {
-                console.error('Gagal menyimpan pengaturan INFAQ Jumat:', err);
-                setInfaqSavingError(`Gagal menyimpan: ${err?.message || err}`);
-            } finally {
-                setInfaqLoading(false);
+                await fetch(classCashSheetWebhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        source: 'EduFlow-ClassCash',
+                        mode: 'upsert',
+                        records: payload
+                    })
+                });
+            } catch (sheetError) {
+                // Do not fail primary DB save when sheet sync is unavailable.
+                console.error('Sinkron spreadsheet gagal:', sheetError);
             }
-        };
-        void saveUp();
-    };
-
-    const handleBulkFillInfaqRate = () => {
-        const updated = { ...infaqTable };
-        for (const m of infaqMonths) {
-            updated[m] = { ...(updated[m] || { rate: DEFAULT_INFAQ_RATE, targetDays: '', override: '' }), rate: infaqBulkRate };
-        }
-        setInfaqTable(updated);
-    };
-
-    const getStudentName = (id: string) => {
-        const s = students.find(x => x.id === id);
-        return s?.name || (s as any)?.displayName || (s as any)?.fullName || (s as any)?.nama || 'Umum / Kolektif';
-    };
-    const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
-    
-    const selectedClass = React.useMemo(() => classes.find(c => c.id === selectedClassId), [classes, selectedClassId]);
-    const filteredStudents = React.useMemo(() => students.filter(s => !selectedClassId || String(s.classId) === String(selectedClassId)), [students, selectedClassId]);
-    
-    // Transactions for the selected month and class
-    const monthTransactions = React.useMemo(() => transactions
-        .filter(t => t.type === 'infaq' && (!selectedClassId || String(t.classId) === String(selectedClassId)) && (t.date || '').startsWith(selectedYear))
-        .sort((a, b) => a.date.localeCompare(b.date)), [transactions, selectedClassId, selectedYear]);
-
-    const monthSchoolDays = React.useMemo(() => {
-        const [y, m] = selectedYear.split('-').map(Number);
-        if (!y || !m) return 0;
-        const daysInMonth = new Date(y, m, 0).getDate();
-        let total = 0;
-        for (let day = 1; day <= daysInMonth; day++) {
-            const d = new Date(y, m - 1, day);
-            const dateStr = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
-            const isHoliday = (holidays || []).some((h: any) => h.date === dateStr);
-            if (d.getDay() === 5 && !isHoliday) total++;
-        }
-        return total;
-    }, [selectedYear, holidays]);
-    const targetPerStudent = annualInfaqTarget;
-
-    const studentRows = React.useMemo(() => filteredStudents.map(s => {
-        const studentTx = monthTransactions.filter(t => t.studentId === s.id);
-        const paid = studentTx.reduce((sum, t) => sum + (t.transactionType === 'withdrawal' ? -Number(t.amount || 0) : Number(t.amount || 0)), 0);
-        const kurang = Math.max(0, targetPerStudent - paid);
-        const status = paid >= targetPerStudent && paid > 0 ? 'sudah_bayar' : paid <= 0 ? 'belum_bayar' : 'keKurangan';
-        return {
-            student: s,
-            paid,
-            kurang,
-            status,
-            txCount: studentTx.length
-        };
-    }).sort((a, b) => {
-        const order: Record<string, number> = { keKurangan: 0, belum_bayar: 1, sudah_bayar: 2 };
-        return order[a.status] - order[b.status] || a.student.name.localeCompare(b.student.name, 'id-ID', { numeric: true, sensitivity: 'base' });
-    }), [filteredStudents, monthTransactions, targetPerStudent]);
-
-    const totalPaid = studentRows.reduce((sum, row) => sum + row.paid, 0);
-    const totalTarget = targetPerStudent * filteredStudents.length;
-    const totalKekurangan = studentRows.reduce((sum, row) => sum + row.kurang, 0);
-    const countSudah = studentRows.filter(row => row.status === 'sudah_bayar').length;
-    const countBelum = studentRows.filter(row => row.status === 'belum_bayar').length;
-    const countKekurangan = studentRows.filter(row => row.status === 'keKurangan').length;
-
-    useEffect(() => {
-        setBulkAmounts(Object.fromEntries(studentRows.map(row => [row.student.id, row.paid > 0 ? String(row.paid) : ''])));
-        setBulkNotes(`Rekap INFAQ Jumat ${selectedYear}`);
-        setBulkDate(`${selectedYear}-01`);
-    }, [studentRows, selectedYear]);
-
-    useEffect(() => {
-        if (!classes.length) return;
-        if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
-            setSelectedClassId(classes[0].id);
-        }
-    }, [classes, selectedClassId]);
-
-    const resetForm = () => setForm({
-        studentId: '',
-        transactionType: 'deposit',
-        amount: 0,
-        date: todayStr,
-        notes: ''
-    });
-
-    const openEdit = (tx: ClassCashTransaction) => {
-        setEditingTx(tx);
-        setForm({
-            studentId: tx.studentId || '',
-            transactionType: tx.transactionType || 'deposit',
-            amount: Math.abs(Number(tx.amount) || 0),
-            date: tx.date,
-            notes: tx.notes || ''
-        });
-        setShowForm(true);
-    };
-
-    const handleSaveTx = async () => {
-        if (!form.amount || form.amount <= 0) return alert('Nominal harus lebih dari 0');
-        const targetClassId = editingTx?.classId || selectedClassId;
-
-        if (editingTx) {
-            await persistClassCashEntries([{
-                classId: editingTx.classId,
-                studentId: editingTx.studentId || '',
-                type: 'infaq',
-                transactionType: editingTx.transactionType || 'deposit',
-                amount: -1,
-                date: editingTx.date,
-                notes: editingTx.notes
-            }]);
-        }
-
-        await persistClassCashEntries([{
-            classId: targetClassId,
-            studentId: form.studentId || '',
-            type: 'infaq',
-            transactionType: form.transactionType,
-            amount: form.amount,
-            date: form.date,
-            notes: form.notes || undefined
-        }]);
-        setShowForm(false);
-        setEditingTx(null);
-        resetForm();
-        onRefresh();
-    };
-
-    const handleDeleteTx = async (tx: ClassCashTransaction) => {
-        if (!confirm('Hapus transaksi ini?')) return;
-        await persistClassCashEntries([{
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'infaq',
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }]);
-        if (editingTx?.id === tx.id) setEditingTx(null);
-        onRefresh();
-    };
-
-    const handleBulkDeleteInfaq = async () => {
-        if (selectedInfaqIds.size === 0) return;
-        if (!confirm(`Hapus ${selectedInfaqIds.size} transaksi terpilih?`)) return;
-
-        const txsToDelete = monthTransactions.filter(t => selectedInfaqIds.has(t.id));
-        const entries = txsToDelete.map(tx => ({
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'infaq' as const,
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }));
-        
-        await persistClassCashEntries(entries);
-        setSelectedInfaqIds(new Set());
-        onRefresh();
-    };
-
-    const handleDeleteStudentInfaq = async (studentId: string, studentName: string) => {
-        const studentTx = monthTransactions.filter(t => t.studentId === studentId);
-        if (studentTx.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
-        if (!confirm(`Hapus semua ${studentTx.length} transaksi INFAQ milik ${studentName} pada bulan ini?`)) return;
-        const entries = studentTx.map(tx => ({
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'infaq' as const,
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }));
-        await persistClassCashEntries(entries);
-        setSelectedInfaqIds(new Set());
-        onRefresh();
-    };
-
-    const handleDeleteAllInfaq = async () => {
-        const target = ledgerRows;
-        if (target.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
-        if (!confirm(`Hapus SEMUA ${target.length} transaksi yang sedang ditampilkan?\n\nAksi ini TIDAK BISA dibatalkan.`)) return;
-        const entries = target.map((tx: any) => ({
-            classId: tx.classId,
-            studentId: tx.studentId || '',
-            type: 'infaq' as const,
-            transactionType: tx.transactionType || 'deposit',
-            amount: -1,
-            date: tx.date,
-            notes: tx.notes
-        }));
-        await persistClassCashEntries(entries);
-        setSelectedInfaqIds(new Set());
-        onRefresh();
-    };
-
-    const handleBulkAmountChange = (studentId: string, value: string) => {
-        setBulkAmounts(prev => ({ ...prev, [studentId]: value }));
-    };
-
-    const fillBulkAmounts = (mode: 'target' | 'kurang' | 'clear') => {
-        if (mode === 'clear') {
-            setBulkAmounts(Object.fromEntries(filteredStudents.map(s => [s.id, ''])));
-            return;
-        }
-
-        setBulkAmounts(Object.fromEntries(studentRows.map(row => {
-            const amount = mode === 'target' ? targetPerStudent : row.kurang;
-            return [row.student.id, amount > 0 ? String(amount) : ''];
-        })));
-    };
-
-    const handleSaveBulkInfaq = async () => {
-        if (!selectedClassId) return alert('Pilih kelas terlebih dahulu.');
-        if (!bulkDate || !bulkDate.startsWith(selectedYear)) return alert('Tanggal input harus berada pada bulan yang sedang dipilih.');
-
-        const invalidRow = filteredStudents.find(s => Number(bulkAmounts[s.id] || 0) < 0);
-        if (invalidRow) return alert(`Nominal ${invalidRow.name} tidak boleh negatif.`);
-
-        const existingStudentTx = monthTransactions.filter(t => t.studentId && filteredStudents.some(s => s.id === t.studentId));
-        const newEntries = filteredStudents
-            .map(s => ({
-                classId: selectedClassId,
-                studentId: s.id,
-                type: 'infaq' as const,
-                transactionType: 'deposit' as const,
-                amount: Number(bulkAmounts[s.id] || 0),
-                date: bulkDate,
-                notes: bulkNotes || `Rekap INFAQ Jumat ${selectedYear}`
-            }))
-            .filter(entry => entry.amount > 0);
-
-        if (existingStudentTx.length > 0) {
-            const ok = confirm(`Simpan input massal INFAQ Jumat untuk ${filteredStudents.length} siswa?\n\nTransaksi INFAQ per siswa pada bulan ${selectedYear} akan diganti dengan data tabel ini.`);
-            if (!ok) return;
-        }
-
-        setBulkSaving(true);
-        try {
-            const deleteEntries = existingStudentTx.map(tx => ({
-                classId: tx.classId,
-                studentId: tx.studentId || '',
-                type: 'infaq' as const,
-                transactionType: tx.transactionType || 'deposit',
-                amount: -1,
-                date: tx.date,
-                notes: tx.notes
-            }));
-
-            await persistClassCashEntries([...deleteEntries, ...newEntries]);
-            onRefresh();
-        } finally {
-            setBulkSaving(false);
         }
     };
 
-    // Calculate Ledger Rows with Running Balance
-    const ledgerRows = React.useMemo(() => {
-        const base = monthTransactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
-        let runningBalance = 0;
-        return base.map(t => {
-            const debet = t.transactionType === 'deposit' ? Number(t.amount || 0) : 0;
-            const kredit = t.transactionType === 'withdrawal' ? Number(t.amount || 0) : 0;
-            runningBalance += (debet - kredit);
-            return {
-                ...t,
-                student: students.find(s => s.id === t.studentId),
-                debet,
-                kredit,
-                saldo: runningBalance
-            };
-        });
-    }, [monthTransactions, selectedStudentId, students]);
+    const formatCurrency = (amount: number) => {
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+    };
+
+    const filteredTx = transactions.filter(t => t.type === activeTab && (!selectedClassId || t.classId === selectedClassId));
+    const total = filteredTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
 
     return (
-        <div className="space-y-6 print-container">
-            <div className="print-header">
-                <h1 className="text-2xl font-black uppercase tracking-tighter">INFAQ JUMAT SISWA</h1>
-                <p className="text-xs font-bold text-slate-500">Buku Transaksi: {selectedClass?.name} - Tahun {selectedYear}</p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+        <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h2 className="text-2xl font-black tracking-tighter uppercase italic">INFAQ JUMAT</h2>
-                    <p className="text-xs text-text-secondary font-bold">Monitor pembayaran infaq Jumat siswa secara transparan</p>
+                    <h2 className="text-2xl font-black tracking-tighter uppercase italic">{activeTab === 'gemari' ? 'Kas Gemari Harian' : 'Infaq Jumat Berkah'}</h2>
+                    <p className="text-xs text-text-secondary font-bold">Sinkronisasi Kalender & Input Per Siswa</p>
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                     <select
@@ -6949,509 +5815,438 @@ function InfaqJumatView({
                     >
                         {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
                     </select>
-                    <input type="number" min="2000" max="2100"
-                        className="bg-white border border-border rounded-lg px-3 py-2 text-xs font-bold font-mono outline-none"
-                        value={selectedYear}
-                        onChange={e => setSelectedYear(e.target.value)}
-                    />
+                    {viewMode === 'daily' && (
+                        <button onClick={() => setShowHistory(!showHistory)} className="btn-small !bg-slate-700 flex items-center gap-2">
+                            <History size={14} /> {showHistory ? 'Input Data' : 'Riwayat'}
+                        </button>
+                    )}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 no-print">
-                <div className="card">
-                    <p className="stat-label">Total Target Infaq</p>
-                    <p className="stat-value text-accent">{formatCurrency(totalTarget)}</p>
-                </div>
-                <div className="card">
-                    <p className="stat-label">Total Terbayar</p>
-                    <p className="stat-value text-emerald-600">{formatCurrency(totalPaid)}</p>
-                </div>
-                <div className="card">
-                    <p className="stat-label">Kekurangan</p>
-                    <p className="stat-value text-red-500">{formatCurrency(totalKekurangan)}</p>
-                </div>
-                <div className="hidden">
-                    <p className="stat-label flex items-center gap-1">Nominal Infaq <Settings size={10} className="group-hover:text-accent" /></p>
-                    <p className="stat-value text-purple-600">{formatCurrency(0)}</p>
-                    <p className="text-[9px] text-slate-400 mt-1">""</p>
-                </div>
-            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Panel: Summary & Calendar Check */}
+                <div className="lg:col-span-4 space-y-6">
+                    <div className="card !p-0 overflow-hidden">
+                        <div className="flex border-b border-border">
+                            <button
+                                onClick={() => setActiveTab('gemari')}
+                                className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'gemari' ? 'bg-slate-900 text-yellow-400 shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                            >
+                                KAS GEMARI
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('infaq')}
+                                className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'infaq' ? 'bg-slate-900 text-yellow-400 shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                            >
+                                INFAQ JUMAT
+                            </button>
+                        </div>
 
-            <div className="flex border-b border-border gap-8 pb-3 no-print items-center justify-between">
-                <div className="flex gap-8">
-                    <button
-                        onClick={() => setActiveTab('bulk')}
-                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'bulk' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
-                    >
-                        Tabel Pembayaran
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('ledger')}
-                        className={`text-sm font-bold uppercase tracking-widest pb-1 transition-all ${activeTab === 'ledger' ? 'text-accent border-b-2 border-accent' : 'opacity-30 hover:opacity-100'}`}
-                    >
-                        Buku Transaksi
-                    </button>
-                </div>
-                <button onClick={onOpenPrint} className="btn-small !bg-slate-700 flex items-center gap-2">
-                    <Printer size={14} /> Cetak Laporan
-                </button>
-            </div>
+                        <div className="p-6 text-center bg-white">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Total Saldo Terkumpul</p>
+                            <p className={`text-4xl font-black font-mono ${activeTab === 'gemari' ? 'text-accent' : 'text-emerald-600'}`}>
+                                {formatCurrency(total)}
+                            </p>
+                        </div>
+                    </div>
 
-            {activeTab === 'overview' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {studentRows.length === 0 ? (
-                        <div className="card p-10 text-center text-slate-400 italic">Belum ada siswa pada kelas ini.</div>
-                    ) : studentRows.map(row => (
-                        <div key={row.student.id} className="card space-y-4 group hover:border-accent transition-all">
-                            <div className="flex items-start justify-between gap-3">
-                                <div>
-                                    <h4 className="font-black text-lg group-hover:text-accent transition-all">{row.student.name}</h4>
-                                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Target: 1 Tahun</p>
-                                </div>
-                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                                    row.status === 'sudah_bayar' ? 'bg-emerald-100 text-emerald-700' :
-                                    row.status === 'keKurangan' ? 'bg-amber-100 text-amber-700' :
-                                    'bg-red-100 text-red-700'
-                                }`}>
-                                    {row.status === 'sudah_bayar' ? 'Lunas' : row.status === 'keKurangan' ? 'Kekurangan' : 'Belum'}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Target</p>
-                                    <p className="font-black">{formatCurrency(targetPerStudent)}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Terbayar</p>
-                                    <p className="font-black text-emerald-600">{formatCurrency(row.paid)}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Kekurangan</p>
-                                    <p className="font-black text-red-500">{formatCurrency(row.kurang)}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-xl border border-border">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Frek Input</p>
-                                    <p className="font-black">{row.txCount} Kali</p>
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => {
-                                        setForm({ ...form, studentId: row.student.id, transactionType: 'deposit' });
-                                        setShowForm(true);
-                                    }}
-                                    className="flex-1 btn-primary !py-2 text-[10px]"
-                                >
-                                    Input / Edit
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setSelectedStudentId(row.student.id);
-                                        setActiveTab('ledger');
-                                    }}
-                                    className="flex-1 btn-small !py-2 text-[10px] bg-slate-100 text-slate-600 shadow-none border-none hover:bg-slate-200"
-                                >
-                                    Detail
-                                </button>
-                                <button
-                                    onClick={() => handleDeleteStudentInfaq(row.student.id, row.student.name)}
-                                    className="btn-small !py-2 text-[10px] bg-red-50 text-red-500 border-none shadow-none hover:bg-red-100"
-                                    title={`Hapus semua data INFAQ ${row.student.name}`}
-                                >
-                                    <Trash2 size={12} />
-                                </button>
+                    <div className="flex bg-slate-200 p-1 rounded-xl w-full">
+                        <button
+                            onClick={() => setViewMode('daily')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === 'daily' ? 'bg-white shadow' : 'text-slate-500 hover:bg-slate-300'}`}
+                        >
+                            Harian
+                        </button>
+                        <button
+                            onClick={() => setViewMode('monthly')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === 'monthly' ? 'bg-white shadow' : 'text-slate-500 hover:bg-slate-300'}`}
+                        >
+                            Bulanan
+                        </button>
+                        <button
+                            onClick={() => setViewMode('ledger')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === 'ledger' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:bg-slate-300'}`}
+                        >
+                            Buku Kas
+                        </button>
+                    </div>
+
+                    <div className="card space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pemilihan Bulan</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button onClick={() => jumpMonth(-1)} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">Bulan Lalu</button>
+                                <button onClick={() => { const now = new Date(); const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; setSelectedMonth(m); setSelectedDate(`${m}-01`); }} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">Bulan Ini</button>
+                                <button onClick={() => setShowMonthPicker(v => !v)} className="py-2 px-2 rounded-lg border border-border bg-white text-[11px] font-bold">{showMonthPicker ? 'Tutup' : 'Pilih Bulan'}</button>
                             </div>
                         </div>
-                    ))}
-                </div>
-            ) : activeTab === 'bulk' ? (
-                <div className="space-y-4">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-border no-print flex flex-col lg:flex-row gap-4 justify-between lg:items-end">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
+
+                        {showMonthPicker && (
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal Input</label>
+                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Bulan Aktif</label>
+                                <input
+                                    type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
+                                    placeholder="YYYY-MM"
+                                    pattern="\d{4}-\d{2}"
+                                    title="Format: YYYY-MM"
+                                    className="w-full bg-slate-50 border border-border rounded-xl p-4 outline-none font-bold text-base focus:border-accent"
+                                    value={selectedMonth}
+                                    onChange={e => { setSelectedMonth(e.target.value); if (e.target.value) setSelectedDate(`${e.target.value}-01`); }}
+                                />
+                            </div>
+                        )}
+
+                        {viewMode === 'monthly' || viewMode === 'ledger' ? (
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pilih Bulan</label>
+                                <input
+                                    type={typeof document !== 'undefined' && document.createElement('input').type === 'month' ? 'month' : 'text'}
+                                    placeholder="YYYY-MM"
+                                    pattern="\d{4}-\d{2}"
+                                    title="Format: YYYY-MM"
+                                    className="w-full bg-slate-50 border border-border rounded-xl p-4 outline-none font-bold text-base focus:border-accent"
+                                    value={selectedMonth}
+                                    onChange={e => setSelectedMonth(e.target.value)}
+                                />
+                            </div>
+                        ) : (
+                            <>
+                                <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest">Pilih Tanggal Transaksi</label>
                                 <input
                                     type="date"
-                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
-                                    value={bulkDate}
-                                    onChange={e => setBulkDate(e.target.value)}
+                                    className={`w-full bg-slate-50 border rounded-xl p-4 outline-none font-bold text-lg ${holiday || isWeekend ? 'border-red-200 text-red-500' : 'border-border'}`}
+                                    value={selectedDate}
+                                    onChange={e => setSelectedDate(e.target.value)}
                                 />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Catatan</label>
-                                <input
-                                    type="text"
-                                    className="w-full bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
-                                    value={bulkNotes}
-                                    onChange={e => setBulkNotes(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button onClick={() => fillBulkAmounts('target')} className="btn-small bg-slate-900 text-yellow-400">Isi Target</button>
-                            <button onClick={() => fillBulkAmounts('kurang')} className="btn-small bg-amber-100 text-amber-700 shadow-none">Isi Kekurangan</button>
-                            <button onClick={() => fillBulkAmounts('clear')} className="btn-small bg-slate-100 text-slate-600 shadow-none">Kosongkan</button>
-                            <button onClick={handleSaveBulkInfaq} disabled={bulkSaving} className="btn-small !bg-emerald-600 text-white flex items-center gap-2 disabled:opacity-50">
-                                <Save size={14} /> {bulkSaving ? 'Menyimpan...' : 'Simpan ke Supabase'}
-                            </button>
-                        </div>
-                    </div>
+                            </>
+                        )}
 
-                    <div className="table-container shadow-sm overflow-x-auto">
-                        <table className="data-table">
-                            <thead className="bg-slate-900 text-white">
-                                <tr>
-                                    <th className="!text-white border-none text-left">NAMA SISWA</th>
-                                    <th className="!text-white border-none text-right">TARGET BAYAR</th>
-                                    <th className="!text-white border-none text-right">INPUT BAYAR</th>
-                                    <th className="!text-white border-none text-right">KEKURANGAN BAYAR</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {studentRows.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} className="text-center py-20 text-slate-400 italic">Belum ada siswa pada kelas ini.</td>
-                                    </tr>
-                                ) : studentRows.map(row => {
-                                    const newAmount = Number(bulkAmounts[row.student.id] || 0);
-                                    const remaining = Math.max(0, targetPerStudent - newAmount);
-                                    return (
-                                        <tr key={row.student.id} className="border-b border-slate-100 hover:bg-blue-50/40">
-                                            <td className="py-3">
-                                                <div className="font-bold text-slate-700">{row.student.name}</div>
-                                            </td>
-                                            <td className="text-right font-black">{formatCurrency(targetPerStudent)}</td>
-                                            <td className="text-right">
-                                                <input
-                                                    type="number"
-                                                    min={0}
-                                                    className="w-36 max-w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-right font-black outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                                                    value={bulkAmounts[row.student.id] ?? ''}
-                                                    onChange={e => handleBulkAmountChange(row.student.id, e.target.value)}
-                                                    placeholder="0"
-                                                />
-                                            </td>
-                                            <td className={`text-right font-black ${remaining > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                                                {formatCurrency(remaining)}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                            {studentRows.length > 0 && (
-                                <tfoot className="bg-slate-50 font-black">
-                                    <tr>
-                                        <td className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total</td>
-                                        <td className="text-right">{formatCurrency(totalTarget)}</td>
-                                        <td className="text-right text-accent">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Number(bulkAmounts[s.id] || 0), 0))}</td>
-                                        <td className="text-right text-red-500">{formatCurrency(filteredStudents.reduce((sum, s) => sum + Math.max(0, targetPerStudent - Number(bulkAmounts[s.id] || 0)), 0))}</td>
-                                    </tr>
-                                </tfoot>
-                            )}
-                        </table>
+                        {viewMode === 'daily' && holiday && (
+                            <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3">
+                                <AlertCircle className="text-red-500 flex-shrink-0" size={18} />
+
+                                <div>
+                                    <p className="text-xs font-bold text-red-700">Hari Libur Sekolah</p>
+                                    <p className="text-[10px] text-red-600 font-medium">{holiday.name}</p>
+                                </div>
+                            </div>
+                        )}
+                        {viewMode === 'daily' && isWeekend && !holiday && (
+                            <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl flex items-start gap-3">
+                                <Clock className="text-orange-500 flex-shrink-0" size={18} />
+                                <div>
+                                    <p className="text-xs font-bold text-orange-700">Hari Libur Akhir Pekan</p>
+                                    <p className="text-[10px] text-orange-600 font-medium">Minggu adalah hari libur.</p>
+                                </div>
+                            </div>
+                        )}
+                        {viewMode === 'daily' && activeTab === 'infaq' && !isFriday && (
+                            <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">
+                                <CalendarCheck className="text-blue-500 flex-shrink-0" size={18} />
+                                <div>
+                                    <p className="text-xs font-bold text-blue-700">Bukan Hari Jumat</p>
+                                    <p className="text-[10px] text-blue-600 font-medium">Infaq Jumat biasanya dilakukan di hari Jumat.</p>
+                                </div>
+                            </div>
+                        )}
+                        {viewMode === 'daily' && isFriday && activeTab === 'infaq' && (
+                            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-3">
+                                <CheckSquare className="text-emerald-500 flex-shrink-0" size={18} />
+                                <div>
+                                    <p className="text-xs font-bold text-emerald-700">Jumat Berkah</p>
+                                    <p className="text-[10px] text-emerald-600 font-medium">Waktunya input setoran Infaq Jumat.</p>
+                                </div>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'gemari', studentId: '' })); setShowRangeModal(true); }}
+                            className="w-full mt-4 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
+                        >
+                            <CalendarCheck size={16} /> Input Rentang Gemari
+                        </button>
+                        <button
+                            onClick={() => { setRangeForm(prev => ({ ...prev, targetType: 'infaq', studentId: '' })); setShowRangeModal(true); }}
+                            className="w-full mt-2 py-3 border border-dashed border-border rounded-xl text-xs font-bold tracking-widest uppercase text-slate-500 flex justify-center items-center gap-2 hover:border-accent hover:text-accent transition-all bg-white"
+                        >
+                            <CalendarCheck size={16} /> Input Rentang Infaq
+                        </button>
+
+                        <div className="card space-y-3 mt-4 border border-blue-100 bg-blue-50/20">
+                            <h4 className="text-[10px] uppercase font-black tracking-widest text-blue-600 text-center mb-2">Rekap Bulanan ({summaryMonthDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })})</h4>
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="bg-white p-2 rounded border border-blue-100 shadow-sm">
+                                    <p className="text-[9px] font-bold text-slate-400 capitalize">Seharusnya</p>
+                                    <p className="text-sm font-black text-slate-700">{formatCurrency(recap.totalSeharusnya)}</p>
+                                </div>
+                                <div className="bg-white p-2 rounded border border-blue-100 shadow-sm">
+                                    <p className="text-[9px] font-bold text-slate-400 capitalize">Terkumpul</p>
+                                    <p className="text-sm font-black text-blue-600">{formatCurrency(recap.sudahSetor)}</p>
+                                </div>
+                            </div>
+                            <div className="bg-white p-2 rounded border border-red-100 text-center shadow-sm">
+                                <p className="text-[9px] font-bold text-slate-400 capitalize">Belum Setor / Kurang</p>
+                                <p className="text-sm font-black text-red-500">{formatCurrency(recap.belumSetor)}</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row gap-4 no-print items-end justify-between bg-slate-50 p-4 rounded-2xl border border-border">
-                        <div className="flex gap-4 items-end flex-wrap">
-                            <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary ml-1">Cari Siswa</label>
-                                <select
-                                    className="bg-white border border-border rounded-lg px-4 py-2 text-sm outline-none font-bold min-w-[200px]"
-                                    value={selectedStudentId}
-                                    onChange={e => setSelectedStudentId(e.target.value)}
-                                >
-                                    <option value="">Seluruh Kelas</option>
-                                    {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                            </div>
-                            {selectedStudentId && (
-                                <button onClick={() => setSelectedStudentId('')} className="text-xs font-bold text-accent hover:underline mb-2">Hapus Filter</button>
-                            )}
-                        </div>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'deposit' })); setShowForm(true); }} 
-                                className="btn-small !bg-emerald-600 text-white flex items-center gap-2"
-                            >
-                                <Plus size={14} /> Pemasukan
-                            </button>
-                            <button 
-                                onClick={() => { resetForm(); setForm(f => ({ ...f, transactionType: 'withdrawal' })); setShowForm(true); }} 
-                                className="btn-small !bg-red-500 text-white flex items-center gap-2"
-                            >
-                                <Minus size={14} /> Pengeluaran
-                            </button>
-                            <button 
-                                onClick={handleDeleteAllInfaq} 
-                                className="btn-small !bg-red-50 text-red-600 border border-red-200 hover:!bg-red-100 flex items-center gap-2"
-                            >
-                                <Trash2 size={14} /> Hapus Semua
-                            </button>
-                        </div>
-                    </div>
 
-                    {selectedInfaqIds.size > 0 && (
-                        <div className="bg-red-50 border border-red-100 p-3 mb-4 rounded-xl flex justify-between items-center no-print">
-                            <span className="text-sm font-bold text-red-800">{selectedInfaqIds.size} transaksi terpilih</span>
-                            <button onClick={handleBulkDeleteInfaq} className="btn-small bg-red-500 text-white hover:bg-red-600 flex items-center gap-2 shadow-sm shadow-red-500/20">
-                                <Trash2 size={14} /> Hapus Terpilih
-                            </button>
+                {/* Right Panel: Grid Input or History */}
+                <div className="lg:col-span-8">
+                    {viewMode === 'ledger' ? (
+                        <LedgerClassCashView
+                            transactions={filteredTx}
+                            students={students}
+                            classId={selectedClassId}
+                            type={activeTab}
+                            month={selectedMonth}
+                            onRefresh={onRefresh}
+                            formatCurrency={formatCurrency}
+                            onOpenPrint={onOpenPrint}
+                            onSort={onSort}
+                            currentSort={currentSort}
+                            sortedData={sortedData}
+                            SortableTH={SortableTH}
+                        />
+                    ) : viewMode === 'monthly' ? (
+                        <MonthlyClassCashView
+                            students={sortedFilteredStudents}
+                            month={selectedMonth}
+                            type={activeTab}
+                            transactions={transactions}
+                            classId={selectedClassId}
+                            holidays={holidays}
+                            onRefresh={onRefresh}
+                        />
+                    ) : showHistory ? (
+                        <div className="card !p-0 flex flex-col h-full">
+                            <div className="p-5 border-b border-border flex justify-between items-center bg-slate-50/50">
+                                <h3 className="text-xs font-black uppercase tracking-widest">Riwayat Entri {activeTab}</h3>
+                                <button onClick={onOpenPrint} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500" aria-label="Cetak Riwayat"><Printer size={16} /></button>
+                            </div>
+                            <div className="table-container min-h-[400px]">
+                                <table className="data-table">
+                                    <thead>
+                                        <tr>
+                                            <SortableTH label="TANGGAL" sortKey="date" currentSort={currentSort} onSort={onSort} />
+                                            <SortableTH label="SISWA" sortKey="studentId" currentSort={currentSort} onSort={onSort} />
+                                            <SortableTH label="NOMINAL" sortKey="amount" currentSort={currentSort} onSort={onSort} />
+                                            <th>AKSI</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedData(filteredTx).map((t: any) => (
+                                            <tr key={t.id} className="hover:bg-slate-50">
+                                                <td className="font-mono text-xs font-bold">{t.date}</td>
+                                                <td className="font-bold">{t.studentId ? getStudentName(students.find(s => s.id === t.studentId)) : 'Kolektif'}</td>
+                                                <td className="font-black text-slate-700 text-sm">{formatCurrency(t.amount)}</td>
+                                                <td>
+                                                    <button className="p-1 hover:bg-red-50 text-red-400 rounded transition-all" title="Hapus Transaksi"><Trash2 size={12} /></button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="stat-label">Input {activeTab === 'gemari' ? 'Gemari (Rp 500/hari)' : 'Infaq (Rp 1.000/hari)'} Per Siswa</h3>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const nominal = getNominal();
+                                            const newAmounts: { [key: string]: number } = {};
+                                            sortedFilteredStudents.forEach(s => newAmounts[s.id] = nominal);
+                                            setStudentAmounts(newAmounts);
+                                        }}
+                                        className="text-[10px] font-bold bg-success/10 text-success px-3 py-1 rounded-lg hover:bg-success/20 uppercase transition-all"
+                                    >
+                                        Hadir Semua / Setor Semua
+                                    </button>
+                                    <button
+                                        onClick={() => setStudentAmounts({})}
+                                        className="text-[10px] font-bold bg-slate-100 text-slate-500 hover:bg-slate-200 px-3 py-1 rounded-lg uppercase"
+                                    >
+                                        Reset Grid
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="card !p-0 overflow-hidden">
+                                <table className="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th className="w-16">#</th>
+                                            <th>NAMA SISWA</th>
+                                            <th>STATUS SETORAN</th>
+                                            <th className="w-48 text-right">NOMINAL (Rp)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className={(holiday || isWeekend) ? 'opacity-50 pointer-events-none' : ''}>
+                                        {sortedFilteredStudents.map((s, idx) => {
+                                            const nominal = getNominal();
+                                            const isSetor = studentAmounts[s.id] !== undefined && studentAmounts[s.id] > 0;
+                                            return (
+                                                <tr key={s.id} className="hover:bg-slate-50 transition-all">
+                                                    <td className="font-mono text-xs text-text-secondary">{idx + 1}</td>
+                                                    <td className="font-bold cursor-pointer" onClick={() => {
+                                                        setStudentAmounts(prev => ({
+                                                            ...prev,
+                                                            [s.id]: isSetor ? 0 : nominal
+                                                        }));
+                                                    }}>{getStudentName(s)}</td>
+                                                    <td>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setStudentAmounts(prev => ({ ...prev, [s.id]: nominal }));
+                                                                }}
+                                                                className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-all ${isSetor ? 'bg-success text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                                                            >
+                                                                S
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const newAm = { ...studentAmounts };
+                                                                    delete newAm[s.id];
+                                                                    setStudentAmounts(newAm);
+                                                                }}
+                                                                className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-all ${!isSetor ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                                                            >
+                                                                T
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div className="flex items-center gap-2 justify-end">
+                                                            <span className="text-[10px] font-bold text-slate-400">Rp</span>
+                                                            <input
+                                                                type="number"
+                                                                className="w-24 bg-white border border-border rounded px-2 py-1 text-right text-sm font-bold focus:border-accent outline-none"
+                                                                value={studentAmounts[s.id] !== undefined ? studentAmounts[s.id] : ''}
+                                                                placeholder="0"
+                                                                onChange={e => setStudentAmounts({ ...studentAmounts, [s.id]: parseInt(e.target.value) || 0 })}
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-border shadow-sm">
+                                <div>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase">Total Setoran Sesi Ini</p>
+                                    <p className="text-xl font-black text-accent">{formatCurrency((Object.values(studentAmounts) as number[]).reduce((a, b) => a + b, 0))}</p>
+                                </div>
+                                <button
+                                    onClick={handleSave}
+                                    disabled={!!holiday || isWeekend}
+                                    className={`btn-primary px-10 py-3 rounded-xl flex items-center gap-2 font-bold uppercase tracking-widest text-xs ${(holiday || isWeekend) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <Save size={16} /> Simpan Data
+                                </button>
+                            </div>
                         </div>
                     )}
+                </div>
+            </div>
 
-                    <div className="table-container shadow-sm overflow-x-auto">
-                        <table className="data-table">
-                            <thead className="bg-slate-900 text-white">
-                                <tr>
-                                    <th className="w-10 !text-white border-none py-3 px-4">
-                                        <input 
-                                            type="checkbox" 
-                                            className="rounded cursor-pointer w-4 h-4 accent-red-500 focus:ring-red-500 border-white/20 bg-white/10" 
-                                            checked={ledgerRows.length > 0 && selectedInfaqIds.size === ledgerRows.length}
-                                            onChange={(e) => {
-                                                if (e.target.checked) {
-                                                    setSelectedInfaqIds(new Set(ledgerRows.map((t: any) => t.id)));
-                                                } else {
-                                                    setSelectedInfaqIds(new Set());
-                                                }
-                                            }}
-                                        />
-                                    </th>
-                                    <th className="!text-white border-none">TGL</th>
-                                    <th className="!text-white border-none">SISWA / KETERANGAN</th>
-                                    <th className="!text-white border-none text-right">MASUK (D)</th>
-                                    <th className="!text-white border-none text-right">KELUAR (K)</th>
-                                    <th className="!text-white border-none text-right">SALDO</th>
-                                    <th className="no-print !text-white border-none">AKSI</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {ledgerRows.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className="text-center py-20 text-slate-400 italic">Belum ada catatan transaksi untuk periode ini.</td>
-                                    </tr>
-                                ) : (
-                                    ledgerRows.map((t: any) => (
-                                        <tr key={t.id} className={`transition-all border-b border-slate-100 ${selectedInfaqIds.has(t.id) ? 'bg-red-50/50' : 'hover:bg-blue-50/50'}`}>
-                                            <td className="text-center py-3 px-4">
-                                                <input 
-                                                    type="checkbox"
-                                                    className="w-4 h-4 text-red-500 rounded border-slate-300 focus:ring-red-500 cursor-pointer accent-red-500"
-                                                    checked={selectedInfaqIds.has(t.id)}
-                                                    onChange={(e) => {
-                                                        const newSet = new Set(selectedInfaqIds);
-                                                        if (e.target.checked) newSet.add(t.id);
-                                                        else newSet.delete(t.id);
-                                                        setSelectedInfaqIds(newSet);
-                                                    }}
-                                                />
-                                            </td>
-                                            <td className="font-mono text-xs whitespace-nowrap">{t.date}</td>
-                                            <td className="py-3">
-                                                <div className="flex flex-col">
-                                                    <span className="font-bold text-slate-700">{t.student?.name || 'UMUM / KOLEKTIF'}</span>
-                                                    <span className="text-[10px] text-slate-400 italic">{t.notes || '- no notes -'}</span>
-                                                </div>
-                                            </td>
-                                            <td className="text-right font-bold text-emerald-600">
-                                                {t.debet > 0 ? formatCurrency(t.debet) : '-'}
-                                            </td>
-                                            <td className="text-right font-bold text-red-500">
-                                                {t.kredit > 0 ? formatCurrency(t.kredit) : '-'}
-                                            </td>
-                                            <td className="text-right font-black bg-slate-50/50">
-                                                {formatCurrency(t.saldo)}
-                                            </td>
-                                            <td className="no-print">
-                                                <div className="flex gap-1 justify-center">
-                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-100 rounded text-blue-600 transition-all">
-                                                        <Edit size={12} />
-                                                    </button>
-                                                    <button onClick={() => handleDeleteTx(t)} className="p-1.5 hover:bg-red-100 rounded text-red-500 transition-all">
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                            {ledgerRows.length > 0 && (
-                                <tfoot className="bg-slate-50 font-black">
-                                    <tr>
-                                        <td colSpan={3} className="text-right py-3 uppercase text-[10px] tracking-widest text-slate-500">Total Periode Ini</td>
-                                        <td className="text-right text-emerald-600">{formatCurrency(ledgerRows.reduce((a, b) => a + b.debet, 0))}</td>
-                                        <td className="text-right text-red-500">{formatCurrency(ledgerRows.reduce((a, b) => a + b.kredit, 0))}</td>
-                                        <td className="text-right bg-slate-100">{formatCurrency(ledgerRows[ledgerRows.length - 1].saldo)}</td>
-                                        <td className="no-print"></td>
-                                    </tr>
-                                </tfoot>
+            {showRangeModal && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border mt-10">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold">Input Rentang Tanggal</h3>
+                            <button onClick={() => setShowRangeModal(false)} aria-label="Tutup modal rentang tanggal"><X size={20} /></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nama Siswa</label>
+                                <select
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
+                                    value={rangeForm.studentId}
+                                    onChange={e => setRangeForm({ ...rangeForm, studentId: e.target.value })}
+                                >
+                                    <option value="">Pilih siswa...</option>
+                                    {sortedFilteredStudents.map((s) => (
+                                        <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Jenis Pembayaran</label>
+                                <select
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
+                                    value={rangeForm.targetType}
+                                    onChange={e => setRangeForm({ ...rangeForm, targetType: e.target.value as any })}
+                                >
+                                    <option value="active">Tab Aktif ({activeTab === 'gemari' ? 'Gemari' : 'Infaq'})</option>
+                                    <option value="gemari">Gemari</option>
+                                    <option value="infaq">Infaq</option>
+                                    <option value="both">Gemari + Infaq</option>
+                                </select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Awal</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none"
+                                        value={rangeForm.startDate}
+                                        onChange={e => setRangeForm({ ...rangeForm, startDate: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Akhir</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none"
+                                        value={rangeForm.endDate}
+                                        onChange={e => setRangeForm({ ...rangeForm, endDate: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Status Inputan</label>
+                                <select
+                                    className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold"
+                                    value={rangeForm.status}
+                                    onChange={e => setRangeForm({ ...rangeForm, status: e.target.value as any })}
+                                >
+                                    <option value="setor">Setor / Hadir (Nominal Rp {getNominal()})</option>
+                                    <option value="bebas_setor">Kosongkan (Rentang Tanpa Nominal)</option>
+                                </select>
+                            </div>
+                            {rangeForm.status === 'setor' && (
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal (Kustomize Jika Perlu)</label>
+                                    <input
+                                        type="number"
+                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none font-bold text-accent"
+                                        value={rangeForm.customAmount || getNominal()}
+                                        onChange={e => setRangeForm({ ...rangeForm, customAmount: parseInt(e.target.value) || 0 })}
+                                    />
+                                </div>
                             )}
-                        </table>
+                            <button
+                                type="button"
+                                onClick={handleSaveRange}
+                                disabled={isSavingRange}
+                                className={`btn-primary w-full py-4 rounded-xl mt-4 ${isSavingRange ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                                {isSavingRange ? 'Menyimpan...' : 'Simpan & Rekap'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
-
-            <AnimatePresence>
-                {showForm && (
-                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 20 }}
-                            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-border relative overflow-hidden"
-                        >
-                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-accent to-blue-400" />
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">{editingTx ? 'Ubah Catatan' : 'Input Transaksi'}</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Modul Infaq Jumat</p>
-                                </div>
-                                <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} className="p-2 hover:bg-slate-100 rounded-full transition-all">
-                                    <X size={20} />
-                                </button>
-                            </div>
-                            
-                            <div className="space-y-4">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nama Siswa</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
-                                        value={form.studentId}
-                                        onChange={e => setForm(prev => ({ ...prev, studentId: e.target.value }))}
-                                    >
-                                        <option value="">-- UMUM / KOLEKTIF --</option>
-                                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tipe</label>
-                                        <select
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
-                                            value={form.transactionType}
-                                            onChange={e => setForm(prev => ({ ...prev, transactionType: e.target.value as 'deposit' | 'withdrawal' }))}
-                                        >
-                                            <option value="deposit">Pemasukan (D)</option>
-                                            <option value="withdrawal">Pengeluaran (K)</option>
-                                        </select>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tanggal</label>
-                                        <input
-                                            type="date"
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none font-bold focus:border-accent focus:bg-white transition-all"
-                                            value={form.date}
-                                            onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nominal (Rp)</label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-10 outline-none font-black text-lg text-accent focus:border-accent focus:bg-white transition-all"
-                                            value={form.amount}
-                                            onChange={e => setForm(prev => ({ ...prev, amount: parseInt(e.target.value || '0') }))}
-                                        />
-                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">Rp</div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Keterangan / Catatan</label>
-                                    <textarea
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-sm min-h-[80px] focus:border-accent focus:bg-white transition-all"
-                                        value={form.notes}
-                                        onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
-                                        placeholder="Tuliskan alasan atau sumber dana..."
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3 mt-8">
-                                <button 
-                                    onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }} 
-                                    className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
-                                >
-                                    Batal
-                                </button>
-                                <button 
-                                    onClick={handleSaveTx} 
-                                    className="flex-3 py-4 bg-slate-900 text-yellow-400 rounded-2xl font-black uppercase text-xs shadow-xl shadow-slate-200 active:scale-95 transition-all"
-                                >
-                                    {editingTx ? 'Update Data' : 'Simpan Transaksi'}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            <AnimatePresence>
-                {showInfaqSettings && (
-                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 20 }}
-                            className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-border relative overflow-hidden max-h-[90vh] flex flex-col"
-                        >
-                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-400" />
-                            <div className="flex justify-between items-center mb-5">
-                                <div>
-                                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-800">Pengaturan Target INFAQ Jumat</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Konfigurasi nominal infaq per bulan</p>
-                                </div>
-                                <button onClick={() => setShowInfaqSettings(false)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            
-                            <div className="space-y-4 mb-6 relative z-10">
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Target Infaq 1 Tahun (Rp) - Periode {selectedYear}</label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-lg font-black text-emerald-700 outline-none focus:border-emerald-500" 
-                                        value={annualInfaqTarget} 
-                                        onChange={e => setAnnualInfaqTarget(parseInt(e.target.value) || 0)} 
-                                    />
-                                </div>
-                                <button
-                                    className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 py-3 rounded-xl font-bold uppercase tracking-widest text-xs"
-                                    onClick={async () => {
-                                        if(!supabase) return alert('Supabase tidak terkonfigurasi');
-                                        try {
-                                            await supabase.from('infaqSettings').upsert({
-                                                month: 'YEAR_' + selectedYear,
-                                                targetOverride: annualInfaqTarget,
-                                                updatedAt: new Date().toISOString()
-                                            }, { onConflict: 'month' });
-                                            alert('Target Infaq 1 Tahun berhasil disimpan');
-                                            setShowInfaqSettings(false);
-                                        } catch (e: any) {
-                                            alert('Gagal simpan: ' + e.message);
-                                        }
-                                    }}
-                                >
-                                    Simpan Target Tahunan
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
         </div>
     );
 }
+
 function SavingsView({
     students,
     classes,
@@ -7476,7 +6271,6 @@ function SavingsView({
     const [activeTab, setActiveTab] = useState<'overview' | 'ledger'>('overview');
     const [showForm, setShowForm] = useState(false);
     const [selectedStudentId, setSelectedStudentId] = useState('');
-    const [editingTx, setEditingTx] = useState<any>(null);
 
     const [newTransaction, setNewTransaction] = useState({
         studentId: '',
@@ -7486,30 +6280,9 @@ function SavingsView({
         notes: ''
     });
 
-    const openEdit = (tx: any) => {
-        setEditingTx(tx);
-        setNewTransaction({
-            studentId: tx.studentId,
-            amount: tx.amount,
-            date: tx.date || new Date().toISOString().split('T')[0],
-            type: tx.type,
-            notes: tx.notes || ''
-        });
-        setShowForm(true);
-    };
-
-    const handleSaveTransaction = async () => {
-        if (!newTransaction.studentId || newTransaction.amount <= 0) {
-            alert('Lengkapi data dengan benar');
-            return;
-        }
-        if (editingTx) {
-            await updateDoc(doc(db, 'savingsTransactions', editingTx.id), newTransaction);
-        } else {
-            await addDoc(collection(db, 'savingsTransactions'), newTransaction);
-        }
+    const handleAddTransaction = async () => {
+        await addDoc(collection(db, 'savingsTransactions'), newTransaction);
         setShowForm(false);
-        setEditingTx(null);
         setNewTransaction({
             studentId: '',
             amount: 0,
@@ -7517,37 +6290,6 @@ function SavingsView({
             type: 'deposit',
             notes: ''
         });
-        onRefresh();
-    };
-
-    const handleDeleteTransaction = async (tx: any) => {
-        if (!confirm('Hapus transaksi ini?')) return;
-        await deleteDoc(doc(db, 'savingsTransactions', tx.id));
-        if (editingTx?.id === tx.id) {
-            setEditingTx(null);
-            setShowForm(false);
-        }
-        onRefresh();
-    };
-
-    const handleDeleteStudentSavings = async (studentId: string, studentName: string) => {
-        const studentTx = transactions.filter(t => t.studentId === studentId);
-        if (studentTx.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
-        if (!confirm(`Hapus semua ${studentTx.length} transaksi tabungan milik ${studentName}?`)) return;
-        for (const tx of studentTx) {
-            await deleteDoc(doc(db, 'savingsTransactions', tx.id));
-        }
-        onRefresh();
-    };
-
-    const handleDeleteAllSavings = async () => {
-        const target = transactions.filter(t => !selectedStudentId || t.studentId === selectedStudentId);
-        if (target.length === 0) return alert('Tidak ada transaksi untuk dihapus.');
-        const label = selectedStudentId ? students.find(s => s.id === selectedStudentId)?.name || 'siswa' : 'SEMUA siswa';
-        if (!confirm(`Hapus SEMUA ${target.length} transaksi tabungan ${label}?\n\nAksi ini TIDAK BISA dibatalkan.`)) return;
-        for (const tx of target) {
-            await deleteDoc(doc(db, 'savingsTransactions', tx.id));
-        }
         onRefresh();
     };
 
@@ -7614,12 +6356,6 @@ function SavingsView({
                     <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
                         <Plus size={16} /> Transaksi Baru
                     </button>
-                    <button 
-                        onClick={handleDeleteAllSavings} 
-                        className="btn-small !bg-red-50 text-red-600 border border-red-200 hover:!bg-red-100 flex items-center gap-2"
-                    >
-                        <Trash2 size={14} /> Hapus Semua
-                    </button>
                 </div>
             </div>
 
@@ -7640,38 +6376,9 @@ function SavingsView({
                                 <p className="text-[10px] font-bold uppercase text-text-secondary mb-1">Saldo Saat Ini</p>
                                 <p className="text-xl font-black text-accent">{formatCurrency(s.balance)}</p>
                             </div>
-                            <div className="mt-3 pt-3 border-t border-border flex gap-2">
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setNewTransaction({ ...newTransaction, studentId: s.id, type: 'deposit' });
-                                        setEditingTx(null);
-                                        setShowForm(true);
-                                    }}
-                                    className="flex-1 btn-primary py-2 text-xs flex items-center justify-center gap-1"
-                                >
-                                    <Plus size={12} /> Input Edit
-                                </button>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedStudentId(s.id);
-                                        setActiveTab('ledger');
-                                    }}
-                                    className="flex-1 btn-small py-2 text-xs"
-                                >
-                                    Riwayat
-                                </button>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteStudentSavings(s.id, s.name);
-                                    }}
-                                    className="btn-small py-2 text-xs bg-red-50 text-red-500 border-none shadow-none hover:bg-red-100"
-                                    title={`Hapus semua tabungan ${s.name}`}
-                                >
-                                    <Trash2 size={12} />
-                                </button>
+                            <div className="mt-3 pt-3 border-t border-border flex justify-between items-center text-[10px] font-bold text-text-secondary">
+                                <span>{s.txCount} Transaksi</span>
+                                <span className="flex items-center gap-1 group-hover:text-accent">Detail <ChevronRight size={10} /></span>
                             </div>
                         </div>
                     ))}
@@ -7728,16 +6435,7 @@ function SavingsView({
                                                 {t.type === 'withdrawal' ? '-' : ''}{formatCurrency(t.amount)}
                                             </td>
                                             <td className="text-xs text-text-secondary italic">{t.notes || '-'}</td>
-                                            <td className="no-print">
-                                                <div className="flex gap-1">
-                                                    <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-blue-100 rounded text-blue-600 transition-all" aria-label="Edit Transaksi">
-                                                        <Edit size={12} />
-                                                    </button>
-                                                    <button onClick={() => handleDeleteTransaction(t)} className="p-1.5 hover:bg-red-100 rounded text-red-500 transition-all" aria-label="Hapus Transaksi">
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </div>
-                                            </td>
+                                            <td className="no-print"><button className="p-1.5 hover:bg-slate-100 rounded text-slate-400 transition-all" aria-label="Lihat Riwayat Transaksi"><History size={12} /></button></td>
                                         </tr>
                                     );
                                 })}
@@ -7751,8 +6449,8 @@ function SavingsView({
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-border">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold">{editingTx ? 'Koreksi Transaksi Tabungan' : 'Transaksi Tabungan'}</h3>
-                            <button onClick={() => { setShowForm(false); setEditingTx(null); }} aria-label="Tutup form tabungan"><X size={20} /></button>
+                            <h3 className="text-xl font-bold">Transaksi Tabungan</h3>
+                            <button onClick={() => setShowForm(false)} aria-label="Tutup form tabungan"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="space-y-1">
@@ -7810,10 +6508,7 @@ function SavingsView({
                                     onChange={e => setNewTransaction({ ...newTransaction, notes: e.target.value })}
                                 />
                             </div>
-                            <div className="flex gap-3 mt-4">
-                                <button onClick={() => { setShowForm(false); setEditingTx(null); }} className="flex-1 py-3 border border-border rounded-xl font-bold">Batal</button>
-                                <button onClick={handleSaveTransaction} className="flex-1 btn-primary py-3">{editingTx ? 'Simpan Koreksi' : 'Proses Transaksi'}</button>
-                            </div>
+                            <button onClick={handleAddTransaction} className="w-full btn-primary py-3 mt-4">Proses Transaksi</button>
                         </div>
                     </div>
                 </div>
@@ -7821,6 +6516,394 @@ function SavingsView({
         </div>
     );
 }
+
+function MonthlyClassCashView({
+    students,
+    month,
+    type,
+    transactions,
+    classId,
+    holidays,
+    onRefresh
+}: {
+    students: Student[],
+    month: string,
+    type: 'gemari' | 'infaq',
+    transactions: ClassCashTransaction[],
+    classId: string,
+    holidays: Holiday[],
+    onRefresh: () => void
+}) {
+    const [year, m] = month.split('-').map(Number);
+    const daysInMonth = new Date(year, m, 0).getDate();
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+    const [edits, setEdits] = useState<{ [key: string]: number }>({});
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+
+    const getNominal = () => type === 'gemari' ? 500 : 1000;
+
+    const isHoliday = (date: Date) => {
+        const day = date.getDay();
+        const dateStr = date.toISOString().split('T')[0];
+
+        if (day === 0) return { holiday: true, name: 'Minggu' };
+        if (type === 'infaq' && day !== 5) return { holiday: true, name: 'Bukan Jumat' };
+
+        const holiday = holidays.find(h => h.date === dateStr);
+        if (holiday) return { holiday: true, name: holiday.name };
+
+        return { holiday: false };
+    };
+
+    const getCellKey = (studentId: string, d: number) => {
+        const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return `${studentId}${CLASSCASH_EDIT_KEY_SEPARATOR}${dateStr}`;
+    };
+
+    const getRecordAmount = (studentId: string, d: number) => {
+        const key = getCellKey(studentId, d);
+        if (edits[key] !== undefined) return edits[key];
+
+        const dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const record = transactions.find(r => r.studentId === studentId && r.date === dateStr && r.classId === classId && r.type === type);
+        return record ? record.amount : -1;
+    };
+
+    const handleToggle = (studentId: string, d: number) => {
+        const current = getRecordAmount(studentId, d);
+        let next = 0;
+        if (current === -1) {
+            next = getNominal();
+        } else if (current > 0) {
+            next = 0;
+        } else {
+            next = -1;
+        }
+        setEdits(prev => ({ ...prev, [getCellKey(studentId, d)]: next }));
+    };
+
+    const handleSaveAll = async () => {
+        const keys = Object.keys(edits);
+        if (keys.length === 0) return alert('Tidak ada perubahan untuk disimpan.');
+
+        const entries = keys.map(k => {
+            const sepIndex = k.lastIndexOf(CLASSCASH_EDIT_KEY_SEPARATOR);
+            if (sepIndex < 0) {
+                return null;
+            }
+            const studentId = k.slice(0, sepIndex);
+            const dateStr = k.slice(sepIndex + CLASSCASH_EDIT_KEY_SEPARATOR.length);
+            return {
+                classId,
+                studentId,
+                amount: edits[k],
+                date: dateStr,
+                type,
+                notes: `Mass Edit Bulanan - ${type}`
+            };
+        }).filter(Boolean) as ClassCashWriteEntry[];
+
+        try {
+            await persistClassCashEntries(entries);
+            setEdits({});
+            onRefresh();
+        } catch (error) {
+            console.error('Gagal menyimpan mass edit bulanan kas/infaq:', error);
+            alert('Gagal menyimpan mass edit bulanan. Silakan coba lagi.');
+        }
+    };
+
+    const hasEdits = Object.keys(edits).length > 0;
+
+    return (
+        <div className="card !p-0 overflow-x-auto min-w-full relative">
+            {hasEdits && (
+                <div className="sticky top-0 left-0 right-0 bg-blue-50/90 backdrop-blur-sm border-b border-blue-100 p-4 z-20 flex justify-between items-center">
+                    <p className="text-xs font-bold text-blue-700">Terdapat {Object.keys(edits).length} perubahan yang belum disimpan.</p>
+                    <div className="flex gap-2">
+                        <button onClick={() => setEdits({})} className="text-xs font-bold text-slate-500 hover:text-slate-700">Batal</button>
+                        <button onClick={handleSaveAll} className="btn-small !bg-blue-600 hover:!bg-blue-700 flex items-center gap-2" title="Simpan Perubahan"><Save size={14} /> Simpan Perubahan</button>
+                    </div>
+                </div>
+            )}
+            <table className="w-full border-collapse">
+                <thead>
+                    <tr>
+                        <th className="text-left p-2 border border-border sticky left-0 bg-white z-10 min-w-[200px] text-xs">NAMA SISWA</th>
+                        {days.map(d => {
+                            const date = new Date(year, m - 1, d);
+                            const holidayInfo = isHoliday(date);
+                            return (
+                                <th
+                                    key={d}
+                                    className={`p-1 border border-border font-mono text-[10px] min-w-[36px] ${holidayInfo.holiday ? 'bg-slate-50 text-slate-400' : ''}`}
+                                    title={holidayInfo.name}
+                                >
+                                    {d}
+                                </th>
+                            );
+                        })}
+                    </tr>
+                </thead>
+                <tbody>
+                    {students.map(s => (
+                        <tr key={s.id} className="hover:bg-slate-50 transition-all group">
+                            <td className="p-2 border border-border sticky left-0 bg-white group-hover:bg-slate-50 z-10 font-bold text-[11px] truncate whitespace-nowrap">{getStudentName(s)}</td>
+                            {days.map(d => {
+                                const date = new Date(year, m - 1, d);
+                                const holidayInfo = isHoliday(date);
+                                const amount = getRecordAmount(s.id, d);
+                                const isEdited = edits[getCellKey(s.id, d)] !== undefined;
+
+                                return (
+                                    <td key={d} className={`p-0 border border-border text-center ${holidayInfo.holiday ? 'bg-slate-50/50 cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-slate-200'} ${isEdited ? 'bg-blue-50/50' : ''}`} onClick={() => !holidayInfo.holiday && handleToggle(s.id, d)}>
+                                        <div className="w-full h-full min-h-[32px] flex items-center justify-center text-[10px] font-black">
+                                            {amount > 0 ? (
+                                                <span className="text-success h-full w-full flex items-center justify-center border-b-2 border-success">S</span>
+                                            ) : amount === 0 ? (
+                                                <span className="text-yellow-600 h-full w-full flex items-center justify-center border-b-2 border-yellow-500">B</span>
+                                            ) : (
+                                                <span className="text-slate-300">-</span>
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                            })}
+                        </tr>
+                    ))}
+                    {students.length === 0 && (
+                        <tr>
+                            <td colSpan={daysInMonth + 1} className="text-center py-20 opacity-30 italic">Pilih kelas untuk melihat grid bulanan</td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
+            <div className="p-4 flex gap-6 text-[10px] font-bold uppercase tracking-widest text-text-secondary bg-slate-50">
+                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-success text-success flex items-center justify-center">S</div> Setor Normal</div>
+                <div className="flex items-center gap-2"><div className="w-4 h-4 border-b-2 border-yellow-500 text-yellow-600 flex items-center justify-center">B</div> Bebas Setor (Rp 0)</div>
+                <div className="flex items-center gap-2"><div className="w-4 h-4 text-slate-300 flex items-center justify-center">-</div> Kosong / Hapus</div>
+                <div className="flex items-center gap-2 ml-auto italic opacity-50">Klik sel tabel untuk mengedit data secara beruntun.</div>
+            </div>
+        </div>
+    );
+}
+
+function LedgerClassCashView({
+    transactions,
+    students,
+    classId,
+    type,
+    month,
+    onRefresh,
+    formatCurrency,
+    onOpenPrint,
+    onSort,
+    currentSort,
+    sortedData,
+    SortableTH
+}: {
+    transactions: ClassCashTransaction[],
+    students: Student[],
+    classId: string,
+    type: 'gemari' | 'infaq',
+    month: string,
+    onRefresh: () => void,
+    formatCurrency: (n: number) => string,
+    onOpenPrint: () => void,
+    onSort: (k: string) => void,
+    currentSort: any,
+    sortedData: any,
+    SortableTH: any
+}) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [showAddExpenseForm, setShowAddExpenseForm] = useState(false);
+    const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
+    const [expense, setExpense] = useState({ date: todayStr, amount: '', notes: '' });
+    const [income, setIncome] = useState({ date: todayStr, studentId: '', amount: '' });
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const studentsForSelect = sortStudentsForSelect(students);
+
+    // Running balance calculation must be independent of current sorting/view
+    const allSortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let currentRB = 0;
+    const ledgerDataMap = allSortedTx.map(tx => {
+        const isWithdrawal = tx.transactionType === 'withdrawal';
+        const debit = isWithdrawal ? 0 : tx.amount;
+        const credit = isWithdrawal ? tx.amount : 0;
+        currentRB += debit - credit;
+
+        let desc = tx.notes || (isWithdrawal ? 'Pengeluaran/Penarikan' : 'Setoran Siswa');
+        if (tx.studentId) {
+            const stu = students.find(s => s.id === tx.studentId);
+            if (stu) desc = `Setoran: ${getStudentName(stu)}`;
+        }
+
+        return { ...tx, debit, credit, balance: currentRB, desc };
+    });
+
+    const prevTx = allSortedTx.filter(t => t.date < month + '-01');
+    const prevBalance = prevTx.reduce((acc, t) => acc + (t.transactionType === 'withdrawal' ? -t.amount : t.amount), 0);
+
+    const monthItems = ledgerDataMap.filter(l => l.date.startsWith(month));
+    const displayItems = sortedData(monthItems);
+
+    const handleAddExpense = async () => {
+        if (!expense.amount || isNaN(Number(expense.amount))) return alert('Nominal tidak valid!');
+        if (!expense.notes) return alert('Keterangan pengeluaran wajib diisi!');
+
+        const entry: ClassCashWriteEntry = {
+            classId,
+            type,
+            transactionType: 'withdrawal',
+            amount: Number(expense.amount),
+            date: expense.date,
+            period_month: getPeriodMonth(expense.date),
+            notes: expense.notes
+        };
+
+        await persistClassCashEntries([entry]);
+
+        setExpense({ date: todayStr, amount: '', notes: '' });
+        setShowAddExpenseForm(false);
+        onRefresh();
+    };
+
+    const handleAddIncome = async () => {
+        if (!income.studentId) return alert('Pilih siswa terlebih dahulu!');
+        if (!income.amount || isNaN(Number(income.amount))) return alert('Nominal tidak valid!');
+
+        const entry: ClassCashWriteEntry = {
+            classId,
+            studentId: income.studentId,
+            type,
+            transactionType: 'deposit',
+            amount: Number(income.amount),
+            date: income.date,
+            period_month: getPeriodMonth(income.date)
+        };
+
+        await persistClassCashEntries([entry]);
+
+        setIncome({ date: todayStr, studentId: '', amount: '' });
+        setShowAddIncomeForm(false);
+        onRefresh();
+    };
+
+    return (
+        <div className="card !p-0 flex flex-col h-full min-h-[500px]">
+            <div className="p-5 border-b border-border flex justify-between items-center bg-slate-50/50">
+                <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">Buku Kas (Mutasi Saldo)</h3>
+                    <p className="text-[10px] font-bold text-slate-400">Pemasukan & Pengeluaran {type.toUpperCase()}</p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => {
+                            setShowAddIncomeForm(false);
+                            setShowAddExpenseForm(v => !v);
+                        }}
+                        className="btn-small bg-red-100 text-red-600 hover:bg-red-200 font-bold flex items-center gap-2"
+                    >
+                        {showAddExpenseForm ? <X size={14} /> : <Plus size={14} />} {showAddExpenseForm ? 'Batal' : 'Tambah Pengeluaran'}
+                    </button>
+                    <button
+                        onClick={() => {
+                            setShowAddExpenseForm(false);
+                            setShowAddIncomeForm(v => !v);
+                        }}
+                        className="btn-small bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-bold flex items-center gap-2"
+                    >
+                        {showAddIncomeForm ? <X size={14} /> : <Plus size={14} />} {showAddIncomeForm ? 'Batal' : 'Tambah Pemasukan'}
+                    </button>
+                    <button onClick={onOpenPrint} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500" aria-label="Cetak Laporan Kas"><Printer size={16} /></button>
+                </div>
+            </div>
+
+            {showAddExpenseForm && (
+                <div className="p-4 bg-red-50 border-b border-red-100 flex gap-4 items-end">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-red-800 uppercase">Tanggal</label>
+                        <input type="date" className="p-2 rounded border border-red-200 outline-none w-full font-mono text-sm" value={expense.date} onChange={e => setExpense({ ...expense, date: e.target.value })} />
+                    </div>
+                    <div className="space-y-1 flex-1">
+                        <label className="text-[10px] font-bold text-red-800 uppercase">Keterangan Penggunaan</label>
+                        <input type="text" className="p-2 rounded border border-red-200 outline-none w-full text-sm" placeholder="Contoh: Beli sapu & pel" value={expense.notes} onChange={e => setExpense({ ...expense, notes: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-red-800 uppercase">Nominal (Rp)</label>
+                        <input type="number" className="p-2 rounded border border-red-200 outline-none w-full font-mono text-sm" placeholder="0" value={expense.amount} onChange={e => setExpense({ ...expense, amount: e.target.value })} />
+                    </div>
+                    <button onClick={handleAddExpense} className="btn-small bg-red-800 hover:bg-red-900 text-white h-[38px] shadow-lg">
+                        Simpan Pengeluaran
+                    </button>
+                </div>
+            )}
+
+            {showAddIncomeForm && (
+                <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex gap-4 items-end">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Tanggal</label>
+                        <input type="date" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" value={income.date} onChange={e => setIncome({ ...income, date: e.target.value })} />
+                    </div>
+                    <div className="space-y-1 flex-1">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Siswa</label>
+                        <select
+                            className="p-2 rounded border border-emerald-200 outline-none w-full text-sm bg-white"
+                            value={income.studentId}
+                            onChange={e => setIncome({ ...income, studentId: e.target.value })}
+                        >
+                            <option value="">Pilih siswa...</option>
+                            {studentsForSelect.map((s) => (
+                                <option key={s.id} value={s.id}>{getStudentName(s)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-emerald-800 uppercase">Nominal (Rp)</label>
+                        <input type="number" className="p-2 rounded border border-emerald-200 outline-none w-full font-mono text-sm" placeholder="0" value={income.amount} onChange={e => setIncome({ ...income, amount: e.target.value })} />
+                    </div>
+                    <button onClick={handleAddIncome} className="btn-small bg-emerald-700 hover:bg-emerald-800 text-white h-[38px] shadow-lg">
+                        Simpan Pemasukan
+                    </button>
+                </div>
+            )}
+
+            <div className="table-container p-4">
+                <table className="data-table">
+                    <thead>
+                        <tr>
+                            <SortableTH label="TANGGAL" sortKey="date" currentSort={currentSort} onSort={onSort} />
+                            <SortableTH label="KETERANGAN / URAIAN" sortKey="desc" currentSort={currentSort} onSort={onSort} />
+                            <SortableTH label="DEBIT (MASUK)" sortKey="debit" currentSort={currentSort} onSort={onSort} />
+                            <SortableTH label="KREDIT (KELUAR)" sortKey="credit" currentSort={currentSort} onSort={onSort} />
+                            <th className="text-right w-32 bg-slate-50">SALDO AKHIR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr className="bg-slate-50/50">
+                            <td colSpan={4} className="text-right font-bold text-[10px] uppercase text-slate-500 py-3">Saldo Pindahan Bulan Lalu</td>
+                            <td className="text-right font-black text-sm bg-slate-100 py-3">{formatCurrency(prevBalance)}</td>
+                        </tr>
+                        {displayItems.length === 0 ? (
+                            <tr><td colSpan={5} className="text-center py-20 text-slate-400 italic">Tidak ada mutasi kas di bulan ini</td></tr>
+                        ) : displayItems.map((l: any, i: number) => (
+                            <tr key={l.id} className="hover:bg-slate-50">
+                                <td className="font-mono text-xs text-slate-500">{l.date}</td>
+                                <td className="font-bold text-sm">{l.desc}</td>
+                                <td className="text-right text-success font-mono font-bold">{l.debit > 0 ? formatCurrency(l.debit) : '-'}</td>
+                                <td className="text-right text-red-500 font-mono font-bold">{l.credit > 0 ? formatCurrency(l.credit) : '-'}</td>
+                                <td className="text-right font-black font-mono bg-slate-50 text-accent">{formatCurrency(l.balance)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
 const GradeInput = ({ value, onChange, placeholder = '' }: any) => {
     const hasError = value !== '' && value !== null && (Number(value) < 0 || Number(value) > 100);
     return (
@@ -7848,15 +6931,7 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
     const [loading, setLoading] = useState(false);
     const [text, setText] = useState('');
 
-    useEffect(() => {
-        if (!selectedStudentId && studentsForSelect[0]?.id) {
-            setSelectedStudentId(studentsForSelect[0].id);
-        }
-    }, [selectedStudentId, studentsForSelect]);
-
     const threadId = mode === 'broadcast' ? CHAT_BROADCAST_THREAD_ID : (selectedStudentId ? getDirectChatThreadId(selectedStudentId) : '');
-    const targetStudent = students.find(s => s.id === selectedStudentId);
-    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
 
     const fetchThread = async () => {
         if (!threadId) return setMessages([]);
@@ -7896,12 +6971,15 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
         fetchThread();
     };
 
+    const targetStudent = students.find(s => s.id === selectedStudentId);
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+
     return (
         <div className="p-6 h-full flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
-                    <p className="text-sm text-text-secondary">Komunikasi admin dengan siswa atau broadcast.</p>
+                    <p className="text-sm text-text-secondary">Komunikasi admin dengan siswa (1:1) atau broadcast</p>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={() => setMode('direct')} className={`btn-small ${mode === 'direct' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Chat Siswa</button>
@@ -7932,6 +7010,10 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
                             <div className="text-[10px] text-slate-500">Thread: {CHAT_BROADCAST_THREAD_ID}</div>
                         </div>
                     )}
+
+                    <div className="mt-auto text-[10px] text-slate-500 leading-relaxed">
+                        Tips: gunakan broadcast untuk pengumuman umum, gunakan chat siswa untuk komunikasi pribadi.
+                    </div>
                 </div>
 
                 <div className="card !p-0 lg:col-span-2 flex flex-col min-h-0">
@@ -7945,18 +7027,18 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
                         <button onClick={fetchThread} className="btn-small bg-slate-100 hover:bg-slate-200 text-slate-700">Refresh</button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/30">
+                    <div className="p-4 flex-1 overflow-y-auto min-h-0 space-y-3">
                         {loading ? (
-                            <div className="text-center py-12 text-slate-400 italic">Memuat pesan...</div>
+                            <div className="py-12 text-center text-text-secondary opacity-40 font-mono">LOADING CHAT...</div>
                         ) : messages.length === 0 ? (
-                            <div className="text-center py-12 text-slate-400 italic">Belum ada pesan.</div>
-                        ) : messages.map((message) => {
-                            const mine = message.senderRole === 'admin';
+                            <div className="py-12 text-center text-text-secondary opacity-40 italic">Belum ada pesan</div>
+                        ) : messages.map((m) => {
+                            const mine = m.senderRole === 'admin';
                             return (
-                                <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? 'bg-slate-900 text-white' : 'bg-white border border-border text-slate-700'}`}>
-                                        <p className="whitespace-pre-wrap">{message.message}</p>
-                                        <p className={`text-[10px] mt-2 ${mine ? 'text-slate-300' : 'text-slate-400'}`}>{new Date(message.createdAt).toLocaleString('id-ID')}</p>
+                                <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 border ${mine ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-border'}`}>
+                                        <div className="text-sm whitespace-pre-wrap">{m.message}</div>
+                                        <div className={`text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-slate-400'}`}>{String(m.createdAt || '').replace('T', ' ').slice(0, 16)}</div>
                                     </div>
                                 </div>
                             );
@@ -7964,19 +7046,15 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
                     </div>
 
                     <div className="p-4 border-t border-border bg-white flex gap-2">
-                        <textarea
-                            className="flex-1 min-h-[44px] max-h-28 p-3 rounded-xl border border-border outline-none text-sm resize-none focus:border-accent"
+                        <input
+                            type="text"
+                            className="flex-1 p-3 rounded-xl border border-border outline-none"
+                            placeholder={mode === 'broadcast' ? 'Tulis pesan broadcast...' : 'Tulis pesan ke siswa...'}
                             value={text}
                             onChange={(e) => setText(e.target.value)}
-                            placeholder="Tulis pesan..."
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSend();
-                                }
-                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
                         />
-                        <button onClick={handleSend} className="btn-primary px-4 flex items-center gap-2" disabled={!threadId || !text.trim()}>
+                        <button onClick={handleSend} className="btn-small bg-accent hover:bg-accent/90 text-white flex items-center gap-2 px-4">
                             <Send size={16} /> Kirim
                         </button>
                     </div>
@@ -7986,26 +7064,23 @@ function AdminMessagesView({ user, students }: { user: any; students: Student[] 
     );
 }
 
-function StudentMessagesView({ user, studentId }: { user: any; students: Student[]; studentId: string }) {
+function StudentMessagesView({ user, students, studentId }: { user: any; students: Student[]; studentId: string }) {
+    const [mode, setMode] = useState<'direct' | 'broadcast'>('direct');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [loading, setLoading] = useState(false);
     const [text, setText] = useState('');
-    const threadId = studentId ? getDirectChatThreadId(studentId) : '';
+    const student = students.find(s => s.id === studentId);
+
+    const threadId = mode === 'broadcast' ? CHAT_BROADCAST_THREAD_ID : (studentId ? getDirectChatThreadId(studentId) : '');
 
     const fetchThread = async () => {
         if (!threadId) return setMessages([]);
         try {
             setLoading(true);
-            const [directSnap, broadcastSnap] = await Promise.all([
-                getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', threadId), orderBy('createdAt', 'asc'))),
-                getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', CHAT_BROADCAST_THREAD_ID), orderBy('createdAt', 'asc')))
-            ]);
-            const rows = [...directSnap.docs, ...broadcastSnap.docs]
-                .map((d: any) => ({ id: d.id, ...d.data() } as ChatMessage))
-                .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-            setMessages(rows);
+            const snap = await getDocs(query(collection(db, 'chatMessages'), where('threadId', '==', threadId), orderBy('createdAt', 'asc')));
+            setMessages(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })));
         } catch (e) {
-            console.error('Error fetching student chatMessages:', e);
+            console.error('Error fetching chatMessages:', e);
             setMessages([]);
         } finally {
             setLoading(false);
@@ -8017,9 +7092,12 @@ function StudentMessagesView({ user, studentId }: { user: any; students: Student
     }, [threadId]);
 
     const handleSend = async () => {
+        if (mode !== 'direct') return;
         const msg = text.trim();
-        if (!msg || !threadId) return;
-        await addDoc(collection(db, 'chatMessages'), {
+        if (!msg) return;
+        if (!studentId) return alert('Akun siswa belum terhubung ke data siswa.');
+
+        const payload: Omit<ChatMessage, 'id'> = {
             threadId,
             studentId,
             kind: 'direct',
@@ -8027,67 +7105,733 @@ function StudentMessagesView({ user, studentId }: { user: any; students: Student
             senderUserId: user?.uid || user?.id || null,
             message: msg,
             createdAt: new Date().toISOString()
-        });
+        };
+
+        await addDoc(collection(db, 'chatMessages'), payload);
         setText('');
         fetchThread();
     };
 
     return (
         <div className="p-6 h-full flex flex-col gap-4">
-            <div>
-                <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
-                <p className="text-sm text-text-secondary">Komunikasi dengan admin sekolah.</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-black tracking-tighter">Pesan / Chat</h2>
+                    <p className="text-sm text-text-secondary">Chat dengan admin dan lihat broadcast sekolah</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setMode('direct')} className={`btn-small ${mode === 'direct' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Chat Admin</button>
+                    <button onClick={() => setMode('broadcast')} className={`btn-small ${mode === 'broadcast' ? 'bg-slate-900 text-yellow-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Broadcast</button>
+                </div>
             </div>
-            <div className="card !p-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/30">
+
+            {!studentId && (
+                <div className="card border-l-4 border-l-red-500">
+                    <p className="text-sm font-bold text-red-600">Akun belum terhubung ke data siswa.</p>
+                    <p className="text-xs text-text-secondary">Minta admin menghubungkan user ke `studentId`.</p>
+                </div>
+            )}
+
+            <div className="card !p-0 flex flex-col flex-1 min-h-0">
+                <div className="p-4 border-b border-border bg-slate-50/50 flex items-center justify-between">
+                    <div className="min-w-0">
+                        <div className="text-xs font-black uppercase tracking-widest truncate">
+                            {mode === 'broadcast' ? 'Broadcast' : `Chat Admin${student?.name ? ` - ${student.name}` : ''}`}
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">{threadId || '-'}</div>
+                    </div>
+                    <button onClick={fetchThread} className="btn-small bg-slate-100 hover:bg-slate-200 text-slate-700">Refresh</button>
+                </div>
+
+                <div className="p-4 flex-1 overflow-y-auto min-h-0 space-y-3">
                     {loading ? (
-                        <div className="text-center py-12 text-slate-400 italic">Memuat pesan...</div>
+                        <div className="py-12 text-center text-text-secondary opacity-40 font-mono">LOADING CHAT...</div>
                     ) : messages.length === 0 ? (
-                        <div className="text-center py-12 text-slate-400 italic">Belum ada pesan.</div>
-                    ) : messages.map((message) => {
-                        const mine = message.senderRole === 'student';
+                        <div className="py-12 text-center text-text-secondary opacity-40 italic">Belum ada pesan</div>
+                    ) : messages.map((m) => {
+                        const mine = m.senderRole === 'student';
                         return (
-                            <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? 'bg-slate-900 text-white' : 'bg-white border border-border text-slate-700'}`}>
-                                    {message.kind === 'broadcast' && <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-1">Broadcast</p>}
-                                    <p className="whitespace-pre-wrap">{message.message}</p>
-                                    <p className={`text-[10px] mt-2 ${mine ? 'text-slate-300' : 'text-slate-400'}`}>{new Date(message.createdAt).toLocaleString('id-ID')}</p>
+                            <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[85%] rounded-2xl px-4 py-3 border ${mine ? 'bg-accent text-white border-accent' : 'bg-white border-border'}`}>
+                                    <div className="text-sm whitespace-pre-wrap">{m.message}</div>
+                                    <div className={`text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-slate-400'}`}>{String(m.createdAt || '').replace('T', ' ').slice(0, 16)}</div>
                                 </div>
                             </div>
                         );
                     })}
                 </div>
-                <div className="p-4 border-t border-border bg-white flex gap-2">
-                    <textarea
-                        className="flex-1 min-h-[44px] max-h-28 p-3 rounded-xl border border-border outline-none text-sm resize-none focus:border-accent"
-                        value={text}
-                        onChange={(e) => setText(e.target.value)}
-                        placeholder="Tulis pesan..."
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend();
-                            }
-                        }}
-                    />
-                    <button onClick={handleSend} className="btn-primary px-4 flex items-center gap-2" disabled={!threadId || !text.trim()}>
-                        <Send size={16} /> Kirim
-                    </button>
-                </div>
+
+                {mode === 'direct' && (
+                    <div className="p-4 border-t border-border bg-white flex gap-2">
+                        <input
+                            type="text"
+                            className="flex-1 p-3 rounded-xl border border-border outline-none"
+                            placeholder="Tulis pesan ke admin..."
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
+                            disabled={!studentId}
+                        />
+                        <button onClick={handleSend} className="btn-small bg-accent hover:bg-accent/90 text-white flex items-center gap-2 px-4" disabled={!studentId}>
+                            <Send size={16} /> Kirim
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
 }
 
-function AcademicView({ students, classes }: { students: Student[]; classes: Class[] }) {
+const DEFAULT_MAPEL = [
+    "Pend. Agama dan Budi Pekerti",
+    "Pendidikan Pancasila dan Kewarganegaraan",
+    "Bahasa Indonesia",
+    "Matematika",
+    "Ilmu Pengetahuan Alam",
+    "Ilmu Pengetahuan Sosial",
+    "Seni Budaya dan Prakarya",
+    "Pendidikan Jasmani, Olahraga, dan Kesehatan",
+    "Muatan Lokal"
+];
+
+function AcademicView({
+    students,
+    classes,
+    onSort,
+    currentSort,
+    sortedData,
+    SortableTH
+}: {
+    students: Student[],
+    classes: Class[],
+    onSort: (k: string) => void,
+    currentSort: any,
+    sortedData: any,
+    SortableTH: any
+}) {
+    const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || '');
+    const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+    const [record, setRecord] = useState<any>(null); // To store academic record
+    const [weights, setWeights] = useState({ rapot: 50, tka: 50 });
+
+    const getStudentName = (s: any) => s?.name || s?.displayName || s?.fullName || s?.nama || 'Tanpa Nama';
+    const selectedClass = classes.find(c => c.id === selectedClassId);
+    const filteredStudents = students.filter(s => {
+        const studentClass = String((s as any)?.classId || '').trim();
+        if (!selectedClassId) return true;
+        if (studentClass === String(selectedClassId)) return true;
+        if (selectedClass && studentClass === String(selectedClass.name || '').trim()) return true;
+        return false;
+    });
+
+    useEffect(() => {
+        if (!classes.length) return;
+        if (!selectedClassId || !classes.some(c => c.id === selectedClassId)) {
+            setSelectedClassId(classes[0].id);
+            setSelectedStudentId('');
+        }
+    }, [classes, selectedClassId]);
+
+    useEffect(() => {
+        if (filteredStudents.length === 0) {
+            if (selectedStudentId) setSelectedStudentId('');
+            return;
+        }
+        if (!selectedStudentId || !filteredStudents.some(s => s.id === selectedStudentId)) {
+            setSelectedStudentId(filteredStudents[0].id);
+        }
+    }, [filteredStudents, selectedStudentId]);
+
+    const loadAcademicRecords = async () => {
+        const snap = await getDocs(collection(db, 'academicRecords'));
+        return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    };
+
+    useEffect(() => {
+        if (selectedStudentId) {
+            loadAcademicRecords().then(data => {
+                const rec = data.find((r: any) => r.studentId === selectedStudentId);
+                if (rec) {
+                    setRecord({
+                        ...rec,
+                        tka: rec.tka ?? '',
+                        rapot: Array.isArray(rec.rapot) ? rec.rapot : [],
+                        prestasi: Array.isArray(rec.prestasi) ? rec.prestasi : [],
+                        ijazah: Array.isArray(rec.ijazah) ? rec.ijazah : [],
+                    });
+                } else {
+                    setRecord({ studentId: selectedStudentId, rapot: [], prestasi: [], ijazah: [], tka: '' });
+                }
+            });
+        } else {
+            setRecord(null);
+        }
+    }, [selectedStudentId]);
+
+    const validateData = () => {
+        const errs: string[] = [];
+        if (!record) return errs;
+
+        if ((record.rapot || []).some((r: any) =>
+            // Format baru (5 semester) + backward-compat format lama (P|K)
+            ['s41', 's42', 's51', 's52', 's61', 's41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
+                r[k] !== '' && r[k] !== null && r[k] !== undefined && (Number(r[k]) < 0 || Number(r[k]) > 100)
+            )
+        )) {
+            errs.push('Nilai rapot harus berada dalam rentang 0-100.');
+        }
+        if ((record.ijazah || []).some((r: any) =>
+            (r.grade_p !== '' && r.grade_p !== null && r.grade_p !== undefined && (Number(r.grade_p) < 0 || Number(r.grade_p) > 100)) ||
+            (r.grade_k !== '' && r.grade_k !== null && r.grade_k !== undefined && (Number(r.grade_k) < 0 || Number(r.grade_k) > 100))
+        )) {
+            errs.push('Nilai ijazah harus berada dalam rentang 0-100.');
+        }
+        if (record.tka !== '' && record.tka !== null && record.tka !== undefined && (Number(record.tka) < 0 || Number(record.tka) > 100)) {
+            errs.push('Nilai TKA harus berada dalam rentang 0-100.');
+        }
+        if ((record.prestasi || []).some((p: any) => p.poin !== '' && p.poin !== null && Number(p.poin) < 0)) {
+            errs.push('Poin prestasi tidak boleh kurang dari 0.');
+        }
+        return errs;
+    };
+
+    const validationErrors = validateData();
+
+    const handleSave = async () => {
+        if (validationErrors.length > 0) {
+            return alert('Terdapat kesalahan pada data yang diisi. Pastikan semua nilai berada dalam batas yang benar (misalnya 0-100).');
+        }
+        await setDoc(doc(db, 'academicRecords', record.studentId), { ...record, studentId: record.studentId });
+        alert('Data Akademik Berhasil Disimpan');
+    };
+
+    const handleApplyTemplate = () => {
+        if (!record) return;
+        if (record.rapot && record.rapot.length > 0) {
+            if (!confirm('Mapel saat ini sudah ada. Terapkan template akan menambahkan mapel default di bawahnya. Lanjutkan?')) return;
+        }
+        const templates = DEFAULT_MAPEL.map(m => ({ subject: m, s41: '', s42: '', s51: '', s52: '', s61: '' }));
+        setRecord({ ...record, rapot: [...(record.rapot || []), ...templates] });
+    };
+
+    const handleApplyIjazahTemplate = () => {
+        if (!record) return;
+        if (record.ijazah && record.ijazah.length > 0) {
+            if (!confirm('Mapel ijazah saat ini sudah ada. Tambahkan mapel default?')) return;
+        }
+        const currentLen = (record.ijazah || []).length;
+        const templates = DEFAULT_MAPEL.map((m, i) => ({ id: Date.now().toString() + i, no: currentLen + i + 1, subject: m, grade_p: '', grade_k: '' }));
+        setRecord({ ...record, ijazah: [...(record.ijazah || []), ...templates] });
+    };
+
+    const handleExportCSV = async () => {
+        // Export Data Akademik Semua Siswa di Kelas Ini
+        const data = await loadAcademicRecords();
+
+        // Header format:
+        let csv = 'ID Siswa,Nama Siswa,TKA,';
+        for (let i = 1; i <= 15; i++) {
+            csv += `Mapel${i},K4S1_${i},K4S2_${i},K5S1_${i},K5S2_${i},K6S1_${i},Jumlah_${i},Rata2_${i},`;
+        }
+        csv += 'NumIjazah\n'; // Just an example structure
+
+        filteredStudents.forEach(stu => {
+            const rec = data.find((r: any) => r.studentId === stu.id) || { tka: '', rapot: [] };
+            const row = [stu.id, `"${stu.name}"`, rec.tka || ''];
+
+            for (let i = 0; i < 15; i++) {
+                if (rec.rapot && rec.rapot[i]) {
+                    const r = rec.rapot[i];
+                    const vals = [
+                        r.s41 ?? r.s41_p ?? r.s41_k,
+                        r.s42 ?? r.s42_p ?? r.s42_k,
+                        r.s51 ?? r.s51_p ?? r.s51_k,
+                        r.s52 ?? r.s52_p ?? r.s52_k,
+                        r.s61 ?? r.s61_p ?? r.s61_k,
+                    ];
+                    const nums = vals
+                        .filter((v: any) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
+                        .map((v: any) => Number(v));
+                    const sum = nums.reduce((a: number, b: number) => a + b, 0);
+                    const avg = nums.length > 0 ? (sum / nums.length) : 0;
+                    row.push(
+                        `"${r.subject}"`,
+                        vals[0] ?? '',
+                        vals[1] ?? '',
+                        vals[2] ?? '',
+                        vals[3] ?? '',
+                        vals[4] ?? '',
+                        nums.length > 0 ? String(sum) : '',
+                        nums.length > 0 ? avg.toFixed(2) : ''
+                    );
+                } else {
+                    row.push('', '', '', '', '', '', '', '');
+                }
+            }
+            csv += row.join(',') + '\n';
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Template_Nilai_Akademik_${classes.find(c => c.id === selectedClassId)?.name}.csv`;
+        a.click();
+    };
+
+    const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            const text = evt.target?.result as string;
+            const lines = text.split('\n');
+            const headerLine = (lines[0] || '').replace(/^\uFEFF/, '').trim();
+            const isOldFormat = headerLine.includes('K4S1P_1') || headerLine.includes('K4S1K_1');
+
+            const newRecords = [];
+            const existing = await loadAcademicRecords();
+
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/(^"|"$)/g, '').trim()) || [];
+                if (cols.length < 3) continue;
+
+                const studentId = cols[0];
+                const tka = cols[2];
+                const rapot = [];
+
+                let colIdx = 3;
+                for (let m = 0; m < 15; m++) {
+                    if (cols[colIdx]) {
+                        if (isOldFormat) {
+                            rapot.push({
+                                subject: cols[colIdx],
+                                s41_p: cols[colIdx + 1] || '',
+                                s41_k: cols[colIdx + 2] || '',
+                                s42_p: cols[colIdx + 3] || '',
+                                s42_k: cols[colIdx + 4] || '',
+                                s51_p: cols[colIdx + 5] || '',
+                                s51_k: cols[colIdx + 6] || '',
+                                s52_p: cols[colIdx + 7] || '',
+                                s52_k: cols[colIdx + 8] || '',
+                                s61_p: cols[colIdx + 9] || '',
+                                s61_k: cols[colIdx + 10] || ''
+                            });
+                        } else {
+                            rapot.push({
+                                subject: cols[colIdx],
+                                s41: cols[colIdx + 1] || '',
+                                s42: cols[colIdx + 2] || '',
+                                s51: cols[colIdx + 3] || '',
+                                s52: cols[colIdx + 4] || '',
+                                s61: cols[colIdx + 5] || ''
+                            });
+                        }
+                    }
+                    colIdx += isOldFormat ? 11 : 8;
+                }
+
+                const existingRec = existing.find((r: any) => r.studentId === studentId);
+                newRecords.push({
+                    ...(existingRec || { prestasi: [], ijazah: [] }),
+                    studentId,
+                    tka,
+                    rapot
+                });
+            }
+
+            // Save all records to Supabase
+            for (const rec of newRecords) {
+                await setDoc(doc(db, 'academicRecords', rec.studentId), { ...rec, studentId: rec.studentId });
+            }
+
+            alert('Import berhasil!');
+            const selected = newRecords.find((r: any) => r.studentId === selectedStudentId);
+            if (selected) setRecord({ ...selected, tka: selected.tka ?? '' });
+        };
+        reader.readAsText(file);
+    };
+
+    const handleAddMapelRapot = () => {
+        setRecord({
+            ...record,
+            rapot: [...(record.rapot || []), { subject: '', s41: '', s42: '', s51: '', s52: '', s61: '' }]
+        });
+    };
+
+    const handleUpdateRapot = (idx: number, field: string, val: any) => {
+        const newRapot = [...record.rapot];
+        newRapot[idx] = { ...newRapot[idx], [field]: val };
+        setRecord({ ...record, rapot: newRapot });
+    };
+
+    const handleRemoveRapot = (idx: number) => {
+        const newRapot = record.rapot.filter((_: any, i: number) => i !== idx);
+        setRecord({ ...record, rapot: newRapot });
+    };
+
+    const handleAddPrestasi = () => {
+        setRecord({
+            ...record,
+            prestasi: [...(record.prestasi || []), { id: Date.now().toString(), name: '', level: 'Kabupaten', year: new Date().getFullYear().toString(), poin: '' }]
+        });
+    };
+
+    const handleUpdatePrestasi = (idx: number, field: string, val: any) => {
+        const newPrestasi = [...record.prestasi];
+        newPrestasi[idx] = { ...newPrestasi[idx], [field]: val };
+        setRecord({ ...record, prestasi: newPrestasi });
+    };
+
+    const handleRemovePrestasi = (idx: number) => {
+        const newPrestasi = record.prestasi.filter((_: any, i: number) => i !== idx);
+        setRecord({ ...record, prestasi: newPrestasi });
+    };
+
+    const handleAddIjazah = () => {
+        setRecord({
+            ...record,
+            ijazah: [...(record.ijazah || []), { id: Date.now().toString(), no: (record.ijazah || []).length + 1, subject: '', grade: '' }]
+        });
+    };
+
+    const handleUpdateIjazah = (idx: number, field: string, val: any) => {
+        const newIjazah = [...record.ijazah];
+        newIjazah[idx] = { ...newIjazah[idx], [field]: val };
+        setRecord({ ...record, ijazah: newIjazah });
+    };
+
+    const handleRemoveIjazah = (idx: number) => {
+        const newIjazah = record.ijazah.filter((_: any, i: number) => i !== idx);
+        setRecord({ ...record, ijazah: newIjazah });
+    };
+
+    const getRapotSemesterNumber = (r: any, key: 's41' | 's42' | 's51' | 's52' | 's61') => {
+        const direct = r?.[key];
+        if (direct !== '' && direct !== null && direct !== undefined && !isNaN(Number(direct))) return Number(direct);
+
+        const p = r?.[`${key}_p`];
+        const k = r?.[`${key}_k`];
+        const hasP = p !== '' && p !== null && p !== undefined && !isNaN(Number(p));
+        const hasK = k !== '' && k !== null && k !== undefined && !isNaN(Number(k));
+        if (hasP && hasK) return (Number(p) + Number(k)) / 2;
+        if (hasP) return Number(p);
+        if (hasK) return Number(k);
+        return null;
+    };
+
+    const getAverageRapot = () => {
+        if (!record?.rapot || record.rapot.length === 0) return 0;
+        let total = 0;
+        let count = 0;
+        record.rapot.forEach((r: any) => {
+            (['s41', 's42', 's51', 's52', 's61'] as const).forEach(k => {
+                const v = getRapotSemesterNumber(r, k);
+                if (v === null) return;
+                total += v;
+                count++;
+            });
+        });
+        return count > 0 ? total / count : 0;
+    };
+
+    const ijazahTotal = (record?.ijazah || []).reduce((acc: number, ii: any) => {
+        let sum = acc;
+        if (ii.grade_p !== '' && ii.grade_p !== null && !isNaN(Number(ii.grade_p))) sum += Number(ii.grade_p);
+        if (ii.grade_k !== '' && ii.grade_k !== null && !isNaN(Number(ii.grade_k))) sum += Number(ii.grade_k);
+        return sum;
+    }, 0);
+
+    const ijazahCountFilled = (record?.ijazah || []).reduce((acc: number, ii: any) => {
+        let c = acc;
+        if (ii.grade_p !== '' && ii.grade_p !== null && !isNaN(Number(ii.grade_p))) c++;
+        if (ii.grade_k !== '' && ii.grade_k !== null && !isNaN(Number(ii.grade_k))) c++;
+        return c;
+    }, 0);
+
+    const ijazahAverage = ijazahCountFilled > 0 ? (ijazahTotal / ijazahCountFilled).toFixed(2) : 0;
+
+    const avgRapot = getAverageRapot();
+    const tkaVal = Number(record?.tka) || 0;
+    const prestasiSum = (record?.prestasi || []).reduce((acc: number, p: any) => acc + (Number(p.poin) || 0), 0);
+    const finalSmpScore = (avgRapot * (weights.rapot / 100)) + (tkaVal * (weights.tka / 100)) + prestasiSum;
+
     return (
-        <div className="p-6 h-full">
-            <div className="card space-y-3">
-                <h2 className="text-2xl font-black tracking-tighter uppercase">Akademik & Ijazah</h2>
-                <p className="text-sm text-text-secondary">
-                    Modul akademik belum memiliki komponen aktif di file aplikasi ini. Data siswa tersedia: {students.length}, kelas: {classes.length}.
-                </p>
+        <div className="p-6 space-y-6 overflow-y-auto h-full pb-20">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h2 className="text-2xl font-black tracking-tighter uppercase">Data Akademik & Ijazah</h2>
+                    <p className="text-sm text-text-secondary">Nilai Rapot (5 Semester), Prestasi, dan Ijazah</p>
+                </div>
+                <div className="flex gap-2 items-center flex-wrap">
+                    <select
+                        className="bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                        value={selectedClassId}
+                        onChange={e => { setSelectedClassId(e.target.value); setSelectedStudentId(''); }}
+                    >
+                        {classes.map(c => <option key={c.id} value={c.id}>Kelas {c.name}</option>)}
+                    </select>
+                    <select
+                        className="bg-white border border-border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:border-accent"
+                        value={selectedStudentId}
+                        onChange={e => setSelectedStudentId(e.target.value)}
+                    >
+                        <option value="">-- Pilih Siswa --</option>
+                        {sortStudentsForSelect(filteredStudents).map(s => <option key={s.id} value={s.id}>{getStudentName(s)}</option>)}
+                    </select>
+
+                    <button onClick={handleExportCSV} className="btn-small bg-slate-100 text-slate-700 hover:bg-slate-200" title="Download Template per Kelas">
+                        <Download size={16} /> Data Excel
+                    </button>
+
+                    <label className="btn-small bg-slate-900 text-yellow-400 hover:bg-slate-950 cursor-pointer flex items-center gap-2 border border-slate-800">
+                        <Upload size={16} /> Import Excel
+                        <input type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+                    </label>
+
+                    <button
+                        onClick={handleSave}
+                        className="btn-primary flex items-center gap-2 text-sm px-4 disabled:opacity-50"
+                        disabled={!record || validationErrors.length > 0}
+                    >
+                        <Save size={16} /> Simpan Data
+                    </button>
+                </div>
             </div>
+
+            {validationErrors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl flex items-start gap-4">
+                    <AlertCircle className="flex-shrink-0 mt-1" size={20} />
+                    <div>
+                        <p className="font-bold mb-1">Terdapat Kesalahan Input (Rentang Nilai 0-100):</p>
+                        <ul className="list-disc pl-5 text-sm space-y-1">
+                            {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+                        </ul>
+                    </div>
+                </div>
+            )}
+
+            {!record ? (
+                <div className="card p-10 text-center text-slate-400 font-bold italic">
+                    Silakan pilih siswa untuk melihat/mengedit data
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <div className="xl:col-span-2 space-y-6">
+                        {/* Nilai Rapot */}
+                        <div className="card space-y-4">
+                            <div className="flex justify-between items-center bg-blue-50/50 p-4 -mx-6 -mt-6 border-b border-blue-100 mb-4 flex-wrap gap-2">
+                                <h3 className="font-black text-blue-900 flex items-center gap-2"><BookOpen size={18} /> NILAI RAPOT (5 Semester)</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={handleApplyTemplate} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1">
+                                        <CheckSquare size={14} /> Terapkan Template Mapel
+                                    </button>
+                                    <button onClick={handleAddMapelRapot} className="btn-small bg-blue-100 text-blue-700 hover:bg-blue-200 flex items-center gap-1">
+                                        <Plus size={14} /> Tambah Mapel
+                                    </button>
+                                </div>
+                            </div>
+                            {(!record.rapot || record.rapot.length === 0) ? (
+                                <p className="text-sm text-slate-400 italic text-center py-4">Belum ada data nilai rapot.</p>
+                            ) : (
+                                <div className="table-container shadow-sm p-4 print:p-0">
+                                    <table className="w-full text-sm data-table">
+                                        <thead>
+                                            <tr>
+                                                <th rowSpan={2} className="border border-border p-2 min-w-[150px] sticky left-0 bg-slate-50 z-[5]">Mata Pelajaran</th>
+                                                <th colSpan={2} className="border border-border p-2 text-center bg-blue-50/50">Kelas 4</th>
+                                                <th colSpan={2} className="border border-border p-2 text-center bg-emerald-50/50">Kelas 5</th>
+                                                <th colSpan={1} className="border border-border p-2 text-center bg-amber-50/50">Kelas 6</th>
+                                                <th rowSpan={2} className="border border-border p-2 text-center bg-slate-50/50">Jumlah</th>
+                                                <th rowSpan={2} className="border border-border p-2 text-center bg-slate-50/50">Rata-rata</th>
+                                                <th rowSpan={2} className="border border-border p-2 w-16 no-print">Aksi</th>
+                                            </tr>
+                                            <tr>
+                                                {/* K4 */}
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 2</th>
+                                                {/* K5 */}
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 2</th>
+                                                {/* K6 */}
+                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {record.rapot.map((r: any, i: number) => {
+                                                const nums = (['s41', 's42', 's51', 's52', 's61'] as const)
+                                                    .map(k => getRapotSemesterNumber(r, k))
+                                                    .filter((v: any) => v !== null) as number[];
+                                                const sum = nums.reduce((a, b) => a + b, 0);
+                                                const avg = nums.length > 0 ? (sum / nums.length) : 0;
+                                                return (
+                                                    <tr key={i} className="hover:bg-slate-50/50">
+                                                    <td className="p-1 border border-border sticky left-0 bg-white group-hover:bg-slate-50/50 z-[5]">
+                                                        <input type="text" className="w-full p-2 outline-none font-bold text-xs" value={r.subject} onChange={e => handleUpdateRapot(i, 'subject', e.target.value)} placeholder="Mapel..." />
+                                                    </td>
+                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s41 ?? r.s41_p ?? r.s41_k} onChange={(v: any) => handleUpdateRapot(i, 's41', v)} /></td>
+                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s42 ?? r.s42_p ?? r.s42_k} onChange={(v: any) => handleUpdateRapot(i, 's42', v)} /></td>
+                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s51 ?? r.s51_p ?? r.s51_k} onChange={(v: any) => handleUpdateRapot(i, 's51', v)} /></td>
+                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s52 ?? r.s52_p ?? r.s52_k} onChange={(v: any) => handleUpdateRapot(i, 's52', v)} /></td>
+                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s61 ?? r.s61_p ?? r.s61_k} onChange={(v: any) => handleUpdateRapot(i, 's61', v)} /></td>
+                                                    <td className="p-2 border border-border text-center font-mono text-xs bg-slate-50/30">{nums.length > 0 ? sum : ''}</td>
+                                                    <td className="p-2 border border-border text-center font-mono text-xs bg-slate-50/30">{nums.length > 0 ? avg.toFixed(2) : ''}</td>
+                                                    <td className="p-1 border border-border text-center no-print">
+                                                        <button onClick={() => handleRemoveRapot(i)} className="text-red-400 hover:text-red-600 transition-all"><Trash2 size={14} /></button>
+                                                    </td>
+                                                </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Pencapaian / Prestasi */}
+                        <div className="card space-y-4">
+                            <div className="flex justify-between items-center bg-violet-50/50 p-4 -mx-6 -mt-6 border-b border-violet-100 mb-4">
+                                <h3 className="font-black text-violet-900 flex items-center gap-2"><ArrowUpRight size={18} /> DATA PRESTASI</h3>
+                                <button onClick={handleAddPrestasi} className="btn-small bg-violet-100 text-violet-700 hover:bg-violet-200 flex items-center gap-1">
+                                    <Plus size={14} /> Tambah Prestasi
+                                </button>
+                            </div>
+                            {(!record.prestasi || record.prestasi.length === 0) ? (
+                                <p className="text-sm text-slate-400 italic text-center py-4">Belum ada data prestasi.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {record.prestasi.map((p: any, i: number) => (
+                                        <div key={p.id} className="flex gap-2 items-center">
+                                            <input type="text" className="flex-1 p-2 bg-slate-50 border border-border rounded outline-none font-bold text-sm" placeholder="Nama Prestasi" value={p.name} onChange={e => handleUpdatePrestasi(i, 'name', e.target.value)} />
+                                            <select className="w-32 p-2 bg-slate-50 border border-border rounded outline-none text-sm" value={p.level} onChange={e => handleUpdatePrestasi(i, 'level', e.target.value)}>
+                                                <option value="Sekolah">Sekolah</option>
+                                                <option value="Kecamatan">Kecamatan</option>
+                                                <option value="Kabupaten">Kabupaten</option>
+                                                <option value="Provinsi">Provinsi</option>
+                                                <option value="Nasional">Nasional</option>
+                                                <option value="Internasional">Internasional</option>
+                                            </select>
+                                            <input type="text" className="w-20 p-2 bg-slate-50 border border-border rounded outline-none text-sm text-center" placeholder="Tahun" value={p.year} onChange={e => handleUpdatePrestasi(i, 'year', e.target.value)} />
+                                            <div className="w-24">
+                                                <input type="number" step="0.01" min="0" className={`w-full p-2 bg-slate-50 border rounded outline-none text-sm text-center ${Number(p.poin) < 0 ? 'border-red-500 text-red-500' : 'border-border'}`} placeholder="Poin" value={p.poin ?? ''} onChange={e => handleUpdatePrestasi(i, 'poin', e.target.value)} />
+                                            </div>
+                                            <button onClick={() => handleRemovePrestasi(i)} className="p-2 text-red-400 hover:bg-red-50 rounded"><Trash2 size={16} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Ijazah */}
+                        <div className="card space-y-4">
+                            <div className="flex justify-between items-center bg-amber-50/50 p-4 -mx-6 -mt-6 border-b border-amber-100 mb-4 flex-wrap gap-2">
+                                <div>
+                                    <h3 className="font-black text-amber-900 flex items-center gap-2"><FileText size={18} /> PENILAIAN IJAZAH</h3>
+                                    <p className="text-[10px] text-amber-700 mt-1 uppercase tracking-widest font-bold">Total: <span className="font-black">{ijazahTotal}</span> | Rata-rata: <span className="font-black">{ijazahAverage}</span></p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={handleApplyIjazahTemplate} className="btn-small bg-orange-100 text-orange-700 hover:bg-orange-200 flex items-center gap-1">
+                                        <CheckSquare size={14} /> Terapkan Template Mapel
+                                    </button>
+                                    <button onClick={handleAddIjazah} className="btn-small bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1">
+                                        <Plus size={14} /> Tambah Mapel
+                                    </button>
+                                </div>
+                            </div>
+                            {(!record.ijazah || record.ijazah.length === 0) ? (
+                                <p className="text-sm text-slate-400 italic text-center py-4">Belum ada data nilai ijazah.</p>
+                            ) : (
+                                <div className="table-container shadow-sm p-4 print:p-0">
+                                    <table className="w-full text-sm data-table">
+                                        <thead>
+                                            <tr>
+                                                <th className="border border-border p-2 w-16 text-center text-xs">NO</th>
+                                                <th className="border border-border p-2 text-xs">MATA PELAJARAN</th>
+                                                <th className="border border-border p-2 w-24 text-center text-blue-600 text-[10px] font-black">PENGETAHUAN</th>
+                                                <th className="border border-border p-2 w-24 text-center text-emerald-600 text-[10px] font-black">KETERAMPILAN</th>
+                                                <th className="border border-border p-2 w-16 text-center no-print">AKSI</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {record.ijazah.map((iz: any, i: number) => (
+                                                <tr key={iz.id} className="hover:bg-slate-50/50">
+                                                    <td className="p-1 border border-border text-center">
+                                                        <input type="number" className="w-8 p-1 text-center outline-none bg-transparent font-mono text-xs" value={iz.no} onChange={e => handleUpdateIjazah(i, 'no', Number(e.target.value))} />
+                                                    </td>
+                                                    <td className="p-1 border border-border">
+                                                        <input type="text" className="w-full p-2 outline-none font-bold bg-transparent text-sm" value={iz.subject} onChange={e => handleUpdateIjazah(i, 'subject', e.target.value)} placeholder="Mapel Ijazah..." />
+                                                    </td>
+                                                    <td className="p-1 border border-border">
+                                                        <GradeInput value={iz.grade_p} onChange={(v: any) => handleUpdateIjazah(i, 'grade_p', v)} />
+                                                    </td>
+                                                    <td className="p-1 border border-border">
+                                                        <GradeInput value={iz.grade_k} onChange={(v: any) => handleUpdateIjazah(i, 'grade_k', v)} />
+                                                    </td>
+                                                    <td className="p-1 border border-border text-center no-print">
+                                                        <button onClick={() => handleRemoveIjazah(i)} className="text-red-400 hover:text-red-600 p-1 transition-all"><Trash2 size={14} /></button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="xl:col-span-1 space-y-6">
+                        {/* Kalkulasi Nilai SMP */}
+                        <div className="card space-y-4 bg-emerald-50/50 border-emerald-100">
+                            <h3 className="font-black text-emerald-900 border-b border-emerald-100 pb-3 uppercase tracking-tighter flex items-center gap-2">
+                                <Calculator size={18} /> Kalkulasi Nilai Daftar SMP
+                            </h3>
+
+                            <div className="space-y-3 pt-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-bold text-slate-700">Rata-rata Rapot (5 Sem)</p>
+                                    <p className="font-mono font-black text-slate-900">{avgRapot.toFixed(2)}</p>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-bold text-slate-700">Nilai TKA</p>
+                                    <div className="w-24">
+                                        <GradeInput value={record.tka} onChange={(v: any) => setRecord({ ...record, tka: v })} placeholder="0-100" />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between border-b pb-4">
+                                    <p className="text-sm font-bold text-slate-700">Total Poin Prestasi</p>
+                                    <p className="font-mono font-black text-slate-900">+{prestasiSum.toFixed(2)}</p>
+                                </div>
+
+                                <div className="pt-2">
+                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Pengaturan Bobot (%)</p>
+                                    <div className="flex gap-4">
+                                        <div className="flex-1 space-y-1">
+                                            <label className="text-[10px] text-slate-500 font-bold">Rapot</label>
+                                            <input type="number" className="w-full p-2 rounded border outline-none font-mono text-sm text-center" value={weights.rapot} onChange={e => setWeights({ ...weights, rapot: Number(e.target.value) })} />
+                                        </div>
+                                        <div className="flex-1 space-y-1">
+                                            <label className="text-[10px] text-slate-500 font-bold">TKA</label>
+                                            <input type="number" className="w-full p-2 rounded border outline-none font-mono text-sm text-center" value={weights.tka} onChange={e => setWeights({ ...weights, tka: Number(e.target.value) })} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-emerald-600 text-white p-4 rounded-xl mt-6 relative overflow-hidden">
+                                    <div className="absolute -right-4 -bottom-4 opacity-10">
+                                        <Calculator size={100} />
+                                    </div>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200 mb-1 relative z-10">Total Nilai Akhir PPDB</p>
+                                    <p className="text-4xl font-black font-mono relative z-10">{finalSmpScore.toFixed(2)}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -8114,78 +7858,6 @@ function UsersManagementView({ students, classes }: { students: Student[]; class
 
     const filteredUsers = users.filter(u => roleFilter === 'all' || u.role === roleFilter);
     const studentsForSelect = sortStudentsForSelect(students);
-
-    const renderCardHtml = (u: UserAccount) => `
-        <div id="card-render-target" style="background:#f8fafc;border-radius:24px;padding:32px;width:400px;position:relative;overflow:hidden;font-family:sans-serif;">
-            <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6366f1,#8b5cf6);"></div>
-            <div style="display:flex;align-items:center;gap:16px;margin-bottom:32px;">
-                <div style="width:56px;height:56px;border-radius:16px;background:#1e293b;display:flex;align-items:center;justify-content:center;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                </div>
-                <div>
-                    <div style="font-weight:900;font-size:20px;color:#0f172a;">EduFlow Access</div>
-                    <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:0.2em;text-transform:uppercase;">Credentials Card</div>
-                </div>
-            </div>
-            <div style="background:white;padding:24px;border-radius:16px;margin-bottom:16px;border:1px solid #e2e8f0;">
-                <div style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:16px;">Informasi Pengguna</div>
-                <div style="margin-bottom:16px;">
-                    <div style="font-size:10px;color:#64748b;margin-bottom:4px;font-weight:700;">NAMA LENGKAP</div>
-                    <div style="font-weight:900;font-size:20px;color:#0f172a;">${u.displayName}</div>
-                </div>
-                <div style="display:flex;gap:32px;">
-                    <div>
-                        <div style="font-size:10px;color:#64748b;margin-bottom:4px;font-weight:700;">PERAN</div>
-                        <div style="font-weight:900;color:#0f172a;text-transform:uppercase;">${u.role}</div>
-                    </div>
-                    ${u.role === 'student' ? '<div><div style="font-size:10px;color:#64748b;margin-bottom:4px;font-weight:700;">STATUS</div><div style="font-weight:700;color:#16a34a;font-style:italic;">Terverifikasi</div></div>' : ''}
-                </div>
-            </div>
-            <div style="background:#1e293b;padding:24px;border-radius:16px;margin-bottom:16px;">
-                <div style="font-size:9px;font-weight:900;color:#facc1566;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:16px;">Login Kredensial</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                    <div>
-                        <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px;">Username</div>
-                        <div style="font-family:monospace;font-weight:900;font-size:18px;color:white;letter-spacing:0.05em;">${u.username || '-'}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px;">Password</div>
-                        <div style="font-family:monospace;font-weight:900;font-size:18px;color:white;background:rgba(255,255,255,0.1);padding:2px 8px;border-radius:6px;">${u.password || '-'}</div>
-                    </div>
-                </div>
-            </div>
-            <div style="text-align:center;">
-                <div style="font-size:9px;color:#94a3b8;font-weight:700;font-style:italic;">Simpan kartu ini dengan baik. Jangan berikan akses akun Anda kepada siapapun.</div>
-            </div>
-        </div>`;
-
-    const downloadCardJpg = async (u: UserAccount) => {
-        const tmp = document.createElement('div');
-        tmp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;z-index:-1;';
-        tmp.innerHTML = renderCardHtml(u);
-        document.body.appendChild(tmp);
-        const cardEl = tmp.querySelector('#card-render-target') as HTMLElement;
-        try {
-            const canvas = await html2canvas(cardEl, { scale: 2, useCORS: true, backgroundColor: null });
-            const a = document.createElement('a');
-            a.download = `KartuAkses_${u.displayName || u.username}.jpg`;
-            a.href = canvas.toDataURL('image/jpeg', 0.95);
-            a.click();
-        } finally {
-            document.body.removeChild(tmp);
-        }
-    };
-
-    const [downloadingAll, setDownloadingAll] = useState(false);
-    const downloadAllCardsJpg = async () => {
-        if (filteredUsers.length === 0) return;
-        setDownloadingAll(true);
-        for (const u of filteredUsers) {
-            await downloadCardJpg(u);
-            await new Promise(r => setTimeout(r, 300));
-        }
-        setDownloadingAll(false);
-    };
 
     const slugifyUsername = (v: string) =>
         String(v || '')
@@ -8371,18 +8043,6 @@ function UsersManagementView({ students, classes }: { students: Student[]; class
                         className="btn-secondary flex items-center gap-2 justify-center flex-1 md:flex-initial"
                     >
                         <Download size={18} /> CSV
-                    </button>
-                    <button
-                        onClick={downloadAllCardsJpg}
-                        disabled={downloadingAll || filteredUsers.length === 0}
-                        className="btn-secondary flex items-center gap-2 justify-center flex-1 md:flex-initial disabled:opacity-60"
-                        title="Download Semua Kartu Akses sebagai JPG"
-                    >
-                        {downloadingAll ? (
-                            <><span className="animate-spin border-2 border-emerald-500 border-t-transparent w-4 h-4 rounded-full inline-block" /> Memproses...</>
-                        ) : (
-                            <><Download size={18} /> Semua JPG</>
-                        )}
                     </button>
                     <button
                         onClick={() => { setShowAdd(true); setEditingUser(null); setFormData({ email: '', displayName: '', role: 'student', studentId: '', username: '', password: '' }); }}
@@ -8611,9 +8271,6 @@ function UsersManagementView({ students, classes }: { students: Student[]; class
 
                             <div className="mt-8 flex gap-3 no-print">
                                 <button onClick={() => setShowPrintAccount(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all">Tutup</button>
-                                <button onClick={() => downloadCardJpg(showPrintAccount)} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
-                                    <Download size={14} /> Download JPG
-                                </button>
                                 <button onClick={() => window.print()} className="flex-1 py-4 bg-accent text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-accent/30 hover:bg-accent-dark transition-all">Print Kartu</button>
                             </div>
                         </motion.div>
@@ -8747,12 +8404,20 @@ function StudentDashboardView({
     classes: Class[],
     holidays: Holiday[]
 }) {
-    const displaySettings = settings?.studentDisplaySettings || {
+    const displaySettingsRaw = settings?.studentDisplaySettings || {
         showGrades: true,
         showAttendance: true,
         showPayments: true,
         showSavings: true,
         showClassCash: true
+    };
+    // Halaman siswa hanya menampilkan: Nilai, Presensi, Pembayaran
+    const displaySettings = {
+        showGrades: !!displaySettingsRaw.showGrades,
+        showAttendance: !!displaySettingsRaw.showAttendance,
+        showPayments: !!displaySettingsRaw.showPayments,
+        showSavings: false,
+        showClassCash: false
     };
 
     const student = students.find(s => s.id === studentId);
@@ -8765,9 +8430,7 @@ function StudentDashboardView({
     const [academicRecord, setAcademicRecord] = useState<any>(null);
     const [academicLoading, setAcademicLoading] = useState(false);
     const [activeRapotSem, setActiveRapotSem] = useState<'s41' | 's42' | 's51' | 's52' | 's61'>('s41');
-
-    const [academicConfig, setAcademicConfig] = useState<{ subjects: { id: string, name: string }[] }>({ subjects: [] });
-    const [ijazahConfig, setIjazahConfig] = useState<{ subjects: { id: string, name: string }[] }>({ subjects: [] });
+    const [showPrintBill, setShowPrintBill] = useState(false);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
@@ -8779,49 +8442,22 @@ function StudentDashboardView({
         (async () => {
             try {
                 setAcademicLoading(true);
-                const configSnap = await getDoc(doc(db, 'settings', 'academic_config'));
-                if (!cancelled && configSnap.exists()) {
-                    setAcademicConfig({ subjects: configSnap.data().subjects || [] });
-                }
-                const ijazahSnap = await getDoc(doc(db, 'settings', 'ijazah_config'));
-                if (!cancelled) {
-                    if (ijazahSnap.exists()) {
-                        setIjazahConfig({ subjects: ijazahSnap.data().subjects || [] });
-                    } else {
-                        const initIjazah = [
-                            'Pendidikan Agama & Budi Pekerti', 'PPKn', 'Bahasa Indonesia', 'Matematika',
-                            'IPA', 'IPS', 'SBdP', 'PJOK', 'Bahasa Jawa', 'Bahasa Inggris'
-                        ].map((m, i) => ({ id: `ij${i}`, name: m }));
-                        setIjazahConfig({ subjects: initIjazah });
-                    }
-                }
-
                 const snap = await getDoc(doc(db, 'academicRecords', String(studentId)));
                 if (cancelled) return;
                 if (snap.exists()) {
                     const d = snap.data();
-                    const rawIjazah = d?.ijazah || {};
-                    const ijazahMap = Array.isArray(rawIjazah) 
-                        ? rawIjazah.reduce((acc: any, curr: any, idx: number) => {
-                            const id = curr.id || `ij${idx}`;
-                            acc[id] = curr;
-                            return acc;
-                        }, {})
-                        : rawIjazah;
-
                     setAcademicRecord({
                         ...d,
                         tka: d?.tka ?? '',
-                        rapot: d?.rapot ?? {},
+                        rapot: Array.isArray(d?.rapot) ? d.rapot : [],
                         prestasi: Array.isArray(d?.prestasi) ? d.prestasi : [],
-                        ijazah: ijazahMap
+                        ijazah: Array.isArray(d?.ijazah) ? d.ijazah : []
                     });
                 } else {
-                    setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: {}, tka: '' });
+                    setAcademicRecord({ studentId: String(studentId), rapot: [], prestasi: [], ijazah: [], tka: '' });
                 }
-            } catch (error) {
-                console.error("Student academic fetch error:", error);
-                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: {}, prestasi: [], ijazah: {}, tka: '' });
+            } catch {
+                if (!cancelled) setAcademicRecord({ studentId: String(studentId), rapot: [], prestasi: [], ijazah: [], tka: '' });
             } finally {
                 if (!cancelled) setAcademicLoading(false);
             }
@@ -8872,6 +8508,10 @@ function StudentDashboardView({
 
     const gemari = getCashRecap('gemari');
     const infaq = getCashRecap('infaq');
+    const gemariInfaqAdj = (student?.paymentGemariInfaqAdjustments || []).find((a: any) => a.month === monthStr);
+    const gemariInfaqCombinedAuto = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
+    const gemariInfaqCombined = (gemariInfaqAdj?.amount ?? gemariInfaqCombinedAuto) as number;
+    const gemariInfaqNote = (gemariInfaqAdj?.note || '').trim();
 
     const paymentsByItem: Record<string, number> = {};
     myPayments.forEach(p => { paymentsByItem[p.feeItemId] = (paymentsByItem[p.feeItemId] || 0) + (Number(p.amountPaid) || 0); });
@@ -8881,6 +8521,91 @@ function StudentDashboardView({
 
     return (
         <div className="p-6 space-y-8 overflow-y-auto h-full pb-20 max-w-4xl mx-auto">
+            {showPrintBill && (
+                <>
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+                        <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-border">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-black uppercase tracking-widest">Cetak Kartu Tagihan</h3>
+                                <button onClick={() => setShowPrintBill(false)} aria-label="Tutup cetak kartu tagihan" className="p-2 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-4">Klik cetak untuk menyimpan sebagai PDF atau mencetak langsung.</p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowPrintBill(false)} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200">Batal</button>
+                                <button onClick={() => { window.print(); setShowPrintBill(false); }} className="flex-1 py-3 bg-slate-900 text-yellow-400 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-950 flex items-center justify-center gap-2">
+                                    <Printer size={16} /> Cetak
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bill-print-root print-container">
+                        <div className="print-header">
+                            <h1 className="text-2xl font-black uppercase tracking-tighter">KARTU TAGIHAN SISWA</h1>
+                            <p className="text-xs font-bold text-slate-500">Periode: {monthStr}</p>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="border border-black p-4 rounded">
+                                <div className="flex justify-between gap-6">
+                                    <div>
+                                        <div className="text-xs text-slate-500">Nama</div>
+                                        <div className="font-black">{student?.name || '-'}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs text-slate-500">Kelas</div>
+                                        <div className="font-black">{classes.find(c => c.id === student?.classId)?.name || '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border border-black p-4 rounded space-y-3">
+                                <div className="font-black uppercase tracking-wider text-sm border-b border-black pb-2">Rincian Tagihan</div>
+                                <div className="space-y-2">
+                                    {feeItems.map(i => {
+                                        const due = Number((i as any).amount) || 0;
+                                        const paid = Number(paymentsByItem[i.id]) || 0;
+                                        const kurang = Math.max(0, due - paid);
+                                        return (
+                                            <div key={i.id} className="flex justify-between text-xs">
+                                                <div className="font-bold">{i.name}</div>
+                                                <div className="font-mono">{formatCurrency(kurang)}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="pt-2 border-t border-black space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <div className="font-bold">Kekurangan Gemari &amp; Infaq</div>
+                                        <div className="font-mono">{formatCurrency(Number(gemariInfaqCombined) || 0)}</div>
+                                    </div>
+                                    {(extraBills || []).map(b => (
+                                        <div key={b.id} className="flex justify-between text-xs">
+                                            <div className="font-bold">{b.label}</div>
+                                            <div className="font-mono">{formatCurrency(Number(b.amount) || 0)}</div>
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-between text-xs font-black pt-2 border-t border-dashed border-black">
+                                        <div>TOTAL TAGIHAN</div>
+                                        <div className="font-mono">{formatCurrency(
+                                            feeItems.reduce((sum, i) => sum + Math.max(0, (Number((i as any).amount) || 0) - (Number(paymentsByItem[i.id]) || 0)), 0)
+                                            + (Number(gemariInfaqCombined) || 0)
+                                            + (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0)
+                                        )}</div>
+                                    </div>
+                                </div>
+
+                                {gemariInfaqNote && (
+                                    <div className="pt-3">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-1">Catatan</div>
+                                        <div className="text-xs">{gemariInfaqNote}</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
             <header className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-black tracking-tighter uppercase mb-1">Halo, {student?.name || 'Siswa'}</h1>
@@ -8893,6 +8618,27 @@ function StudentDashboardView({
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {displaySettings.showGrades && (
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card space-y-4">
+                        <div className="flex items-center gap-2 text-purple-600 mb-2">
+                            <Grid size={18} />
+                            <h3 className="font-black text-sm uppercase tracking-tight">Akademik Terakhir</h3>
+                        </div>
+                        {myGrades.length > 0 ? (
+                            <div className="space-y-3">
+                                {myGrades.slice(0, 3).map(g => (
+                                    <div key={g.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-border">
+                                        <span className="text-xs font-bold truncate max-w-[150px]">Nilai Materi #{g.materialId.slice(-4)}</span>
+                                        <span className="text-lg font-black text-purple-600">{g.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="py-4 text-center text-xs text-slate-400 font-medium">Belum ada data nilai.</div>
+                        )}
+                    </motion.div>
+                )}
+
                 {displaySettings.showAttendance && (
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="card space-y-4">
                         <div className="flex items-center gap-2 text-emerald-600 mb-2">
@@ -8910,8 +8656,59 @@ function StudentDashboardView({
                     </motion.div>
                 )}
 
-            </div>
+                {displaySettings.showPayments && (
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="card space-y-4">
+                        <div className="flex items-center gap-2 text-blue-600 mb-2">
+                            <CreditCard size={18} />
+                            <h3 className="font-black text-sm uppercase tracking-tight">Administrasi</h3>
+                        </div>
+                        {myPayments.length > 0 ? (
+                            <div className="space-y-2">
+                                {myPayments.slice(0, 2).map(p => (
+                                    <div key={p.id} className="text-xs p-3 rounded-xl bg-blue-50/50 border border-blue-100">
+                                        <div className="font-bold truncate text-blue-800">{feeItems.find(f => f.id === p.feeItemId)?.name}</div>
+                                        <div className="flex justify-between mt-1 items-end">
+                                            <span className="text-slate-400 font-mono">{p.paymentDate}</span>
+                                            <span className="font-black text-blue-600">{formatCurrency(p.amountPaid)}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="py-4 text-center text-xs text-slate-400 font-medium">Belum ada riwayat bayar.</div>
+                        )}
+                    </motion.div>
+                )}
 
+                {(displaySettings.showSavings || displaySettings.showClassCash) && (
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="card md:col-span-2 lg:col-span-3 space-y-4">
+                        <div className="flex items-center gap-2 text-amber-600 mb-2">
+                            <Wallet size={18} />
+                            <h3 className="font-black text-sm uppercase tracking-tight">Informasi Keuangan Siswa</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {displaySettings.showSavings && (
+                                <div className="p-4 bg-amber-50/30 rounded-2xl border border-amber-100 flex justify-between items-center">
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase text-amber-500 tracking-widest">Saldo Tabungan</div>
+                                        <div className="text-2xl font-black text-amber-700">{formatCurrency(mySavings.reduce((acc, s) => s.type === 'deposit' ? acc + s.amount : acc - s.amount, 0))}</div>
+                                    </div>
+                                    <PiggyBank size={32} className="text-amber-300 opacity-50" />
+                                </div>
+                            )}
+                            {displaySettings.showClassCash && (
+                                <div className="p-4 bg-indigo-50/30 rounded-2xl border border-indigo-100 flex justify-between items-center">
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase text-indigo-500 tracking-widest">Kontribusi Kas (Gemari)</div>
+                                        <div className="text-2xl font-black text-indigo-700">{formatCurrency(myClassCash.reduce((acc, c) => acc + c.amount, 0))}</div>
+                                    </div>
+                                    <Coins size={32} className="text-indigo-300 opacity-50" />
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                )}
+            </div>
 
             {/* Akademik (Rapot/TKA/Ijazah/Prestasi) */}
             {displaySettings.showGrades && (
@@ -8930,70 +8727,49 @@ function StudentDashboardView({
                             <div className="text-2xl font-black text-purple-700">{academicRecord?.tka ?? '-'}</div>
                         </div>
                         <div className="p-3 bg-slate-50 rounded-xl border border-border md:col-span-2">
-                            <div className="overflow-x-auto shadow-sm rounded-xl border border-border">
-                                <table className="w-full text-xs border-collapse">
+                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Rapot per Semester</div>
+                            <div className="flex gap-2 flex-wrap mb-3">
+                                {([
+                                    { k: 's41', label: 'Sem 4.1' },
+                                    { k: 's42', label: 'Sem 4.2' },
+                                    { k: 's51', label: 'Sem 5.1' },
+                                    { k: 's52', label: 'Sem 5.2' },
+                                    { k: 's61', label: 'Sem 6.1' }
+                                ] as const).map(s => (
+                                    <button
+                                        key={s.k}
+                                        onClick={() => setActiveRapotSem(s.k)}
+                                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${activeRapotSem === s.k ? 'bg-slate-900 text-yellow-400 border-slate-900' : 'bg-white text-slate-500 border-border hover:border-accent hover:text-accent'}`}
+                                    >
+                                        {s.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
                                     <thead>
-                                        <tr className="bg-slate-100/50">
-                                            <th rowSpan={2} className="border-b border-r border-border p-2 text-left text-[9px] font-black uppercase tracking-widest text-slate-500">Mata Pelajaran</th>
-                                            <th colSpan={2} className="border-b border-r border-border p-1 text-center bg-blue-50/50 text-[9px] font-black text-blue-700">Kelas 4</th>
-                                            <th colSpan={2} className="border-b border-r border-border p-1 text-center bg-emerald-50/50 text-[9px] font-black text-emerald-700">Kelas 5</th>
-                                            <th className="border-b border-border p-1 text-center bg-amber-50/50 text-[9px] font-black text-amber-700">Kelas 6</th>
-                                        </tr>
-                                        <tr className="bg-slate-50/50">
-                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S1</th>
-                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S2</th>
-                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S1</th>
-                                            <th className="border-b border-r border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S2</th>
-                                            <th className="border-b border-border p-1 text-center w-12 text-[8px] font-bold text-slate-400">S1</th>
+                                        <tr className="text-[10px] uppercase tracking-widest text-slate-400">
+                                            <th className="text-left py-2 pr-3">Mapel</th>
+                                            <th className="text-center py-2 px-2">P</th>
+                                            <th className="text-center py-2 px-2">K</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {academicConfig.subjects.length === 0 ? (
-                                            <tr><td colSpan={6} className="py-8 text-center text-slate-400 italic font-medium">Data mata pelajaran belum dikonfigurasi admin.</td></tr>
-                                        ) : (() => {
-                                            const getColTot = (k: 's41'|'s42'|'s51'|'s52'|'s61') => {
-                                                let s = 0, c = 0;
-                                                academicConfig.subjects.forEach(sub => {
-                                                    const v = Number(academicRecord?.rapot?.[sub.id]?.[k]);
-                                                    if (!isNaN(v) && v > 0) { s += v; c++; }
-                                                });
-                                                return { sum: s, avg: c > 0 ? (s/c).toFixed(1) : '-' };
-                                            };
-                                            const t41 = getColTot('s41'); const t42 = getColTot('s42'); const t51 = getColTot('s51'); const t52 = getColTot('s52'); const t61 = getColTot('s61');
-                                            return (
-                                                <>
-                                                    {academicConfig.subjects.map((sub) => {
-                                                        const g = academicRecord?.rapot?.[sub.id] || {};
-                                                        return (
-                                                            <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
-                                                                <td className="p-2 border-b border-r border-border font-bold text-slate-700">{sub.name}</td>
-                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s41 || '-'}</td>
-                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{g.s42 || '-'}</td>
-                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s51 || '-'}</td>
-                                                                <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{g.s52 || '-'}</td>
-                                                                <td className="p-2 border-b border-border text-center font-mono font-black text-amber-600">{g.s61 || '-'}</td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                    <tr className="bg-slate-50/80 hover:bg-slate-50 transition-colors border-t-2 border-slate-200">
-                                                        <td className="p-2 border-b border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Jumlah</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{t41.sum || '-'}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-600">{t42.sum || '-'}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{t51.sum || '-'}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-600">{t52.sum || '-'}</td>
-                                                        <td className="p-2 border-b border-border text-center font-mono font-black text-amber-600">{t61.sum || '-'}</td>
+                                        {(academicRecord?.rapot || []).length === 0 ? (
+                                            <tr><td colSpan={3} className="py-6 text-center text-slate-400 italic">Belum ada data rapot.</td></tr>
+                                        ) : (
+                                            (academicRecord?.rapot || []).map((r: any, idx: number) => {
+                                                const pKey = `${activeRapotSem}_p`;
+                                                const kKey = `${activeRapotSem}_k`;
+                                                return (
+                                                    <tr key={idx} className="border-t border-border/60">
+                                                        <td className="py-2 pr-3 font-bold whitespace-nowrap">{r.subject || '-'}</td>
+                                                        <td className="py-2 px-2 text-center font-mono">{r[pKey] ?? ''}</td>
+                                                        <td className="py-2 px-2 text-center font-mono">{r[kKey] ?? ''}</td>
                                                     </tr>
-                                                    <tr className="bg-slate-100/50 hover:bg-slate-100 transition-colors border-t border-slate-200">
-                                                        <td className="p-2 border-b border-r border-border font-black text-right text-[10px] uppercase tracking-widest text-slate-500">Rata-Rata</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-800">{t41.avg}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-blue-800">{t42.avg}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-800">{t51.avg}</td>
-                                                        <td className="p-2 border-b border-r border-border text-center font-mono font-black text-emerald-800">{t52.avg}</td>
-                                                        <td className="p-2 border-b border-border text-center font-mono font-black text-amber-800">{t61.avg}</td>
-                                                    </tr>
-                                                </>
-                                            );
-                                        })()}
+                                                );
+                                            })
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -9004,26 +8780,24 @@ function StudentDashboardView({
                         <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-100 space-y-2">
                             <div className="flex items-center justify-between">
                                 <div className="text-[10px] font-black uppercase text-amber-700 tracking-widest">Nilai Ijazah</div>
-                                <div className="text-[10px] text-amber-700 font-bold">{ijazahConfig.subjects.length} mapel</div>
+                                <div className="text-[10px] text-amber-700 font-bold">{(academicRecord?.ijazah || []).length} mapel</div>
                             </div>
-                            {ijazahConfig.subjects.length === 0 ? (
-                                <div className="text-xs text-slate-400 italic text-center py-3">Belum ada konfigurasi mapel ijazah.</div>
+                            {(academicRecord?.ijazah || []).length === 0 ? (
+                                <div className="text-xs text-slate-400 italic text-center py-3">Belum ada data ijazah.</div>
                             ) : (
                                 <div className="space-y-2">
-                                    {ijazahConfig.subjects.slice(0, 10).map((sub, i) => {
-                                        const iz = academicRecord?.ijazah?.[sub.id] || { grade_p: '', grade_k: '' };
-                                        return (
-                                            <div key={sub.id} className="flex justify-between items-center bg-white rounded-xl p-3 border border-amber-100 shadow-sm">
-                                                <div className="text-xs font-bold text-slate-700 truncate pr-2">{sub.name}</div>
-                                                <div className="flex gap-1 shrink-0">
-                                                    <span className="w-10 text-center font-mono text-xs font-black text-blue-700 bg-blue-50 py-1 rounded border border-blue-100">{iz.grade_p || '-'}</span>
-                                                    <span className="w-10 text-center font-mono text-xs font-black text-emerald-700 bg-emerald-50 py-1 rounded border border-emerald-100">{iz.grade_k || '-'}</span>
-                                                </div>
+                                    {(academicRecord?.ijazah || []).slice(0, 8).map((iz: any, i: number) => (
+                                        <div key={i} className="flex justify-between items-center bg-white rounded-xl p-3 border border-amber-100">
+                                            <div className="text-xs font-bold truncate">{iz.subject || '-'}</div>
+                                            <div className="font-mono text-xs text-right">
+                                                <span className="font-black text-amber-800">{iz.grade_p ?? ''}</span>
+                                                <span className="text-amber-400 mx-1">/</span>
+                                                <span className="font-black text-amber-800">{iz.grade_k ?? ''}</span>
                                             </div>
-                                        );
-                                    })}
-                                    {ijazahConfig.subjects.length > 10 && (
-                                        <div className="text-[10px] text-amber-700 text-center italic font-bold uppercase tracking-widest pt-1">+{ijazahConfig.subjects.length - 10} mapel lainnya</div>
+                                        </div>
+                                    ))}
+                                    {(academicRecord?.ijazah || []).length > 8 && (
+                                        <div className="text-[10px] text-amber-700 text-center italic">+{(academicRecord?.ijazah || []).length - 8} mapel lainnya</div>
                                     )}
                                 </div>
                             )}
@@ -9063,7 +8837,7 @@ function StudentDashboardView({
                 <div className="card space-y-4">
                     <div className="flex items-center gap-2 text-emerald-700">
                         <Wallet size={18} />
-                        <h3 className="font-black text-sm uppercase tracking-tight">Rekap Keuangan</h3>
+                        <h3 className="font-black text-sm uppercase tracking-tight">Keuangan Siswa</h3>
                     </div>
 
                     {displaySettings.showSavings && (
@@ -9096,7 +8870,12 @@ function StudentDashboardView({
                         <div className="p-4 bg-blue-50/40 rounded-2xl border border-blue-100 space-y-3">
                             <div className="flex justify-between items-center">
                                 <div className="text-[10px] font-black uppercase text-blue-700 tracking-widest">Rekap Pembayaran</div>
-                                <div className="text-sm font-black text-blue-700">{formatCurrency(myPayments.reduce((acc, p) => acc + (Number(p.amountPaid) || 0), 0))}</div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => setShowPrintBill(true)} className="no-print px-2.5 py-1.5 rounded-lg bg-slate-900 text-yellow-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 hover:bg-slate-950">
+                                        <Printer size={14} /> Cetak
+                                    </button>
+                                    <div className="text-sm font-black text-blue-700">{formatCurrency(myPayments.reduce((acc, p) => acc + (Number(p.amountPaid) || 0), 0))}</div>
+                                </div>
                             </div>
 
                             <div className="overflow-x-auto">
@@ -9151,15 +8930,29 @@ function StudentDashboardView({
                             )}
 
                             <div className="pt-2 border-t border-blue-100 space-y-2">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Gemari & Infaq ({monthStr})</div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    <div className="bg-white rounded-xl p-3 border border-blue-100 flex justify-between items-center">
-                                        <div className="text-xs font-black text-slate-700">Gemari</div>
-                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency(gemari.kurang)}</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-blue-600">Tagihan Tambahan (Gemari &amp; Infaq) ({monthStr})</div>
+                                <div className="bg-white rounded-xl p-3 border border-blue-100 space-y-2">
+                                    <div className="flex justify-between items-start gap-4">
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-black text-slate-700">Kekurangan Gemari &amp; Infaq</div>
+                                            <div className="text-[10px] text-slate-400">Gemari: target {gemari.targetDays} hari{gemari.bebasDays ? ` (bebas ${gemari.bebasDays})` : ''} • dibayar {formatCurrency(gemari.paid)}</div>
+                                            <div className="text-[10px] text-slate-400">Infaq: target {infaq.targetDays} Jumat{infaq.bebasDays ? ` (bebas ${infaq.bebasDays})` : ''} • dibayar {formatCurrency(infaq.paid)}</div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-[10px] text-slate-400">Kurang</div>
+                                            <div className="text-xs font-black font-mono text-red-600">{formatCurrency(Number(gemariInfaqCombined) || 0)}</div>
+                                        </div>
                                     </div>
-                                    <div className="bg-white rounded-xl p-3 border border-blue-100 flex justify-between items-center">
-                                        <div className="text-xs font-black text-slate-700">Infaq Jumat</div>
-                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency(infaq.kurang)}</div>
+
+                                    {gemariInfaqNote && (
+                                        <div className="text-[10px] font-bold text-slate-600 bg-slate-50 border border-border rounded-lg px-2.5 py-2">
+                                            {gemariInfaqNote}
+                                        </div>
+                                    )}
+
+                                    <div className="flex justify-between items-center pt-2 border-t border-border">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Tagihan Tambahan</div>
+                                        <div className="text-xs font-black font-mono text-red-600">{formatCurrency((Number(gemariInfaqCombined) || 0) + (Number(extraBillsTotal) || 0))}</div>
                                     </div>
                                 </div>
                             </div>
@@ -9203,7 +8996,7 @@ function StudentDashboardView({
 }
 
 function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, onSettingsSaved: () => void }) {
-    const [formData, setFormData] = useState<AppSettings>(withDefaultFeatures(settings));
+    const [formData, setFormData] = useState<AppSettings>(settings);
     const [saving, setSaving] = useState(false);
 
     const colors = [
@@ -9228,8 +9021,7 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
         setFormData({
             ...formData,
             features: {
-                ...DEFAULT_APP_FEATURES,
-                ...(formData.features || {}),
+                ...(formData.features || { enableSavings: true, enableClassCash: true, enableAcademic: true, enablePayments: true, enableAttendance: true }),
                 [feature]: !(formData.features?.[feature] ?? true)
             }
         });
@@ -9333,8 +9125,7 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
                                 { key: 'enableAttendance', label: 'Modul Presensi', icon: <CalendarCheck size={16} /> },
                                 { key: 'enablePayments', label: 'Manajemen Pembayaran', icon: <CreditCard size={16} /> },
                                 { key: 'enableSavings', label: 'Tabungan Siswa', icon: <Wallet size={16} /> },
-                                { key: 'enableClassCash', label: 'GEMARI', icon: <Coins size={16} /> },
-                                { key: 'enableInfaq', label: 'INFAQ Jumat', icon: <Sparkles size={16} /> },
+                                { key: 'enableClassCash', label: 'KAS & Infaq Kelas', icon: <Coins size={16} /> },
                                 { key: 'enableAcademic', label: 'Akademik & Ijazah', icon: <FileSpreadsheet size={16} /> },
                             ].map(feature => (
                                 <div key={feature.key} className="flex items-center justify-between p-3 border border-border rounded-xl bg-slate-50/50">
@@ -9364,8 +9155,6 @@ function SettingsView({ settings, onSettingsSaved }: { settings: AppSettings, on
                                 { key: 'showGrades', label: 'Tampilkan Nilai', icon: <Grid size={16} /> },
                                 { key: 'showAttendance', label: 'Tampilkan Presensi', icon: <CalendarCheck size={16} /> },
                                 { key: 'showPayments', label: 'Tampilkan Pembayaran', icon: <CreditCard size={16} /> },
-                                { key: 'showSavings', label: 'Tampilkan Tabungan', icon: <Wallet size={16} /> },
-                                { key: 'showClassCash', label: 'Tampilkan GEMARI', icon: <Coins size={16} /> },
                             ].map(item => (
                                 <div key={item.key} className="flex items-center justify-between p-3 border border-border rounded-xl bg-amber-50/20">
                                     <div className="flex items-center gap-2">

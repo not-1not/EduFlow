@@ -283,6 +283,7 @@ export type View =
      | 'savings'
      | 'gemari'
      | 'infaqJumat'
+     | 'class-cash'
      | 'academic'
      | 'users';
 

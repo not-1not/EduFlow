@@ -45,9 +45,34 @@
         }
       },
       "files": {}
+    },
+    "api": {
+      "name": "api",
+      "isOrdered": true,
+      "folders": {},
+      "files": {}
+    },
+    "docs": {
+      "name": "docs",
+      "isOrdered": true,
+      "folders": {},
+      "files": {}
+    },
+    "google-apps-script": {
+      "name": "google-apps-script",
+      "isOrdered": true,
+      "folders": {},
+      "files": {}
+    },
+    "scripts": {
+      "name": "scripts",
+      "isOrdered": true,
+      "folders": {},
+      "files": {}
     }
   },
   "files": {
-    "README": 0
+    "README": 0,
+    "task_progress": 1
   }
 }
