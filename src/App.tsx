@@ -4218,6 +4218,9 @@ function PaymentsView({
 }) {
     const [activeTab, setActiveTab] = useState<'history' | 'setup' | 'recap' | 'deposits'>('history');
     const [showAddPayment, setShowAddPayment] = useState(false);
+    const [paymentMode, setPaymentMode] = useState<'satuan' | 'kolektif'>('satuan');
+    const [addPaymentClassId, setAddPaymentClassId] = useState('');
+    const [selectedFeeItemIds, setSelectedFeeItemIds] = useState<Record<string, boolean>>({});
     const [showAddItem, setShowAddItem] = useState(false);
     const [showAddDeposit, setShowAddDeposit] = useState(false);
     const [selectedClassId, setSelectedClassId] = useState('');
@@ -4302,24 +4305,52 @@ function PaymentsView({
     }, [showPrintBill]);
 
     const handleAddPayment = async () => {
-        if (!newPayment.studentId) return alert('Pilih siswa terlebih dahulu');
+        // Validate selection depending on mode
+        if (paymentMode === 'satuan') {
+            if (!newPayment.studentId) return alert('Pilih siswa terlebih dahulu');
 
-        const entries = feeItems
-            .map(item => ({
-                studentId: newPayment.studentId,
-                feeItemId: item.id,
-                amountPaid: Number(paymentItemAmounts[item.id] || 0),
-                paymentDate: newPayment.paymentDate,
-                paymentMethod: newPayment.paymentMethod,
-                notes: newPayment.notes,
-                isDeposit: false
-            }))
-            .filter(entry => entry.amountPaid > 0);
+            const entries = feeItems
+                .filter(item => selectedFeeItemIds[item.id])
+                .map(item => ({
+                    studentId: newPayment.studentId,
+                    feeItemId: item.id,
+                    amountPaid: Number(paymentItemAmounts[item.id] || 0),
+                    paymentDate: newPayment.paymentDate,
+                    paymentMethod: newPayment.paymentMethod,
+                    notes: newPayment.notes,
+                    isDeposit: false
+                }))
+                .filter(entry => entry.amountPaid > 0);
 
-        if (entries.length === 0) return alert('Isi minimal satu nominal pembayaran di atas 0');
+            if (entries.length === 0) return alert('Isi minimal satu nominal pembayaran di atas 0');
 
-        for (const entry of entries) {
-            await addDoc(collection(db, 'studentPayments'), entry);
+            for (const entry of entries) {
+                await addDoc(collection(db, 'studentPayments'), entry);
+            }
+        } else {
+            // kolektif: must select class
+            if (!addPaymentClassId) return alert('Pilih kelas untuk pembayaran kolektif');
+            const targetStudents = students.filter(s => String(s.classId || '') === String(addPaymentClassId));
+            if (targetStudents.length === 0) return alert('Tidak ada siswa di kelas yang dipilih');
+
+            const itemsToPay = feeItems.filter(item => selectedFeeItemIds[item.id]);
+            if (itemsToPay.length === 0) return alert('Pilih minimal satu item untuk pembayaran kolektif');
+
+            for (const stu of targetStudents) {
+                const entries = itemsToPay.map(item => ({
+                    studentId: stu.id,
+                    feeItemId: item.id,
+                    amountPaid: Number(paymentItemAmounts[item.id] || 0),
+                    paymentDate: newPayment.paymentDate,
+                    paymentMethod: newPayment.paymentMethod,
+                    notes: newPayment.notes,
+                    isDeposit: false
+                })).filter(e => e.amountPaid > 0);
+
+                for (const entry of entries) {
+                    await addDoc(collection(db, 'studentPayments'), entry);
+                }
+            }
         }
 
         setShowAddPayment(false);
@@ -4332,6 +4363,9 @@ function PaymentsView({
             isDeposit: false
         });
         setPaymentItemAmounts({});
+        setSelectedFeeItemIds({});
+        setPaymentMode('satuan');
+        setAddPaymentClassId('');
         onRefresh();
     };
 
@@ -4342,6 +4376,12 @@ function PaymentsView({
         }, {} as Record<string, number>);
 
         setPaymentItemAmounts(defaultAmounts);
+        // default select all fee items when opening
+        const defaultSelected: Record<string, boolean> = {};
+        feeItems.forEach(i => { defaultSelected[i.id] = true; });
+        setSelectedFeeItemIds(defaultSelected);
+        setPaymentMode('satuan');
+        setAddPaymentClassId('');
         setNewPayment(prev => ({
             ...prev,
             studentId,
@@ -5096,18 +5136,52 @@ function PaymentsView({
                             <button onClick={() => setShowAddPayment(false)} aria-label="Tutup form pembayaran"><X size={20} /></button>
                         </div>
                         <div className="space-y-4">
-                            {!newPayment.studentId && (
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Pilih Siswa</label>
-                                    <select
-                                        className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
-                                        value={newPayment.studentId}
-                                        onChange={e => setNewPayment({ ...newPayment, studentId: e.target.value })}
-                                    >
-                                        <option value="">Pilih Siswa</option>
-                                        {sortStudentsForSelect(students).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
+                            <div className="grid grid-cols-1 gap-3">
+                                <div className="flex items-center gap-4">
+                                    <label className="text-[10px] font-bold uppercase text-text-secondary">Tipe Pembayaran</label>
+                                    <div className="flex items-center gap-2">
+                                        <label className={`px-3 py-1 rounded-lg border ${paymentMode === 'satuan' ? 'bg-accent/10 border-accent' : 'bg-white'}`}>
+                                            <input type="radio" name="paymentMode" checked={paymentMode === 'satuan'} onChange={() => setPaymentMode('satuan')} />{' '}
+                                            Satuan
+                                        </label>
+                                        <label className={`px-3 py-1 rounded-lg border ${paymentMode === 'kolektif' ? 'bg-accent/10 border-accent' : 'bg-white'}`}>
+                                            <input type="radio" name="paymentMode" checked={paymentMode === 'kolektif'} onChange={() => setPaymentMode('kolektif')} />{' '}
+                                            Kolektif
+                                        </label>
+                                    </div>
                                 </div>
+
+                                {paymentMode === 'satuan' && !newPayment.studentId && (
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold uppercase text-text-secondary">Pilih Siswa</label>
+                                        <select
+                                            className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
+                                            value={newPayment.studentId}
+                                            onChange={e => setNewPayment({ ...newPayment, studentId: e.target.value })}
+                                        >
+                                            <option value="">Pilih Siswa</option>
+                                            {sortStudentsForSelect(students).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {paymentMode === 'kolektif' && (
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold uppercase text-text-secondary">Pilih Kelas (Kolektif)</label>
+                                        <select
+                                            className="w-full bg-slate-50 border border-border rounded-lg p-3 outline-none focus:border-accent"
+                                            value={addPaymentClassId}
+                                            onChange={e => setAddPaymentClassId(e.target.value)}
+                                        >
+                                            <option value="">Pilih Kelas</option>
+                                            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {!newPayment.studentId && paymentMode === 'satuan' && (
+                                null
                             )}
                             <div className="space-y-1">
                                 <label className="text-[10px] font-bold uppercase text-text-secondary">Tanggal Bayar</label>
@@ -5131,13 +5205,21 @@ function PaymentsView({
                                 </select>
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold uppercase text-text-secondary">Nominal per Item (Bisa Diedit)</label>
+                                <label className="text-[10px] font-bold uppercase text-text-secondary">Pilih Item & Nominal (Bisa Diedit)</label>
                                 <div className="max-h-64 overflow-y-auto border border-border rounded-xl divide-y divide-border">
                                     {feeItems.map(item => (
                                         <div key={item.id} className="p-3 flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-bold leading-tight">{item.name}</p>
-                                                <p className="text-[10px] uppercase text-text-secondary font-bold tracking-wider">{item.category}</p>
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!selectedFeeItemIds[item.id]}
+                                                    onChange={e => setSelectedFeeItemIds(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                                                    aria-label={`Pilih item ${item.name}`}
+                                                />
+                                                <div>
+                                                    <p className="text-sm font-bold leading-tight">{item.name}</p>
+                                                    <p className="text-[10px] uppercase text-text-secondary font-bold tracking-wider">{item.category}</p>
+                                                </div>
                                             </div>
                                             <input
                                                 type="number"
