@@ -676,8 +676,7 @@ function MainContent({ user, role, studentId, logout }: { user: any, role: any, 
                         <X size={20} />
                     </button>
                 </div>
-
-                <nav className="flex flex-col gap-1 px-3 flex-1 scrollbar-hide overflow-y-auto">
+                    <nav className="flex flex-col gap-1 px-3 flex-1 scrollbar-hide overflow-y-auto">
                     {!isSidebarCollapsed && <div className="px-4 pt-4 pb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Menu Utama</div>}
                     <NavItem
                         icon={<LayoutDashboard size={20} />}
@@ -4292,8 +4291,7 @@ function PaymentsView({
 
     useEffect(() => {
         if (initialStudentId) {
-            setDetailStudentId(initialStudentId);
-            setNewPayment(prev => ({ ...prev, studentId: initialStudentId }));
+            openAddPaymentModal(initialStudentId);
         }
     }, [initialStudentId]);
 
@@ -4375,11 +4373,15 @@ function PaymentsView({
         onRefresh();
     };
 
-    const handleDeleteStudent = async (studentId: string) => {
+    const handleDeleteStudentPaymentData = async (studentId: string) => {
         const s = students.find(st => st.id === studentId);
-        const ok = window.confirm(`Hapus data siswa ini?\n\nSiswa: ${s?.name || '-'}\nAksi ini tidak dapat dibatalkan.`);
+        const paymentsSnapshot = await getDocs(query(collection(db, 'studentPayments'), where('studentId', '==', studentId)));
+        if (paymentsSnapshot.docs.length === 0) {
+            return alert('Tidak ada data pembayaran untuk siswa ini.');
+        }
+        const ok = window.confirm(`Hapus semua data pembayaran siswa ini?\n\nSiswa: ${s?.name || '-'}\nAksi ini tidak dapat dibatalkan.`);
         if (!ok) return;
-        await deleteDoc(doc(db, 'students', studentId));
+        await Promise.all(paymentsSnapshot.docs.map(docSnap => deleteDoc(doc(db, 'studentPayments', docSnap.id))));
         onRefresh();
     };
 
@@ -4755,9 +4757,9 @@ function PaymentsView({
                                         <td className="font-mono text-xs">{p.paymentDate}</td>
                                         <td>
                                             <button
-                                                onClick={() => setDetailStudentId(p.studentId)}
-                                                className="text-left group"
-                                            >
+                                                    onClick={() => openAddPaymentModal(p.studentId)}
+                                                    className="text-left group"
+                                                >
                                                 <div className="font-bold group-hover:text-accent transition-all leading-tight">{s?.name}</div>
                                                 <div className="text-[9px] text-text-secondary uppercase font-bold tracking-tighter">KLAS: {classes.find(c => c.id === s?.classId)?.name}</div>
                                             </button>
@@ -4870,14 +4872,14 @@ function PaymentsView({
                                                 <td className="no-print">
                                                     <div className="flex gap-2">
                                                         <button
-                                                            onClick={() => setDetailStudentId(s.id)}
+                                                            onClick={() => openAddPaymentModal(s.id)}
                                                             className="p-1.5 hover:bg-accent/10 text-accent rounded transition-all"
                                                             title="Edit"
                                                         >
                                                             <Edit size={14} />
                                                         </button>
                                                         <button
-                                                            onClick={() => handleDeleteStudent(s.id)}
+                                                            onClick={() => handleDeleteStudentPaymentData(s.id)}
                                                             className="p-1.5 hover:bg-red-500/10 text-red-600 rounded transition-all"
                                                             title="Hapus"
                                                         >
@@ -5011,333 +5013,8 @@ function PaymentsView({
                 </div>
             )}
 
-            {/* Student Detail Side Overlay */}
-            <AnimatePresence>
-                {detailStudentId && (
-                    <>
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
-                            className="fixed inset-0 bg-slate-900/40 z-[60] backdrop-blur-sm"
-                        />
-                        <motion.div
-                            initial={{ x: '100%' }}
-                            animate={{ x: 0 }}
-                            exit={{ x: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                            className="fixed top-0 right-0 h-full w-full max-w-xl bg-bg z-[70] shadow-2xl flex flex-col"
-                        >
-                            <div className="p-6 border-b border-border bg-white flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                    <img
-                                        src={sdn3PurwosariLogo}
-                                        alt="Logo SDN 3 Purwosari"
-                                        className="w-10 h-10 object-contain"
-                                    />
-                                    <div className="w-10 h-10 bg-slate-900 text-yellow-400 rounded-full flex items-center justify-center font-black">
-                                        {detailStudent?.name?.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-lg">{detailStudent?.name}</h3>
-                                        <p className="text-[10px] font-bold text-text-secondary uppercase">Rekapitulasi Pembayaran Personal</p>
-                                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-[10px] font-bold text-slate-500">
-                                            <span>Kelas: {detailClass?.name || '-'}</span>
-                                            <span>Wali: {detailClass?.homeroomTeacher || detailClass?.teacher || '-'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 no-print">
-                                    <button
-                                        onClick={() => setShowPrintBill(true)}
-                                        className="btn-small !bg-slate-900 !text-yellow-400 flex items-center gap-2"
-                                        title="Cetak kartu tagihan"
-                                    >
-                                        <Printer size={14} /> Cetak
-                                    </button>
-                                    <button
-                                        onClick={() => { setDetailStudentId(null); onCloseDetail?.(); }}
-                                        className="p-2 hover:bg-slate-100 rounded-lg"
-                                        title="Tutup"
-                                    >
-                                        <X size={20} />
-                                    </button>
-                                </div>
-                            </div>
+            {/* Student detail panel removed — per-student recap moved to admin add/edit flows */}
 
-                            <div className="flex-1 overflow-y-auto p-6">
-                                <div className="relative">
-                                    {isDetailLunas && (
-                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center select-none">
-                                            <div className="text-[72px] font-black tracking-[0.25em] text-emerald-600/10 rotate-[-20deg]">
-                                                LUNAS
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="relative z-10 space-y-8">
-                                        {/* Summary Section */}
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="p-4 bg-white rounded-2xl border border-border">
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Terbayar</p>
-                                                <p className="text-xl font-black text-accent">
-                                                    {formatCurrency(detailPaidAmount)}
-                                                </p>
-                                            </div>
-                                            <div className="p-4 bg-white rounded-2xl border border-border">
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status Tunggakan</p>
-                                                <p className={`text-xl font-black ${isDetailLunas ? 'text-success' : 'text-red-500'}`}>
-                                                    {isDetailLunas ? 'LUNAS' : formatCurrency(Math.abs(detailBalance))}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* Tagihan Tambahan */}
-                                        {(() => {
-                                            const st = detailStudent;
-                                            if (!st) return null;
-
-                                            const months = listMonthsBetweenInclusive(GEMARI_INFAQ_ACADEMIC_START_MONTH, GEMARI_INFAQ_ACADEMIC_END_MONTH);
-                                            const periodLabel = 'Januari 2026 - Juni 2026';
-
-                                            const classId = String((st as any)?.classId || '');
-                                            const calc = (type: 'gemari' | 'infaq') => {
-                                                const nominal = getCashNominal(type);
-                                                const targetDays = months.reduce((acc, m) => acc + countTargetDays(type, m), 0);
-                                                const target = targetDays * nominal;
-
-                                                const rangeTx = classCash
-                                                    .filter(t => t.type === type && String((t as any)?.classId || '') === classId)
-                                                    .filter(t => isDateInGemariInfaqRange(t.date || ''));
-
-                                                const bebasDates = new Set(rangeTx.filter(t => t.amount === 0).map(t => t.date));
-                                                const targetReal = Math.max(0, target - (bebasDates.size * nominal));
-
-                                                const paid = rangeTx
-                                                    .filter(t => String((t as any)?.studentId || '') === String(detailStudentId))
-                                                    .filter(t => (t as any).transactionType ? (t as any).transactionType === 'deposit' : true)
-                                                    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-
-                                                const kurang = Math.max(0, targetReal - paid);
-                                                return { nominal, targetDays, bebasDays: bebasDates.size, targetReal, paid, kurang };
-                                            };
-
-                                            const gemari = calc('gemari');
-                                            const infaq = calc('infaq');
-                                            const otherTotal = (extraBills || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-                                            const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
-                                            const combined = (gemariInfaqManualAmount === '' ? autoCombined : (Number(gemariInfaqManualAmount) || 0));
-                                            const totalAdditional = (hideAdditionalBills ? otherTotal : (combined + otherTotal));
-
-                                            return (
-                                                <div className="space-y-4">
-                                                    <div className="flex items-end justify-between gap-4">
-                                                        <div>
-                                                            <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Tagihan Tambahan</h4>
-                                                            <p className="text-[10px] text-slate-400 italic pl-1">Rekap Gemari & Infaq Tahun Ajaran ({periodLabel})</p>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                onClick={() => setHideAdditionalBills(v => !v)}
-                                                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600"
-                                                                aria-label={hideAdditionalBills ? 'Tampilkan tagihan tambahan' : 'Sembunyikan tagihan tambahan'}
-                                                                title={hideAdditionalBills ? 'Tampilkan' : 'Sembunyikan'}
-                                                            >
-                                                                {hideAdditionalBills ? 'Show' : 'Hide'}
-                                                            </button>
-                                                            <button onClick={addExtraBill} className="btn-small">+ Lain-lain</button>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="p-4 bg-white rounded-2xl border border-border space-y-3">
-                                                        {hideAdditionalBills ? (
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Tagihan Tambahan (Hide)</div>
-                                                                <div className="text-right">
-                                                                    <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                                    <div className="text-[10px] text-slate-400">Gemari &amp; Infaq tidak dihitung saat Hide</div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            (() => {
-                                                                const autoCombined = (Number(gemari.kurang) || 0) + (Number(infaq.kurang) || 0);
-                                                                const manual = gemariInfaqManualAmount === '' ? null : (Number(gemariInfaqManualAmount) || 0);
-                                                                const combined = manual === null ? autoCombined : manual;
-                                                                const note = (gemariInfaqManualNote || '').trim();
-
-                                                                return (
-                                                                    <>
-                                                                        <div className="flex justify-between items-start gap-4">
-                                                                            <div className="min-w-0">
-                                                                                <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Kekurangan Gemari &amp; Infaq</div>
-                                                                                <div className="text-[10px] text-slate-400">
-                                                                                    Gemari: {gemari.targetDays} hari × {formatCurrency(gemari.nominal)}{gemari.bebasDays ? ` (- bebas setor ${gemari.bebasDays} hari)` : ''}
-                                                                                </div>
-                                                                                <div className="text-[10px] text-slate-400">
-                                                                                    Infaq: {infaq.targetDays} Jumat × {formatCurrency(infaq.nominal)}{infaq.bebasDays ? ` (- bebas setor ${infaq.bebasDays} Jumat)` : ''}
-                                                                                </div>
-                                                                                {note && (
-                                                                                    <div className="mt-2 text-[10px] font-bold text-slate-600 bg-slate-50 border border-border rounded-lg px-2.5 py-2">
-                                                                                        {note}
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="text-right">
-                                                                                <div className="text-xs font-black text-red-500">{formatCurrency(combined)}</div>
-                                                                                <div className="text-[10px] text-slate-400">Setor (Jan 2026-Jun 2026): {formatCurrency((Number(gemari.paid) || 0) + (Number(infaq.paid) || 0))}</div>
-                                                                            </div>
-                                                                        </div>
-
-                                                                        <div className="no-print pt-2 border-t border-border space-y-2">
-                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
-                                                                                <div className="sm:col-span-1">
-                                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Override Nominal</div>
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        min={0}
-                                                                                        className="w-full bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
-                                                                                        value={gemariInfaqManualAmount}
-                                                                                        onChange={(e) => setGemariInfaqManualAmount(e.target.value === '' ? '' : (Number(e.target.value) || 0))}
-                                                                                        placeholder="Kosongkan = otomatis"
-                                                                                    />
-                                                                                </div>
-                                                                                <div className="sm:col-span-2">
-                                                                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Catatan (Opsional)</div>
-                                                                                    <input
-                                                                                        className="w-full bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
-                                                                                        value={gemariInfaqManualNote}
-                                                                                        onChange={(e) => setGemariInfaqManualNote(e.target.value)}
-                                                                                        placeholder="Tambahan informasi untuk kartu tagihan"
-                                                                                    />
-                                                                                </div>
-                                                                            </div>
-                                                                            <button
-                                                                                onClick={saveGemariInfaqManual}
-                                                                                disabled={savingGemariInfaqManual}
-                                                                                className="w-full px-3 py-2 rounded-xl bg-slate-900 text-yellow-400 font-black uppercase tracking-widest text-[10px] disabled:opacity-50"
-                                                                            >
-                                                                                {savingGemariInfaqManual ? 'Menyimpan...' : 'Simpan Kekurangan Gemari & Infaq'}
-                                                                            </button>
-                                                                        </div>
-                                                                    </>
-                                                                );
-                                                            })()
-                                                        )}
-
-                                                        <div className="pt-2 border-t border-border space-y-2">
-                                                            {(extraBills || []).length === 0 ? (
-                                                                <div className="text-[10px] text-slate-400 italic">Belum ada tagihan lain-lain.</div>
-                                                            ) : (
-                                                                (extraBills || []).map(b => (
-                                                                    <div key={b.id} className="flex gap-2 items-center">
-                                                                        <input
-                                                                            className="flex-1 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent"
-                                                                            value={b.label}
-                                                                            onChange={(e) => updateExtraBill(b.id, { label: e.target.value })}
-                                                                            placeholder="Nama tagihan lain-lain"
-                                                                        />
-                                                                        <input
-                                                                            type="number"
-                                                                            className="w-32 bg-slate-50 border border-border rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-accent text-right"
-                                                                            value={Number(b.amount) || 0}
-                                                                            onChange={(e) => updateExtraBill(b.id, { amount: Number(e.target.value) || 0 })}
-                                                                            min={0}
-                                                                        />
-                                                                        <button
-                                                                            onClick={() => removeExtraBill(b.id)}
-                                                                            className="p-2 hover:bg-red-50 text-red-600 rounded-lg"
-                                                                            title="Hapus tagihan lain-lain"
-                                                                            aria-label="Hapus tagihan lain-lain"
-                                                                        >
-                                                                            <Trash2 size={16} />
-                                                                        </button>
-                                                                    </div>
-                                                                ))
-                                                            )}
-                                                        </div>
-
-                                                        <div className="pt-3 border-t border-border flex items-center justify-between">
-                                                            <div className="text-xs font-black text-slate-600 uppercase tracking-widest">Total Tagihan Tambahan</div>
-                                                            <div className="text-sm font-black text-red-500">{formatCurrency(totalAdditional)}</div>
-                                                        </div>
-
-                                                        <button
-                                                            onClick={saveExtraBills}
-                                                            disabled={savingExtraBills}
-                                                            className="w-full btn-primary py-3 rounded-xl disabled:opacity-50"
-                                                        >
-                                                            {savingExtraBills ? 'Menyimpan...' : 'Simpan Tagihan Lain-lain'}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-
-                                        {/* Detailed History */}
-                                        <div className="space-y-4">
-                                            <h4 className="text-xs font-bold text-text-secondary uppercase tracking-widest pl-1">Riwayat Transaksi</h4>
-                                            <div className="space-y-3">
-                                                {detailPayments
-                                                    .slice()
-                                                    .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate))
-                                                    .map(p => (
-                                                        <div key={p.id} className="p-4 bg-white rounded-2xl border border-border group hover:border-accent transition-all relative">
-                                                            <div className="flex justify-between items-start">
-                                                                <div>
-                                                                    <p className="text-sm font-bold">{p.isDeposit ? 'Titipan / Deposit' : feeItems.find(i => i.id === p.feeItemId)?.name}</p>
-                                                                    <p className="text-[10px] text-slate-400 font-mono italic">{p.paymentDate} • {p.paymentMethod.toUpperCase()}</p>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <p className="font-black text-accent">{formatCurrency(p.amountPaid)}</p>
-                                                                    <button
-                                                                        onClick={() => setEditingPayment(p)}
-                                                                        className="text-[10px] font-bold text-text-secondary hover:text-accent underline uppercase mt-1 opacity-0 group-hover:opacity-100 transition-all"
-                                                                    >
-                                                                        Koreksi
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleDeletePayment(p)}
-                                                                        className="text-[10px] font-bold text-text-secondary hover:text-red-600 underline uppercase mt-1 ml-3 opacity-0 group-hover:opacity-100 transition-all"
-                                                                    >
-                                                                        Hapus
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                            {p.notes && (
-                                                                <div className="mt-3 p-2 bg-slate-50 rounded-lg text-[10px] font-medium text-slate-600 border border-slate-100">
-                                                                    Note: {p.notes}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ))}
-                                                {detailPayments.length === 0 && (
-                                                    <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-border">
-                                                        <p className="text-xs text-slate-400 italic">Belum ada catatan pembayaran</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="p-6 bg-white border-t border-border">
-                                <button
-                                    onClick={() => {
-                                        openAddPaymentModal(detailStudentId || '');
-                                    }}
-                                    className="w-full btn-primary py-4 rounded-2xl flex items-center justify-center gap-3 font-bold uppercase tracking-widest text-xs"
-                                >
-                                    <Plus size={16} /> Tambah Pembayaran Baru
-                                </button>
-                            </div>
-                        </motion.div>
-                    </>
-                )}
-            </AnimatePresence>
-
-            {/* Edit Payment Modal */}
             {editingPayment && (
                 <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <motion.div
