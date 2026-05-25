@@ -4876,6 +4876,7 @@ function PaymentsView({
                                         <th>SISWA</th>
                                         <th>TOTAL WAJIB</th>
                                         <th>TOTAL BAYAR</th>
+                                        <th>KEKURANGAN</th>
                                         <th>STATUS</th>
                                         <th className="no-print">AKSI</th>
                                     </tr>
@@ -4898,8 +4899,9 @@ function PaymentsView({
                                                         {s.name}
                                                     </button>
                                                 </td>
-                                                <td className="text-xs font-mono">{formatCurrency(totalDue)}</td>
+                                                        <td className="text-xs font-mono">{formatCurrency(totalDue)}</td>
                                                 <td className="text-xs font-mono font-bold text-accent">{formatCurrency(paid)}</td>
+                                                <td className="text-xs font-mono text-red-600 font-bold">{formatCurrency(Math.max(0, totalDue - paid))}</td>
                                                 <td className="flex items-center gap-2">
                                                     {isLunas ? (
                                                         <span className="status-pill">LUNAS</span>
