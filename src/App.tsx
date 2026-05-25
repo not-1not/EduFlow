@@ -4912,9 +4912,9 @@ function PaymentsView({
                                                 <td className="no-print">
                                                     <div className="flex gap-2">
                                                         <button
-                                                            onClick={() => openAddPaymentModal(s.id)}
+                                                            onClick={() => setDetailStudentId(s.id)}
                                                             className="p-1.5 hover:bg-accent/10 text-accent rounded transition-all"
-                                                            title="Edit"
+                                                            title="Lihat & Koreksi Pembayaran"
                                                         >
                                                             <Edit size={14} />
                                                         </button>
@@ -5244,6 +5244,104 @@ function PaymentsView({
                                 />
                             </div>
                             <button onClick={handleAddPayment} className="w-full btn-primary py-4 rounded-xl mt-4 font-bold">Simpan Transaksi</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {detailStudentId && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[95] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-6 max-w-5xl w-full shadow-2xl border border-border overflow-hidden">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+                            <div>
+                                <h3 className="text-xl font-bold">Detail Pembayaran Siswa</h3>
+                                <p className="text-sm text-text-secondary">{detailStudent?.name || '-'} • {detailClass?.name || 'Kelas tidak tersedia'}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setDetailStudentId(null)}
+                                    className="px-4 py-2 border border-border rounded-xl text-sm text-slate-600 hover:bg-slate-50"
+                                >
+                                    Tutup
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        openAddPaymentModal(detailStudentId || '');
+                                        setDetailStudentId(null);
+                                    }}
+                                    className="btn-primary px-4 py-2 rounded-xl text-sm"
+                                >
+                                    Tambah Pembayaran
+                                </button>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                            <div className="p-4 rounded-2xl border border-border bg-slate-50">
+                                <p className="text-[10px] uppercase text-text-secondary font-bold tracking-[0.2em] mb-2">Total Sudah Dibayar</p>
+                                <p className="text-2xl font-black text-accent">{formatCurrency(detailPaidAmount)}</p>
+                            </div>
+                            <div className="p-4 rounded-2xl border border-border bg-slate-50">
+                                <p className="text-[10px] uppercase text-text-secondary font-bold tracking-[0.2em] mb-2">Total Wajib</p>
+                                <p className="text-2xl font-black text-slate-900">{formatCurrency(detailRequiredAmount)}</p>
+                            </div>
+                            <div className="p-4 rounded-2xl border border-border bg-slate-50">
+                                <p className="text-[10px] uppercase text-text-secondary font-bold tracking-[0.2em] mb-2">Status</p>
+                                <p className={`text-2xl font-black ${isDetailLunas ? 'text-success' : 'text-red-600'}`}>{isDetailLunas ? 'LUNAS' : 'MENUNGGAK'}</p>
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto border border-border rounded-2xl">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-100">
+                                    <tr>
+                                        <th className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-text-secondary">Item</th>
+                                        <th className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-text-secondary">Nominal</th>
+                                        <th className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-text-secondary">Tanggal</th>
+                                        <th className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-text-secondary">Metode</th>
+                                        <th className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-text-secondary">Catatan</th>
+                                        <th className="px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-text-secondary">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {detailPayments.length > 0 ? detailPayments
+                                        .slice()
+                                        .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate))
+                                        .map(payment => {
+                                            const item = feeItems.find(i => i.id === payment.feeItemId);
+                                            return (
+                                                <tr key={payment.id} className="border-t border-border hover:bg-slate-50 transition-all">
+                                                    <td className="px-4 py-3 align-top">
+                                                        <div className="font-bold">{payment.isDeposit ? 'Titipan / Deposit' : item?.name || 'Item tidak ditemukan'}</div>
+                                                        <div className="text-[10px] text-text-secondary uppercase">{item?.category || (payment.isDeposit ? 'Titipan' : 'Unknown')}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3 align-top font-black text-accent">{formatCurrency(payment.amountPaid)}</td>
+                                                    <td className="px-4 py-3 align-top font-mono text-xs">{payment.paymentDate}</td>
+                                                    <td className="px-4 py-3 align-top text-xs uppercase text-slate-600">{payment.paymentMethod}</td>
+                                                    <td className="px-4 py-3 align-top text-xs text-text-secondary">{payment.notes || '-'}</td>
+                                                    <td className="px-4 py-3 align-top">
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => setEditingPayment(payment)}
+                                                                className="px-3 py-2 rounded-xl border border-border text-xs font-bold text-accent hover:bg-accent/5"
+                                                            >
+                                                                Koreksi
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeletePayment(payment)}
+                                                                className="px-3 py-2 rounded-xl border border-red-200 text-xs font-bold text-red-600 hover:bg-red-50"
+                                                            >
+                                                                Hapus
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }) : (
+                                            <tr>
+                                                <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">Belum ada transaksi pembayaran untuk siswa ini.</td>
+                                            </tr>
+                                        )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
