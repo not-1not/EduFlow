@@ -4376,10 +4376,8 @@ function PaymentsView({
         }, {} as Record<string, number>);
 
         setPaymentItemAmounts(defaultAmounts);
-        // default select all fee items when opening
-        const defaultSelected: Record<string, boolean> = {};
-        feeItems.forEach(i => { defaultSelected[i.id] = true; });
-        setSelectedFeeItemIds(defaultSelected);
+        // For individual payment, don't preselect items; admin chooses items manually.
+        setSelectedFeeItemIds({});
         setPaymentMode('satuan');
         setAddPaymentClassId('');
         setNewPayment(prev => ({
@@ -4390,6 +4388,15 @@ function PaymentsView({
             notes: ''
         }));
         setShowAddPayment(true);
+    };
+
+    const getItemRemainingForSelectedStudent = (item: FeeItem) => {
+        const studentId = newPayment.studentId;
+        if (!studentId) return item.amount;
+        const paidForItem = payments
+            .filter(p => p.studentId === studentId && p.feeItemId === item.id && !p.isDeposit)
+            .reduce((sum, p) => sum + p.amountPaid, 0);
+        return Math.max(0, item.amount - paidForItem);
     };
 
     const handleUpdatePayment = async () => {
@@ -5208,28 +5215,37 @@ function PaymentsView({
                                 <label className="text-[10px] font-bold uppercase text-text-secondary">Pilih Item & Nominal (Bisa Diedit)</label>
                                 <div className="max-h-64 overflow-y-auto border border-border rounded-xl divide-y divide-border">
                                     {feeItems.map(item => (
-                                        <div key={item.id} className="p-3 flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-3">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={!!selectedFeeItemIds[item.id]}
-                                                    onChange={e => setSelectedFeeItemIds(prev => ({ ...prev, [item.id]: e.target.checked }))}
-                                                    aria-label={`Pilih item ${item.name}`}
-                                                />
-                                                <div>
-                                                    <p className="text-sm font-bold leading-tight">{item.name}</p>
-                                                    <p className="text-[10px] uppercase text-text-secondary font-bold tracking-wider">{item.category}</p>
+                                        <div key={item.id} className="p-3 flex flex-col gap-3 border-b border-border last:border-b-0">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex items-center gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!!selectedFeeItemIds[item.id]}
+                                                        onChange={e => setSelectedFeeItemIds(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                                                        aria-label={`Pilih item ${item.name}`}
+                                                    />
+                                                    <div>
+                                                        <p className="text-sm font-bold leading-tight">{item.name}</p>
+                                                        <p className="text-[10px] uppercase text-text-secondary font-bold tracking-wider">{item.category}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-[10px] text-slate-500">Tagihan: {formatCurrency(item.amount)}</p>
+                                                    <p className="text-[10px] text-slate-500">Kekurangan: {formatCurrency(getItemRemainingForSelectedStudent(item))}</p>
                                                 </div>
                                             </div>
-                                            <input
-                                                type="number"
-                                                className="w-36 bg-slate-50 border border-border rounded-lg p-2 outline-none font-bold text-accent text-right"
-                                                value={paymentItemAmounts[item.id] ?? item.amount}
-                                                onChange={e => setPaymentItemAmounts(prev => ({
-                                                    ...prev,
-                                                    [item.id]: parseInt(e.target.value) || 0
-                                                }))}
-                                            />
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="text-[10px] text-slate-500">Bayar sekarang</div>
+                                                <input
+                                                    type="number"
+                                                    className="w-36 bg-slate-50 border border-border rounded-lg p-2 outline-none font-bold text-accent text-right"
+                                                    value={paymentItemAmounts[item.id] ?? item.amount}
+                                                    onChange={e => setPaymentItemAmounts(prev => ({
+                                                        ...prev,
+                                                        [item.id]: parseInt(e.target.value) || 0
+                                                    }))}
+                                                />
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
