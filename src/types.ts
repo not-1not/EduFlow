@@ -212,16 +212,22 @@ export interface DiplomaSubject {
 
 export interface SemesterGrade {
     subject: string;
-    s41_p: number | string;
-    s41_k: number | string;
-    s42_p: number | string;
-    s42_k: number | string;
-    s51_p: number | string;
-    s51_k: number | string;
-    s52_p: number | string;
-    s52_k: number | string;
-    s61_p: number | string;
-    s61_k: number | string;
+    final: number | string;
+    s41?: number | string;
+    s42?: number | string;
+    s51?: number | string;
+    s52?: number | string;
+    s61?: number | string;
+    s41_p?: number | string;
+    s41_k?: number | string;
+    s42_p?: number | string;
+    s42_k?: number | string;
+    s51_p?: number | string;
+    s51_k?: number | string;
+    s52_p?: number | string;
+    s52_k?: number | string;
+    s61_p?: number | string;
+    s61_k?: number | string;
 }
 
 export interface AcademicRecord {

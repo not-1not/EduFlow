@@ -7226,8 +7226,7 @@ function AcademicView({
         if (!record) return errs;
 
         if ((record.rapot || []).some((r: any) =>
-            // Format baru (5 semester) + backward-compat format lama (P|K)
-            ['s41', 's42', 's51', 's52', 's61', 's41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
+            ['final', 's41', 's42', 's51', 's52', 's61', 's41_p', 's41_k', 's42_p', 's42_k', 's51_p', 's51_k', 's52_p', 's52_k', 's61_p', 's61_k'].some(k =>
                 r[k] !== '' && r[k] !== null && r[k] !== undefined && (Number(r[k]) < 0 || Number(r[k]) > 100)
             )
         )) {
@@ -7263,7 +7262,7 @@ function AcademicView({
         if (record.rapot && record.rapot.length > 0) {
             if (!confirm('Mapel saat ini sudah ada. Terapkan template akan menambahkan mapel default di bawahnya. Lanjutkan?')) return;
         }
-        const templates = DEFAULT_MAPEL.map(m => ({ subject: m, s41: '', s42: '', s51: '', s52: '', s61: '' }));
+        const templates = DEFAULT_MAPEL.map(m => ({ subject: m, final: '' }));
         setRecord({ ...record, rapot: [...(record.rapot || []), ...templates] });
     };
 
@@ -7284,7 +7283,7 @@ function AcademicView({
         // Header format:
         let csv = 'ID Siswa,Nama Siswa,TKA,';
         for (let i = 1; i <= 15; i++) {
-            csv += `Mapel${i},K4S1_${i},K4S2_${i},K5S1_${i},K5S2_${i},K6S1_${i},Jumlah_${i},Rata2_${i},`;
+            csv += `Mapel${i},NilaiAkhir_${i},`;
         }
         csv += 'NumIjazah\n'; // Just an example structure
 
@@ -7295,30 +7294,12 @@ function AcademicView({
             for (let i = 0; i < 15; i++) {
                 if (rec.rapot && rec.rapot[i]) {
                     const r = rec.rapot[i];
-                    const vals = [
-                        r.s41 ?? r.s41_p ?? r.s41_k,
-                        r.s42 ?? r.s42_p ?? r.s42_k,
-                        r.s51 ?? r.s51_p ?? r.s51_k,
-                        r.s52 ?? r.s52_p ?? r.s52_k,
-                        r.s61 ?? r.s61_p ?? r.s61_k,
-                    ];
-                    const nums = vals
-                        .filter((v: any) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
-                        .map((v: any) => Number(v));
-                    const sum = nums.reduce((a: number, b: number) => a + b, 0);
-                    const avg = nums.length > 0 ? (sum / nums.length) : 0;
                     row.push(
                         `"${r.subject}"`,
-                        vals[0] ?? '',
-                        vals[1] ?? '',
-                        vals[2] ?? '',
-                        vals[3] ?? '',
-                        vals[4] ?? '',
-                        nums.length > 0 ? String(sum) : '',
-                        nums.length > 0 ? avg.toFixed(2) : ''
+                        getRapotFinalValue(r) ?? ''
                     );
                 } else {
-                    row.push('', '', '', '', '', '', '', '');
+                    row.push('', '');
                 }
             }
             csv += row.join(',') + '\n';
@@ -7342,6 +7323,7 @@ function AcademicView({
             const lines = text.split('\n');
             const headerLine = (lines[0] || '').replace(/^\uFEFF/, '').trim();
             const isOldFormat = headerLine.includes('K4S1P_1') || headerLine.includes('K4S1K_1');
+            const isFiveSemesterFormat = headerLine.includes('K4S1_1') || headerLine.includes('K4S2_1');
 
             const newRecords = [];
             const existing = await loadAcademicRecords();
@@ -7372,18 +7354,29 @@ function AcademicView({
                                 s61_p: cols[colIdx + 9] || '',
                                 s61_k: cols[colIdx + 10] || ''
                             });
+                        } else if (isFiveSemesterFormat) {
+                            const vals = [
+                                cols[colIdx + 1] || '',
+                                cols[colIdx + 2] || '',
+                                cols[colIdx + 3] || '',
+                                cols[colIdx + 4] || '',
+                                cols[colIdx + 5] || '',
+                            ];
+                            const nums = vals
+                                .filter((v: any) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
+                                .map((v: any) => Number(v));
+                            rapot.push({
+                                subject: cols[colIdx],
+                                final: nums.length > 0 ? (nums.reduce((a: number, b: number) => a + b, 0) / nums.length).toFixed(2) : ''
+                            });
                         } else {
                             rapot.push({
                                 subject: cols[colIdx],
-                                s41: cols[colIdx + 1] || '',
-                                s42: cols[colIdx + 2] || '',
-                                s51: cols[colIdx + 3] || '',
-                                s52: cols[colIdx + 4] || '',
-                                s61: cols[colIdx + 5] || ''
+                                final: cols[colIdx + 1] || ''
                             });
                         }
                     }
-                    colIdx += isOldFormat ? 11 : 8;
+                    colIdx += isOldFormat ? 11 : isFiveSemesterFormat ? 8 : 2;
                 }
 
                 const existingRec = existing.find((r: any) => r.studentId === studentId);
@@ -7410,7 +7403,7 @@ function AcademicView({
     const handleAddMapelRapot = () => {
         setRecord({
             ...record,
-            rapot: [...(record.rapot || []), { subject: '', s41: '', s42: '', s51: '', s52: '', s61: '' }]
+            rapot: [...(record.rapot || []), { subject: '', final: '' }]
         });
     };
 
@@ -7475,19 +7468,23 @@ function AcademicView({
         return null;
     };
 
+    const getRapotFinalValue = (r: any) => {
+        const final = r?.final;
+        if (final !== '' && final !== null && final !== undefined && !isNaN(Number(final))) return Number(final);
+
+        const nums = (['s41', 's42', 's51', 's52', 's61'] as const)
+            .map(k => getRapotSemesterNumber(r, k))
+            .filter((v: any) => v !== null) as number[];
+        if (nums.length === 0) return null;
+        return nums.reduce((a, b) => a + b, 0) / nums.length;
+    };
+
     const getAverageRapot = () => {
         if (!record?.rapot || record.rapot.length === 0) return 0;
-        let total = 0;
-        let count = 0;
-        record.rapot.forEach((r: any) => {
-            (['s41', 's42', 's51', 's52', 's61'] as const).forEach(k => {
-                const v = getRapotSemesterNumber(r, k);
-                if (v === null) return;
-                total += v;
-                count++;
-            });
-        });
-        return count > 0 ? total / count : 0;
+        const nums = record.rapot
+            .map((r: any) => getRapotFinalValue(r))
+            .filter((v: any) => v !== null) as number[];
+        return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
     };
 
     const ijazahTotal = (record?.ijazah || []).reduce((acc: number, ii: any) => {
@@ -7516,7 +7513,7 @@ function AcademicView({
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-2xl font-black tracking-tighter uppercase">Data Akademik & Ijazah</h2>
-                    <p className="text-sm text-text-secondary">Nilai Rapot (5 Semester), Prestasi, dan Ijazah</p>
+                    <p className="text-sm text-text-secondary">Nilai Akhir Rapot, Prestasi, dan Ijazah</p>
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
                     <select
@@ -7576,7 +7573,7 @@ function AcademicView({
                         {/* Nilai Rapot */}
                         <div className="card space-y-4">
                             <div className="flex justify-between items-center bg-blue-50/50 p-4 -mx-6 -mt-6 border-b border-blue-100 mb-4 flex-wrap gap-2">
-                                <h3 className="font-black text-blue-900 flex items-center gap-2"><BookOpen size={18} /> NILAI RAPOT (5 Semester)</h3>
+                                <h3 className="font-black text-blue-900 flex items-center gap-2"><BookOpen size={18} /> NILAI AKHIR RAPOT</h3>
                                 <div className="flex gap-2">
                                     <button onClick={handleApplyTemplate} className="btn-small bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1">
                                         <CheckSquare size={14} /> Terapkan Template Mapel
@@ -7593,44 +7590,20 @@ function AcademicView({
                                     <table className="w-full text-sm data-table">
                                         <thead>
                                             <tr>
-                                                <th rowSpan={2} className="border border-border p-2 min-w-[150px] sticky left-0 bg-slate-50 z-[5]">Mata Pelajaran</th>
-                                                <th colSpan={2} className="border border-border p-2 text-center bg-blue-50/50">Kelas 4</th>
-                                                <th colSpan={2} className="border border-border p-2 text-center bg-emerald-50/50">Kelas 5</th>
-                                                <th colSpan={1} className="border border-border p-2 text-center bg-amber-50/50">Kelas 6</th>
-                                                <th rowSpan={2} className="border border-border p-2 text-center bg-slate-50/50">Jumlah</th>
-                                                <th rowSpan={2} className="border border-border p-2 text-center bg-slate-50/50">Rata-rata</th>
-                                                <th rowSpan={2} className="border border-border p-2 w-16 no-print">Aksi</th>
-                                            </tr>
-                                            <tr>
-                                                {/* K4 */}
-                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
-                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 2</th>
-                                                {/* K5 */}
-                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
-                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 2</th>
-                                                {/* K6 */}
-                                                <th className="border border-border p-1 text-center text-[10px] font-black">SEM 1</th>
+                                                <th className="border border-border p-2 min-w-[150px] sticky left-0 bg-slate-50 z-[5]">Mata Pelajaran</th>
+                                                <th className="border border-border p-2 text-center bg-blue-50/50 w-32">Nilai Akhir</th>
+                                                <th className="border border-border p-2 w-16 no-print">Aksi</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {record.rapot.map((r: any, i: number) => {
-                                                const nums = (['s41', 's42', 's51', 's52', 's61'] as const)
-                                                    .map(k => getRapotSemesterNumber(r, k))
-                                                    .filter((v: any) => v !== null) as number[];
-                                                const sum = nums.reduce((a, b) => a + b, 0);
-                                                const avg = nums.length > 0 ? (sum / nums.length) : 0;
+                                                const finalValue = getRapotFinalValue(r);
                                                 return (
                                                     <tr key={i} className="hover:bg-slate-50/50">
                                                     <td className="p-1 border border-border sticky left-0 bg-white group-hover:bg-slate-50/50 z-[5]">
                                                         <input type="text" className="w-full p-2 outline-none font-bold text-xs" value={r.subject} onChange={e => handleUpdateRapot(i, 'subject', e.target.value)} placeholder="Mapel..." />
                                                     </td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s41 ?? r.s41_p ?? r.s41_k} onChange={(v: any) => handleUpdateRapot(i, 's41', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s42 ?? r.s42_p ?? r.s42_k} onChange={(v: any) => handleUpdateRapot(i, 's42', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s51 ?? r.s51_p ?? r.s51_k} onChange={(v: any) => handleUpdateRapot(i, 's51', v)} /></td>
-                                                    <td className="p-0 border border-border w-12 bg-slate-50/50"><GradeInput value={r.s52 ?? r.s52_p ?? r.s52_k} onChange={(v: any) => handleUpdateRapot(i, 's52', v)} /></td>
-                                                    <td className="p-0 border border-border w-12"><GradeInput value={r.s61 ?? r.s61_p ?? r.s61_k} onChange={(v: any) => handleUpdateRapot(i, 's61', v)} /></td>
-                                                    <td className="p-2 border border-border text-center font-mono text-xs bg-slate-50/30">{nums.length > 0 ? sum : ''}</td>
-                                                    <td className="p-2 border border-border text-center font-mono text-xs bg-slate-50/30">{nums.length > 0 ? avg.toFixed(2) : ''}</td>
+                                                    <td className="p-0 border border-border w-32"><GradeInput value={r.final ?? (finalValue !== null ? finalValue.toFixed(2) : '')} onChange={(v: any) => handleUpdateRapot(i, 'final', v)} /></td>
                                                     <td className="p-1 border border-border text-center no-print">
                                                         <button onClick={() => handleRemoveRapot(i)} className="text-red-400 hover:text-red-600 transition-all"><Trash2 size={14} /></button>
                                                     </td>
@@ -7743,7 +7716,7 @@ function AcademicView({
 
                             <div className="space-y-3 pt-2">
                                 <div className="flex items-center justify-between">
-                                    <p className="text-sm font-bold text-slate-700">Rata-rata Rapot (5 Sem)</p>
+                                    <p className="text-sm font-bold text-slate-700">Rata-rata Nilai Akhir Rapot</p>
                                     <p className="font-mono font-black text-slate-900">{avgRapot.toFixed(2)}</p>
                                 </div>
 
@@ -8382,7 +8355,6 @@ function StudentDashboardView({
 
     const [academicRecord, setAcademicRecord] = useState<any>(null);
     const [academicLoading, setAcademicLoading] = useState(false);
-    const [activeRapotSem, setActiveRapotSem] = useState<'s41' | 's42' | 's51' | 's52' | 's61'>('s41');
     const [showPrintBill, setShowPrintBill] = useState(false);
 
     const formatCurrency = (amount: number) => {
@@ -8439,6 +8411,29 @@ function StudentDashboardView({
     };
 
     const cashNominal = (type: 'gemari' | 'infaq') => type === 'gemari' ? 500 : 1000;
+    const getStudentRapotSemesterNumber = (r: any, key: 's41' | 's42' | 's51' | 's52' | 's61') => {
+        const direct = r?.[key];
+        if (direct !== '' && direct !== null && direct !== undefined && !isNaN(Number(direct))) return Number(direct);
+
+        const p = r?.[`${key}_p`];
+        const k = r?.[`${key}_k`];
+        const hasP = p !== '' && p !== null && p !== undefined && !isNaN(Number(p));
+        const hasK = k !== '' && k !== null && k !== undefined && !isNaN(Number(k));
+        if (hasP && hasK) return (Number(p) + Number(k)) / 2;
+        if (hasP) return Number(p);
+        if (hasK) return Number(k);
+        return null;
+    };
+    const getStudentRapotFinalValue = (r: any) => {
+        const final = r?.final;
+        if (final !== '' && final !== null && final !== undefined && !isNaN(Number(final))) return Number(final);
+
+        const nums = (['s41', 's42', 's51', 's52', 's61'] as const)
+            .map(k => getStudentRapotSemesterNumber(r, k))
+            .filter((v: any) => v !== null) as number[];
+        if (nums.length === 0) return null;
+        return nums.reduce((a, b) => a + b, 0) / nums.length;
+    };
     const getCashRecap = (type: 'gemari' | 'infaq') => {
         if (!student?.classId || !studentId) return { targetDays: 0, bebasDays: 0, target: 0, paid: 0, kurang: 0 };
         const nominal = cashNominal(type);
@@ -8658,45 +8653,25 @@ function StudentDashboardView({
                             <div className="text-2xl font-black text-purple-700">{academicRecord?.tka ?? '-'}</div>
                         </div>
                         <div className="p-3 bg-slate-50 rounded-xl border border-border md:col-span-2">
-                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Rapot per Semester</div>
-                            <div className="flex gap-2 flex-wrap mb-3">
-                                {([
-                                    { k: 's41', label: 'Sem 4.1' },
-                                    { k: 's42', label: 'Sem 4.2' },
-                                    { k: 's51', label: 'Sem 5.1' },
-                                    { k: 's52', label: 'Sem 5.2' },
-                                    { k: 's61', label: 'Sem 6.1' }
-                                ] as const).map(s => (
-                                    <button
-                                        key={s.k}
-                                        onClick={() => setActiveRapotSem(s.k)}
-                                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${activeRapotSem === s.k ? 'bg-slate-900 text-yellow-400 border-slate-900' : 'bg-white text-slate-500 border-border hover:border-accent hover:text-accent'}`}
-                                    >
-                                        {s.label}
-                                    </button>
-                                ))}
-                            </div>
+                            <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Nilai Akhir Rapot</div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-xs">
                                     <thead>
                                         <tr className="text-[10px] uppercase tracking-widest text-slate-400">
                                             <th className="text-left py-2 pr-3">Mapel</th>
-                                            <th className="text-center py-2 px-2">P</th>
-                                            <th className="text-center py-2 px-2">K</th>
+                                            <th className="text-center py-2 px-2">Nilai Akhir</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {(academicRecord?.rapot || []).length === 0 ? (
-                                            <tr><td colSpan={3} className="py-6 text-center text-slate-400 italic">Belum ada data rapot.</td></tr>
+                                            <tr><td colSpan={2} className="py-6 text-center text-slate-400 italic">Belum ada data rapot.</td></tr>
                                         ) : (
                                             (academicRecord?.rapot || []).map((r: any, idx: number) => {
-                                                const pKey = `${activeRapotSem}_p`;
-                                                const kKey = `${activeRapotSem}_k`;
+                                                const finalValue = getStudentRapotFinalValue(r);
                                                 return (
                                                     <tr key={idx} className="border-t border-border/60">
                                                         <td className="py-2 pr-3 font-bold whitespace-nowrap">{r.subject || '-'}</td>
-                                                        <td className="py-2 px-2 text-center font-mono">{r[pKey] ?? ''}</td>
-                                                        <td className="py-2 px-2 text-center font-mono">{r[kKey] ?? ''}</td>
+                                                        <td className="py-2 px-2 text-center font-mono">{finalValue !== null ? finalValue.toFixed(2) : ''}</td>
                                                     </tr>
                                                 );
                                             })
