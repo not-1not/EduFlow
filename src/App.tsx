@@ -8347,7 +8347,6 @@ function StudentDashboardView({
     };
 
     const student = students.find(s => s.id === studentId);
-    const myGrades = grades.filter(g => g.studentId === studentId);
     const myAttendance = attendance.filter(a => a.studentId === studentId);
     const myPayments = payments.filter(p => p.studentId === studentId);
     const mySavings = savings.filter(s => s.studentId === studentId);
@@ -8434,6 +8433,15 @@ function StudentDashboardView({
         if (nums.length === 0) return null;
         return nums.reduce((a, b) => a + b, 0) / nums.length;
     };
+    const studentRapotFinalValues = (academicRecord?.rapot || [])
+        .map((r: any) => getStudentRapotFinalValue(r))
+        .filter((v: any) => v !== null) as number[];
+    const studentAvgRapot = studentRapotFinalValues.length > 0
+        ? studentRapotFinalValues.reduce((a, b) => a + b, 0) / studentRapotFinalValues.length
+        : 0;
+    const studentTkaVal = Number(academicRecord?.tka) || 0;
+    const studentPrestasiSum = (academicRecord?.prestasi || []).reduce((acc: number, p: any) => acc + (Number(p.poin) || 0), 0);
+    const studentFinalScore = (studentAvgRapot * 0.5) + (studentTkaVal * 0.5) + studentPrestasiSum;
     const getCashRecap = (type: 'gemari' | 'infaq') => {
         if (!student?.classId || !studentId) return { targetDays: 0, bebasDays: 0, target: 0, paid: 0, kurang: 0 };
         const nominal = cashNominal(type);
@@ -8566,27 +8574,6 @@ function StudentDashboardView({
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {displaySettings.showGrades && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card space-y-4">
-                        <div className="flex items-center gap-2 text-purple-600 mb-2">
-                            <Grid size={18} />
-                            <h3 className="font-black text-sm uppercase tracking-tight">Akademik Terakhir</h3>
-                        </div>
-                        {myGrades.length > 0 ? (
-                            <div className="space-y-3">
-                                {myGrades.slice(0, 3).map(g => (
-                                    <div key={g.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-border">
-                                        <span className="text-xs font-bold truncate max-w-[150px]">Nilai Materi #{g.materialId.slice(-4)}</span>
-                                        <span className="text-lg font-black text-purple-600">{g.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="py-4 text-center text-xs text-slate-400 font-medium">Belum ada data nilai.</div>
-                        )}
-                    </motion.div>
-                )}
-
                 {displaySettings.showAttendance && (
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="card space-y-4">
                         <div className="flex items-center gap-2 text-emerald-600 mb-2">
@@ -8648,11 +8635,15 @@ function StudentDashboardView({
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
+                            <div className="text-[10px] font-black uppercase text-purple-500 tracking-widest">Nilai Akhir</div>
+                            <div className="text-2xl font-black text-purple-700">{studentFinalScore.toFixed(2)}</div>
+                        </div>
                         <div className="p-3 bg-slate-50 rounded-xl border border-border">
                             <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nilai TKA</div>
                             <div className="text-2xl font-black text-purple-700">{academicRecord?.tka ?? '-'}</div>
                         </div>
-                        <div className="p-3 bg-slate-50 rounded-xl border border-border md:col-span-2">
+                        <div className="p-3 bg-slate-50 rounded-xl border border-border md:col-span-3">
                             <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Nilai Akhir Rapot</div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-xs">
